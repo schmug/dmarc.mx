@@ -79,13 +79,36 @@ export async function analyzeDkim(
     }
   }
 
-  const found = Object.entries(selectors).filter(([, v]) => v.found);
+  let foundCount = 0;
+  const weakKeys: string[] = [];
+  const revokedKeys: string[] = [];
+  const testingKeys: string[] = [];
+
+  // ⚡ Bolt Optimization: Use for...in instead of Object.entries().filter().map()
+  // This single-pass approach avoids allocating and discarding multiple intermediate arrays
+  // on the hot path, significantly reducing GC pressure.
+  for (const key in selectors) {
+    const v = selectors[key];
+    if (v.found) {
+      foundCount++;
+      if (v.key_bits && v.key_bits < 2048) {
+        weakKeys.push(key);
+      }
+      if (v.revoked) {
+        revokedKeys.push(key);
+      }
+      if (v.testing) {
+        testingKeys.push(key);
+      }
+    }
+  }
+
   const validations: Validation[] = [];
 
-  if (found.length > 0) {
+  if (foundCount > 0) {
     validations.push({
       status: "pass",
-      message: `${found.length} DKIM selector${found.length > 1 ? "s" : ""} found`,
+      message: `${foundCount} DKIM selector${foundCount > 1 ? "s" : ""} found`,
     });
   } else {
     validations.push({
@@ -96,29 +119,26 @@ export async function analyzeDkim(
   }
 
   // Check for weak keys
-  const weakKeys = found.filter(([, v]) => v.key_bits && v.key_bits < 2048);
   if (weakKeys.length > 0) {
     validations.push({
       status: "warn",
-      message: `${weakKeys.map(([k]) => k).join(", ")} — RSA key under 2048 bits (weak)`,
+      message: `${weakKeys.join(", ")} — RSA key under 2048 bits (weak)`,
     });
   }
 
   // Check for revoked keys
-  const revoked = found.filter(([, v]) => v.revoked);
-  if (revoked.length > 0) {
+  if (revokedKeys.length > 0) {
     validations.push({
       status: "warn",
-      message: `${revoked.map(([k]) => k).join(", ")} — key revoked (empty p= tag)`,
+      message: `${revokedKeys.join(", ")} — key revoked (empty p= tag)`,
     });
   }
 
   // Check for testing mode
-  const testing = found.filter(([, v]) => v.testing);
-  if (testing.length > 0) {
+  if (testingKeys.length > 0) {
     validations.push({
       status: "warn",
-      message: `${testing.map(([k]) => k).join(", ")} — in testing mode (t=y)`,
+      message: `${testingKeys.join(", ")} — in testing mode (t=y)`,
     });
   }
 
