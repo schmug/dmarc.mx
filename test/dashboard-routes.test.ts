@@ -1990,6 +1990,74 @@ describe("dashboard/routes", () => {
       expect(inserted).toBeUndefined();
     });
 
+    it("renders a grandfathered usage hint when a Pro user is over the cap", async () => {
+      const seedDomains = Array.from({ length: 30 }, (_, i) => ({
+        id: i + 1,
+        user_id: "user_1",
+        domain: `seed${i}.example`,
+        is_free: 0,
+        scan_frequency: "weekly",
+        last_scanned_at: null,
+        last_grade: null,
+        created_at: 1_700_000_000,
+      }));
+      const db = createMockDB({
+        domains: seedDomains,
+        subscriptions: [{ user_id: "user_1", status: "active" }],
+      });
+      const app = createTestApp(db);
+      const cookie = await makeSessionCookie("user_1", "alice@example.com");
+      const res = await app.request("/dashboard/domain/add", {
+        headers: { Cookie: cookie },
+      });
+      expect(res.status).toBe(200);
+      const html = await res.text();
+      expect(html).toMatch(/30 domains tracked/);
+      expect(html).toMatch(/Pro plan includes 25/);
+      expect(html).toMatch(/grandfathered/);
+      // No "X of N used" framing for over-cap accounts.
+      expect(html).not.toMatch(/30 of 25/);
+    });
+
+    it("returns a grandfathered error message when an over-cap Pro user POSTs a net-new domain", async () => {
+      const seedDomains = Array.from({ length: 30 }, (_, i) => ({
+        id: i + 1,
+        user_id: "user_1",
+        domain: `seed${i}.example`,
+        is_free: 0,
+        scan_frequency: "weekly",
+        last_scanned_at: null,
+        last_grade: null,
+        created_at: 1_700_000_000,
+      }));
+      const writes: Array<{ sql: string; bindings: unknown[] }> = [];
+      const db = createMockDB({
+        domains: seedDomains,
+        subscriptions: [{ user_id: "user_1", status: "active" }],
+        writes,
+      });
+      const app = createTestApp(db);
+      const cookie = await makeSessionCookie("user_1", "alice@example.com");
+      const body = new URLSearchParams({ domain: "overflow.example" });
+      const res = await app.request("/dashboard/domain/add", {
+        method: "POST",
+        headers: {
+          Cookie: cookie,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: body.toString(),
+      });
+      expect(res.status).toBe(400);
+      const html = await res.text();
+      expect(html).toMatch(/Pro plan includes 25 domains/);
+      expect(html).toMatch(/already have 30/);
+      expect(html).toMatch(/grandfathered/);
+      const inserted = writes.find((w) =>
+        w.sql.includes("INSERT INTO domains"),
+      );
+      expect(inserted).toBeUndefined();
+    });
+
     it("renders the add-domain form with usage hint for a free user under cap", async () => {
       const db = createMockDB({
         domains: [

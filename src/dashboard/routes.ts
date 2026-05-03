@@ -611,9 +611,12 @@ dashboardRoutes.post("/domain/add", async (c) => {
   }
 
   if (currentCount >= cap) {
+    const overCap = currentCount > cap;
     const error =
       plan === "pro"
-        ? `You've reached the Pro plan limit of ${cap} domains. Email support@dmarc.mx if you need more.`
+        ? overCap
+          ? `Pro plan includes ${cap} domains and you already have ${currentCount} (grandfathered). Email support@dmarc.mx to add more.`
+          : `You've reached the Pro plan limit of ${cap} domains. Email support@dmarc.mx if you need more.`
         : `Free plan limit reached (${cap} domains). Upgrade to Pro for up to ${PRO_WATCHLIST_CAP}.`;
     return c.html(
       renderAddDomainPage({ email: session.email, error, usage }),

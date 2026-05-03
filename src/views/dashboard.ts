@@ -2525,10 +2525,21 @@ ${usageBlock}
 
 // Shared "X of N domains used" hint shown above the add-domain form and
 // in the main dashboard's domain panel toolbar. Free plans get an upgrade
-// CTA, Pro plans show a contact pointer when at cap.
+// CTA; Pro plans show a contact pointer when exactly at cap. Accounts that
+// are *over* the cap (grandfathered from before enforcement, or after a
+// future cap reduction) render in a muted tone with no CTA — they already
+// have their slots; the cap only blocks net-new additions.
 export function renderUsageHint(usage: WatchlistUsage): string {
-  const atCap = usage.current >= usage.cap;
   const planLabel = usage.plan === "pro" ? "Pro" : "Free";
+  const overCap = usage.current > usage.cap;
+  const atCap = usage.current === usage.cap;
+
+  if (overCap) {
+    return `<p class="watchlist-usage" style="font-size:0.875rem;margin:0 0 1rem;color:var(--clr-text-muted)">
+  <span>${esc(String(usage.current))} domains tracked (${planLabel} plan includes ${esc(String(usage.cap))} — grandfathered).</span>
+</p>`;
+  }
+
   const cta =
     usage.plan === "free"
       ? `<a href="/dashboard/billing/subscribe" style="color:var(--clr-accent);text-decoration:none">Upgrade →</a>`
