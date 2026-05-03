@@ -1,0 +1,3 @@
+## 2024-05-03 - Accessible Form Validation in Multi-step Wizards
+**Learning:** For dynamic multi-step form wizards (like the Add Domain wizard in this app), validation errors inserted via JS (using `textContent` and un-hiding) are often missed by screen readers if they lack ARIA roles.
+**Action:** Always link the input to its corresponding error container using `aria-describedby` pointing to the error container's `id`, and apply `role="alert"` and `aria-live="polite"` directly to the error container. This ensures screen readers announce the validation error immediately as it appears, without the user having to lose focus from the input field to find it.
