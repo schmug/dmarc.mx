@@ -1952,8 +1952,8 @@ function renderAddDomainWizardShell(): string {
     <div class="add-wizard-body">
       <div class="add-wizard-step" data-active="1" data-step="1">
         <label for="wizard-domain">Domain</label>
-        <input type="text" id="wizard-domain" name="domain" placeholder="example.com" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" required>
-        <div class="add-wizard-error" data-wizard-error hidden></div>
+        <input type="text" id="wizard-domain" name="domain" placeholder="example.com" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" required aria-describedby="wizard-domain-error">
+        <div id="wizard-domain-error" class="add-wizard-error" data-wizard-error role="alert" aria-live="polite" hidden></div>
       </div>
       <div class="add-wizard-step" data-step="2">
         <label for="wizard-frequency">Scan frequency</label>
@@ -2756,12 +2756,12 @@ ${retirementBanner}
       spellcheck="false"
     >
     <label for="webhook-format" style="display:block;font-size:0.875rem;color:var(--clr-text-muted);margin-bottom:0.4rem;margin-top:0.75rem">Format</label>
-    <select id="webhook-format" class="settings-input" name="format">
+    <select id="webhook-format" class="settings-input" name="format" aria-describedby="webhook-format-help">
       <option value="raw"${webhookFormat === "raw" ? " selected" : ""}>Raw (signed JSON envelope)</option>
       <option value="slack"${webhookFormat === "slack" ? " selected" : ""}>Slack incoming webhook</option>
       <option value="google_chat"${webhookFormat === "google_chat" ? " selected" : ""}>Google Chat incoming webhook</option>
     </select>
-    <p style="font-size:0.8125rem;color:var(--clr-text-muted);margin:0.4rem 0 0.75rem">
+    <p id="webhook-format-help" style="font-size:0.8125rem;color:var(--clr-text-muted);margin:0.4rem 0 0.75rem">
       Raw posts the signed envelope for your own receiver. Slack and Google Chat send a chat message and omit the signature header (those platforms don't verify it).
     </p>
     <button type="submit" class="btn">Save Webhook</button>
