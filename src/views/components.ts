@@ -218,19 +218,21 @@ export function statusDot(status: Status): string {
 }
 
 export function validationList(validations: Validation[]): string {
-  const items = validations
-    .map((v) => {
-      const icon =
-        v.status === "pass"
-          ? '<span class="icon-pass" aria-hidden="true">&#10003;</span>'
-          : v.status === "warn"
-            ? '<span class="icon-warn" aria-hidden="true">&#9888;</span>'
-            : v.status === "info"
-              ? '<span class="icon-info" aria-hidden="true">&#9432;</span>'
-              : '<span class="icon-fail" aria-hidden="true">&#10007;</span>';
-      return `<li>${icon} ${esc(v.message)}</li>`;
-    })
-    .join("");
+  // ⚡ Bolt Optimization: Use single-pass for loop instead of .map().join("")
+  // Reduces GC pressure by avoiding array allocations on hot rendering paths
+  let items = "";
+  for (let i = 0; i < validations.length; i++) {
+    const v = validations[i];
+    const icon =
+      v.status === "pass"
+        ? '<span class="icon-pass" aria-hidden="true">&#10003;</span>'
+        : v.status === "warn"
+          ? '<span class="icon-warn" aria-hidden="true">&#9888;</span>'
+          : v.status === "info"
+            ? '<span class="icon-info" aria-hidden="true">&#9432;</span>'
+            : '<span class="icon-fail" aria-hidden="true">&#10007;</span>';
+    items += `<li>${icon} ${esc(v.message)}</li>`;
+  }
   return `<ul class="validation-list">${items}</ul>`;
 }
 
@@ -431,12 +433,14 @@ export function providerBadge(provider: EmailProvider): string {
 export function mxTable(records: MxRecord[]): string {
   if (records.length === 0) return "";
 
-  const rows = records
-    .map((r) => {
-      const providerCell = r.provider ? providerBadge(r.provider) : "";
-      return `<tr class="mx-row"><td class="mx-priority">${r.priority}</td><td class="mx-exchange">${esc(r.exchange)}</td><td class="mx-provider">${providerCell}</td></tr>`;
-    })
-    .join("");
+  // ⚡ Bolt Optimization: Use single-pass for loop instead of .map().join("")
+  // Reduces GC pressure by avoiding array allocations on hot rendering paths
+  let rows = "";
+  for (let i = 0; i < records.length; i++) {
+    const r = records[i];
+    const providerCell = r.provider ? providerBadge(r.provider) : "";
+    rows += `<tr class="mx-row"><td class="mx-priority">${r.priority}</td><td class="mx-exchange">${esc(r.exchange)}</td><td class="mx-provider">${providerCell}</td></tr>`;
+  }
 
   return `<table class="mx-table">
   <thead><tr><th>Priority</th><th>Exchange</th><th>Provider</th></tr></thead>
@@ -516,30 +520,38 @@ export function scoringFactorsTable(
     return "";
   }
 
-  const rows = factors
-    .map((f) => {
-      const effectClass =
-        f.effect > 0
-          ? "effect-plus"
-          : f.effect < 0
-            ? "effect-minus"
-            : "effect-neutral";
-      const effectText = f.effect > 0 ? "+1" : f.effect < 0 ? "\u22121" : "0";
-      return `<tr>
+  // ⚡ Bolt Optimization: Use single-pass for loops instead of .map().join("")
+  // Reduces GC pressure by avoiding array allocations on hot rendering paths
+  let rows = "";
+  for (let i = 0; i < factors.length; i++) {
+    const f = factors[i];
+    const effectClass =
+      f.effect > 0
+        ? "effect-plus"
+        : f.effect < 0
+          ? "effect-minus"
+          : "effect-neutral";
+    const effectText = f.effect > 0 ? "+1" : f.effect < 0 ? "\u22121" : "0";
+    rows += `<tr>
       <td class="factor-proto">${esc(PROTO_LABELS[f.protocol] ?? f.protocol)}</td>
       <td class="factor-label">${esc(f.label)}</td>
       <td class="factor-effect ${effectClass}">${effectText}</td>
     </tr>`;
-    })
-    .join("");
+  }
 
-  const summary =
-    factors.length > 1
-      ? `<div class="modifier-summary">
-      <span>Net modifier: ${factors.map((f) => (f.effect > 0 ? "+1" : f.effect < 0 ? "\u22121" : "0")).join(" ")} = ${modifier > 0 ? "+" : ""}${modifier}</span>
+  let summary = "";
+  if (factors.length > 1) {
+    let modifierText = "";
+    for (let i = 0; i < factors.length; i++) {
+      const f = factors[i];
+      if (i > 0) modifierText += " ";
+      modifierText += f.effect > 0 ? "+1" : f.effect < 0 ? "\u22121" : "0";
+    }
+    summary = `<div class="modifier-summary">
+      <span>Net modifier: ${modifierText} = ${modifier > 0 ? "+" : ""}${modifier}</span>
       <span class="modifier-result">&rarr; ${modifierLabel ? modifierLabel : "no change"}</span>
-    </div>`
-      : "";
+    </div>`;
+  }
 
   return `<div class="bd-card">
   <div class="bd-card-title">Scoring factors</div>
@@ -585,19 +597,20 @@ export function recommendationList(recommendations: Recommendation[]): string {
 </div>`;
   }
 
-  const items = recommendations
-    .map(
-      (r) =>
-        `<div class="rec-item">
+  // ⚡ Bolt Optimization: Use single-pass for loop instead of .map().join("")
+  // Reduces GC pressure by avoiding array allocations on hot rendering paths
+  let items = "";
+  for (let i = 0; i < recommendations.length; i++) {
+    const r = recommendations[i];
+    items += `<div class="rec-item">
       <div class="rec-priority priority-${r.priority}">P${r.priority}</div>
       <div class="rec-content">
         <div class="rec-title">${esc(r.title)}</div>
         <div class="rec-desc">${esc(r.description)}</div>
         <div class="rec-impact">${esc(r.impact)}</div>
       </div>
-    </div>`,
-    )
-    .join("");
+    </div>`;
+  }
 
   return `<div class="bd-card">
   <div class="bd-card-title">How to improve</div>
