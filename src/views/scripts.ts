@@ -1319,9 +1319,13 @@ if (typeof navigator !== 'undefined' && navigator.modelContext && typeof navigat
               errorEl.textContent = 'Enter a valid domain like example.com.';
               errorEl.hidden = false;
             }
+            if (domainInput) {
+              domainInput.setAttribute('aria-invalid', 'true');
+            }
             return;
           }
           if (errorEl) errorEl.hidden = true;
+          if (domainInput) domainInput.removeAttribute('aria-invalid');
           if (confirmDom) confirmDom.textContent = raw;
           showStep(2);
         } else if (step === 2) {

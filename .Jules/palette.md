@@ -1,0 +1,3 @@
+## 2026-05-09 - Dynamic Error Announcements in Forms
+**Learning:** For dynamic multi-step wizards or forms, simply having an empty div with `role="alert"` and injecting text is good, but linking it directly to the input via `aria-describedby` and conditionally toggling `aria-invalid="true"` provides a much stronger association and immediate feedback for screen reader users when client-side validation fails.
+**Action:** Always link dynamically populated error containers to their corresponding input fields using `aria-describedby`, and update the input's `aria-invalid` state along with the error message visibility.
