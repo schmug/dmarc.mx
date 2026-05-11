@@ -1291,6 +1291,7 @@ if (typeof navigator !== 'undefined' && navigator.modelContext && typeof navigat
       lastFocusedBeforeOpen = triggerEl || document.activeElement;
       if (form) form.reset();
       if (errorEl) { errorEl.hidden = true; errorEl.textContent = ''; }
+      if (domainInput) domainInput.removeAttribute('aria-invalid');
       showStep(1);
       setOpen(wizard, true);
     }
@@ -1315,12 +1316,14 @@ if (typeof navigator !== 'undefined' && navigator.modelContext && typeof navigat
         if (step === 1) {
           var raw = domainInput && domainInput.value.trim().toLowerCase();
           if (!raw || !/^[a-z0-9.-]+\\.[a-z]{2,}$/.test(raw)) {
+            if (domainInput) domainInput.setAttribute('aria-invalid', 'true');
             if (errorEl) {
               errorEl.textContent = 'Enter a valid domain like example.com.';
               errorEl.hidden = false;
             }
             return;
           }
+          if (domainInput) domainInput.removeAttribute('aria-invalid');
           if (errorEl) errorEl.hidden = true;
           if (confirmDom) confirmDom.textContent = raw;
           showStep(2);

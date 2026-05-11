@@ -1,0 +1,3 @@
+## 2026-05-11 - Dynamic form validation accessible pattern
+**Learning:** When using dynamic JavaScript validation (like in multi-step form wizards), error messages rendered after the initial page load are not read by screen readers unless specifically marked. Furthermore, linking the input field to the error text programmatically ensures context when the field receives focus.
+**Action:** Use `aria-describedby` on the input field to link it to the error container's ID. Add `role="alert"` and `aria-live="polite"` to the error container. Use JavaScript to dynamically set `aria-invalid="true"` on the input when validation fails, and clear it when the field passes validation.
