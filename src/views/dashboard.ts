@@ -1678,14 +1678,16 @@ export function renderDomainPanel({
   <a href="/dashboard/domain/add" class="btn">Add Domain</a>
 </div>`;
   } else {
-    const rows = domains
-      .map((d) => {
-        const alertCount = d.unacknowledgedAlerts ?? 0;
-        const alertBadge =
-          alertCount > 0
-            ? `<span class="badge-alert">${alertCount} alert${alertCount === 1 ? "" : "s"}</span>`
-            : "";
-        return `<tr data-domain="${esc(d.domain)}">
+    let rows = "";
+    // ⚡ Bolt Optimization: Use loop instead of array .map().join("")
+    // to reduce memory allocations and GC pressure on hot rendering paths.
+    for (const d of domains) {
+      const alertCount = d.unacknowledgedAlerts ?? 0;
+      const alertBadge =
+        alertCount > 0
+          ? `<span class="badge-alert">${alertCount} alert${alertCount === 1 ? "" : "s"}</span>`
+          : "";
+      rows += `<tr data-domain="${esc(d.domain)}">
   <td>
     <a href="/dashboard/domain/${encodeURIComponent(d.domain)}" data-drawer-link>${esc(d.domain)}</a>
     ${d.isFree ? '<span class="badge-free">Free</span>' : ""}
@@ -1695,8 +1697,7 @@ export function renderDomainPanel({
   <td>${esc(d.frequency)}</td>
   <td>${d.lastScanned ? esc(d.lastScanned) : '<span style="color:var(--clr-text-muted)">Never</span>'}</td>
 </tr>`;
-      })
-      .join("");
+    }
 
     const headerRow = controls
       ? `<tr>
@@ -2412,12 +2413,15 @@ function renderDriftTable(entries: HistoryScanEntry[]): string {
   // Rows are newest-first. To highlight "changed vs the prior (older) scan",
   // we compare each row to the NEXT row in the list (which is chronologically
   // older). The oldest row has no "previous" — its cells never highlight.
-  const rows = entries
-    .map((entry, i) => {
-      const prev: HistoryScanEntry["protocols"] | null =
-        i + 1 < entries.length ? entries[i + 1].protocols : null;
-      const protos = entry.protocols;
-      return `<tr>
+  let rows = "";
+  // ⚡ Bolt Optimization: Use loop instead of array .map().join("")
+  // to reduce memory allocations and GC pressure on hot rendering paths.
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    const prev: HistoryScanEntry["protocols"] | null =
+      i + 1 < entries.length ? entries[i + 1].protocols : null;
+    const protos = entry.protocols;
+    rows += `<tr>
   <td class="drift-date">${esc(entry.date)}</td>
   <td><span class="inline-grade ${gradeClass(entry.grade)}">${esc(entry.grade)}</span></td>
   <td>${renderDriftCell(protos.dmarc, prev?.dmarc ?? null)}</td>
@@ -2426,8 +2430,7 @@ function renderDriftTable(entries: HistoryScanEntry[]): string {
   <td>${renderDriftCell(protos.bimi, prev?.bimi ?? null)}</td>
   <td>${renderDriftCell(protos.mta_sts, prev?.mta_sts ?? null)}</td>
 </tr>`;
-    })
-    .join("");
+  }
   return `<table class="drift-table">
   <thead>
     <tr>
