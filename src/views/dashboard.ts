@@ -1952,8 +1952,8 @@ function renderAddDomainWizardShell(): string {
     <div class="add-wizard-body">
       <div class="add-wizard-step" data-active="1" data-step="1">
         <label for="wizard-domain">Domain</label>
-        <input type="text" id="wizard-domain" name="domain" placeholder="example.com" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" required>
-        <div class="add-wizard-error" data-wizard-error hidden></div>
+        <input type="text" id="wizard-domain" name="domain" placeholder="example.com" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" required aria-describedby="wizard-domain-error">
+        <div id="wizard-domain-error" class="add-wizard-error" data-wizard-error role="alert" aria-live="polite" hidden></div>
       </div>
       <div class="add-wizard-step" data-step="2">
         <label for="wizard-frequency">Scan frequency</label>

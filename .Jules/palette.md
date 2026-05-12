@@ -1,0 +1,3 @@
+## 2024-05-12 - Dynamic Form Validation Accessibility
+**Learning:** When validating forms dynamically (e.g. in multi-step wizards), it is important to add `aria-describedby` pointing to the error element. In addition, the error element should use `role="alert"` and `aria-live="polite"` so screen readers speak the error correctly. The input itself must toggle `aria-invalid="true"` dynamically when in error.
+**Action:** For accessible dynamic form validation, always link the input to its corresponding error container using `aria-describedby`, apply `role="alert"` and `aria-live="polite"` to the error container, and dynamically toggle `aria-invalid="true"` on the input when validation fails to ensure immediate screen reader announcements.
