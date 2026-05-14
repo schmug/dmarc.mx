@@ -181,6 +181,30 @@ function createMockDB(data: {
       return null as T | null;
     },
     all: async <T>() => {
+      // Dashboard export query — correlated subquery form emitted by
+      // getDashboardExportRows. Matches before the generic domains handler.
+      if (sql.includes("FROM domains d") && sql.includes("d.user_id = ?")) {
+        const userId = bindings[0] as string;
+        const userDomains = [...domains]
+          .filter((d) => d.user_id === userId)
+          .sort((a, b) => a.domain.localeCompare(b.domain));
+        // Build a lookup from domain_id → most-recent protocol_results
+        const latestProtocol = new Map<number, string | null>();
+        for (const d of userDomains) {
+          const latest = [...scanHistory]
+            .filter((sh) => (sh.domain_id ?? 1) === d.id)
+            .sort((a, b) => b.scanned_at - a.scanned_at)[0];
+          latestProtocol.set(d.id, latest?.protocol_results ?? null);
+        }
+        return {
+          results: userDomains.map((d) => ({
+            domain: d.domain,
+            last_scanned_at: d.last_scanned_at,
+            last_grade: d.last_grade,
+            protocol_results: latestProtocol.get(d.id) ?? null,
+          })) as T[],
+        };
+      }
       if (sql.includes("SELECT * FROM domains WHERE user_id")) {
         // Paged listing path (used by Pro dashboard) — applies search / grade
         // / frequency filters + LIMIT/OFFSET. The simpler unpaged select used
@@ -2443,6 +2467,234 @@ describe("dashboard/routes", () => {
       expect(res.status).toBe(400);
       const html = await res.text();
       expect(html).toContain("Too many domains");
+    });
+  });
+
+  describe("GET /dashboard/export", () => {
+    it("redirects to /auth/login without a session cookie", async () => {
+      const db = createMockDB({});
+      const app = createTestApp(db);
+      const res = await app.request("/dashboard/export");
+      expect(res.status).toBe(302);
+      expect(res.headers.get("Location")).toBe("/auth/login");
+    });
+
+    it("returns 402 with upsell page for free users", async () => {
+      const db = createMockDB({
+        domains: [
+          {
+            id: 1,
+            user_id: "user_1",
+            domain: "example.com",
+            is_free: 1,
+            scan_frequency: "monthly",
+            last_scanned_at: null,
+            last_grade: null,
+            created_at: 1700000000,
+          },
+        ],
+      });
+      const app = createTestApp(db);
+      const cookie = await makeSessionCookie("user_1", "alice@example.com");
+      const res = await app.request("/dashboard/export", {
+        headers: { Cookie: cookie },
+      });
+      expect(res.status).toBe(402);
+      const body = await res.text();
+      expect(body).toContain("Pro feature");
+      expect(body).toContain("Upgrade to Pro");
+    });
+
+    it("returns CSV with expected columns for a Pro user", async () => {
+      const protocolResults = JSON.stringify({
+        dmarc: { status: "pass" },
+        spf: { status: "warn" },
+        dkim: { status: "pass" },
+        bimi: { status: "fail" },
+        mta_sts: { status: "pass" },
+        mx: { status: "info" },
+      });
+      const db = createMockDB({
+        subscriptions: [{ user_id: "user_pro", status: "active" }],
+        domains: [
+          {
+            id: 1,
+            user_id: "user_pro",
+            domain: "example.com",
+            is_free: 0,
+            scan_frequency: "weekly",
+            last_scanned_at: 1700000000,
+            last_grade: "B",
+            created_at: 1700000000,
+          },
+        ],
+        scanHistory: [
+          {
+            id: 1,
+            domain_id: 1,
+            grade: "B",
+            scanned_at: 1700000000,
+            protocol_results: protocolResults,
+            score_factors: null,
+          },
+        ],
+      });
+      const app = createTestApp(db);
+      const cookie = await makeSessionCookie("user_pro", "pro@example.com");
+      const res = await app.request("/dashboard/export", {
+        headers: { Cookie: cookie },
+      });
+      expect(res.status).toBe(200);
+      expect(res.headers.get("Content-Type")).toContain("text/csv");
+      expect(res.headers.get("Content-Disposition")).toMatch(
+        /filename="dmarcheck-dashboard-\d{4}-\d{2}-\d{2}\.csv"/,
+      );
+      const text = await res.text();
+      // Header row must contain all required columns
+      const lines = text.trim().split(/\r?\n/);
+      // First line is BOM + headers; strip BOM for comparison
+      const headerLine = lines[0].replace(/^﻿/, "");
+      expect(headerLine).toBe(
+        "domain,last_scanned_at,grade,score,dmarc_status,spf_status,dkim_status,bimi_status,mta_sts_status,mx_status",
+      );
+      // Data row
+      expect(lines.length).toBe(2); // header + 1 domain
+      const dataLine = lines[1];
+      expect(dataLine).toContain("example.com");
+      expect(dataLine).toContain("pass"); // dmarc_status
+      expect(dataLine).toContain("warn"); // spf_status
+      expect(dataLine).toContain("fail"); // bimi_status
+    });
+
+    it("returns header-only CSV for a Pro user with an empty watchlist", async () => {
+      const db = createMockDB({
+        subscriptions: [{ user_id: "user_pro", status: "active" }],
+        domains: [],
+      });
+      const app = createTestApp(db);
+      const cookie = await makeSessionCookie("user_pro", "pro@example.com");
+      const res = await app.request("/dashboard/export", {
+        headers: { Cookie: cookie },
+      });
+      expect(res.status).toBe(200);
+      expect(res.headers.get("Content-Type")).toContain("text/csv");
+      const text = await res.text();
+      const lines = text.trim().split(/\r?\n/);
+      expect(lines.length).toBe(1); // header only
+      const headerLine = lines[0].replace(/^﻿/, "");
+      expect(headerLine).toBe(
+        "domain,last_scanned_at,grade,score,dmarc_status,spf_status,dkim_status,bimi_status,mta_sts_status,mx_status",
+      );
+    });
+
+    it("returns JSON array with domain and protocols for ?format=json", async () => {
+      const protocolResults = JSON.stringify({
+        dmarc: { status: "pass" },
+        spf: { status: "pass" },
+        dkim: { status: "pass" },
+        bimi: { status: "fail" },
+        mta_sts: { status: "pass" },
+        mx: { status: "info" },
+      });
+      const db = createMockDB({
+        subscriptions: [{ user_id: "user_pro", status: "active" }],
+        domains: [
+          {
+            id: 1,
+            user_id: "user_pro",
+            domain: "alpha.com",
+            is_free: 0,
+            scan_frequency: "weekly",
+            last_scanned_at: 1700000000,
+            last_grade: "A",
+            created_at: 1700000000,
+          },
+          {
+            id: 2,
+            user_id: "user_pro",
+            domain: "beta.com",
+            is_free: 0,
+            scan_frequency: "weekly",
+            last_scanned_at: null,
+            last_grade: null,
+            created_at: 1700000001,
+          },
+        ],
+        scanHistory: [
+          {
+            id: 1,
+            domain_id: 1,
+            grade: "A",
+            scanned_at: 1700000000,
+            protocol_results: protocolResults,
+            score_factors: null,
+          },
+        ],
+      });
+      const app = createTestApp(db);
+      const cookie = await makeSessionCookie("user_pro", "pro@example.com");
+      const res = await app.request("/dashboard/export?format=json", {
+        headers: { Cookie: cookie },
+      });
+      expect(res.status).toBe(200);
+      expect(res.headers.get("Content-Type")).toContain("application/json");
+      expect(res.headers.get("Content-Disposition")).toMatch(
+        /filename="dmarcheck-dashboard-\d{4}-\d{2}-\d{2}\.json"/,
+      );
+      const payload = (await res.json()) as Array<{
+        domain: string;
+        last_scanned_at: number | null;
+        grade: string | null;
+        protocols: Record<string, unknown> | null;
+      }>;
+      expect(Array.isArray(payload)).toBe(true);
+      expect(payload).toHaveLength(2);
+      // Sorted by domain alphabetically
+      expect(payload[0].domain).toBe("alpha.com");
+      expect(payload[0].grade).toBe("A");
+      expect(payload[0].protocols).not.toBeNull();
+      // beta.com has no scan yet
+      expect(payload[1].domain).toBe("beta.com");
+      expect(payload[1].grade).toBeNull();
+      expect(payload[1].protocols).toBeNull();
+    });
+
+    it("renders an Export button in the dashboard toolbar for Pro users", async () => {
+      const db = createMockDB({
+        subscriptions: [{ user_id: "user_pro", status: "active" }],
+        users: [
+          {
+            id: "user_pro",
+            email: "pro@example.com",
+            email_domain: "example.com",
+            stripe_customer_id: "cus_x",
+            email_alerts_enabled: 1,
+            api_key_retirement_acknowledged_at: 1700000000,
+            created_at: 1700000000,
+          },
+        ],
+        domains: [
+          {
+            id: 1,
+            user_id: "user_pro",
+            domain: "example.com",
+            is_free: 0,
+            scan_frequency: "weekly",
+            last_scanned_at: null,
+            last_grade: "A",
+            created_at: 1700000000,
+          },
+        ],
+      });
+      const app = createTestApp(db);
+      const cookie = await makeSessionCookie("user_pro", "pro@example.com");
+      const res = await app.request("/dashboard", {
+        headers: { Cookie: cookie },
+      });
+      expect(res.status).toBe(200);
+      const body = await res.text();
+      expect(body).toContain('href="/dashboard/export"');
+      expect(body).toContain("Export");
     });
   });
 });
