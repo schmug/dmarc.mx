@@ -2,6 +2,30 @@ import { queryTxt } from "../dns/client.js";
 import { parseTags } from "../shared/parse-tags.js";
 import type { DmarcResult, Validation } from "./types.js";
 
+// Returns unique external (non-own-domain) domains from a comma-separated rua/ruf tag value.
+function parseExternalReportDomains(
+  tagValue: string | undefined,
+  ownDomain: string,
+): string[] {
+  if (!tagValue) return [];
+  const domains: string[] = [];
+  const own = ownDomain.toLowerCase();
+  for (const uri of tagValue.split(",")) {
+    const trimmed = uri.trim().toLowerCase();
+    if (trimmed.startsWith("mailto:")) {
+      const address = trimmed.slice(7);
+      const atIdx = address.lastIndexOf("@");
+      if (atIdx >= 0) {
+        const d = address.slice(atIdx + 1);
+        if (d && d !== own && !domains.includes(d)) {
+          domains.push(d);
+        }
+      }
+    }
+  }
+  return domains;
+}
+
 export async function analyzeDmarc(domain: string): Promise<DmarcResult> {
   const txt = await queryTxt(`_dmarc.${domain}`);
   if (!txt) {
@@ -61,12 +85,20 @@ export async function analyzeDmarc(domain: string): Promise<DmarcResult> {
     });
   }
 
-  // sp= check
+  // sp= check — warn when sp=none undercuts a stronger parent policy
   if (tags.sp) {
-    validations.push({
-      status: "pass",
-      message: "Subdomain policy explicitly set",
-    });
+    const spVal = tags.sp.toLowerCase();
+    if (spVal === "none" && (policy === "reject" || policy === "quarantine")) {
+      validations.push({
+        status: "warn",
+        message: `Subdomain policy (sp=none) overrides the stronger parent policy (p=${policy}), leaving subdomains unprotected`,
+      });
+    } else {
+      validations.push({
+        status: "pass",
+        message: "Subdomain policy explicitly set",
+      });
+    }
   }
 
   // rua= check
@@ -90,12 +122,38 @@ export async function analyzeDmarc(domain: string): Promise<DmarcResult> {
     });
   }
 
-  // pct check
-  if (tags.pct && parseInt(tags.pct, 10) < 100) {
-    validations.push({
-      status: "warn",
-      message: `Only ${tags.pct}% of messages are subject to the policy`,
-    });
+  // pct= check — distinguish pct=0 (enforcement disabled) from pct<100 (partial)
+  if (tags.pct !== undefined) {
+    const pctVal = parseInt(tags.pct, 10);
+    if (pctVal === 0) {
+      validations.push({
+        status: "warn",
+        message:
+          "pct=0 effectively disables policy enforcement; no messages will be filtered",
+      });
+    } else if (pctVal < 100) {
+      validations.push({
+        status: "warn",
+        message: `Only ${tags.pct}% of messages are subject to the DMARC policy`,
+      });
+    }
+  }
+
+  // rua/ruf external destination authorization check (RFC 7489 §7.1)
+  const externalDomains = [
+    ...parseExternalReportDomains(tags.rua, domain),
+    ...parseExternalReportDomains(tags.ruf, domain),
+  ].filter((d, i, arr) => arr.indexOf(d) === i);
+
+  for (const extDomain of externalDomains) {
+    const authName = `${domain}._report._dmarc.${extDomain}`;
+    const authRecord = await queryTxt(authName);
+    if (!authRecord?.entries.some((e) => e.includes("v=DMARC1"))) {
+      validations.push({
+        status: "warn",
+        message: `External report destination ${extDomain} is not authorized; missing TXT record at ${authName}`,
+      });
+    }
   }
 
   const hasFailure = validations.some((v) => v.status === "fail");

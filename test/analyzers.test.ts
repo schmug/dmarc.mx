@@ -161,6 +161,117 @@ describe("analyzeDmarc", () => {
     const result = await analyzeDmarc("example.com");
     expect(result.status).toBe("pass");
   });
+
+  it("gives a distinct warning when pct=0 disables enforcement", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=DMARC1; p=reject; rua=mailto:d@example.com; pct=0"],
+      raw: "v=DMARC1; p=reject; rua=mailto:d@example.com; pct=0",
+    });
+
+    const result = await analyzeDmarc("example.com");
+    expect(
+      result.validations.some(
+        (v) => v.status === "warn" && v.message.includes("pct=0"),
+      ),
+    ).toBe(true);
+  });
+
+  it("warns when sp=none undercuts a stronger reject policy", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=DMARC1; p=reject; sp=none; rua=mailto:d@example.com"],
+      raw: "v=DMARC1; p=reject; sp=none; rua=mailto:d@example.com",
+    });
+
+    const result = await analyzeDmarc("example.com");
+    expect(
+      result.validations.some(
+        (v) => v.status === "warn" && v.message.includes("sp=none"),
+      ),
+    ).toBe(true);
+  });
+
+  it("warns when sp=none undercuts a quarantine policy", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=DMARC1; p=quarantine; sp=none; rua=mailto:d@example.com"],
+      raw: "v=DMARC1; p=quarantine; sp=none; rua=mailto:d@example.com",
+    });
+
+    const result = await analyzeDmarc("example.com");
+    expect(
+      result.validations.some(
+        (v) => v.status === "warn" && v.message.includes("sp=none"),
+      ),
+    ).toBe(true);
+  });
+
+  it("warns when external rua destination has no authorization record", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=reject; rua=mailto:reports@third-party.com"],
+      raw: "v=DMARC1; p=reject; rua=mailto:reports@third-party.com",
+    });
+    // example.com._report._dmarc.third-party.com — not published
+    mockQueryTxt.mockResolvedValueOnce(null);
+
+    const result = await analyzeDmarc("example.com");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" &&
+          v.message.includes("third-party.com") &&
+          v.message.includes("not authorized"),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not warn when external rua destination has a valid authorization record", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=reject; rua=mailto:reports@third-party.com"],
+      raw: "v=DMARC1; p=reject; rua=mailto:reports@third-party.com",
+    });
+    // example.com._report._dmarc.third-party.com — authorized
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1"],
+      raw: "v=DMARC1",
+    });
+
+    const result = await analyzeDmarc("example.com");
+    expect(
+      result.validations.every((v) => !v.message.includes("not authorized")),
+    ).toBe(true);
+  });
+
+  it("warns when external ruf destination has no authorization record", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: [
+        "v=DMARC1; p=reject; rua=mailto:d@example.com; ruf=mailto:forensic@external.com",
+      ],
+      raw: "v=DMARC1; p=reject; rua=mailto:d@example.com; ruf=mailto:forensic@external.com",
+    });
+    // example.com._report._dmarc.external.com — not published
+    mockQueryTxt.mockResolvedValueOnce(null);
+
+    const result = await analyzeDmarc("example.com");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" &&
+          v.message.includes("external.com") &&
+          v.message.includes("not authorized"),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not perform auth check when rua points to the same domain", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=reject; rua=mailto:d@example.com"],
+      raw: "v=DMARC1; p=reject; rua=mailto:d@example.com",
+    });
+
+    const result = await analyzeDmarc("example.com");
+    expect(result.status).toBe("pass");
+    // queryTxt called exactly once (only for _dmarc.example.com)
+    expect(mockQueryTxt).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("analyzeSpf", () => {
