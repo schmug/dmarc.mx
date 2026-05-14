@@ -18,7 +18,8 @@ function uriHost(uri: string): string | null {
     const atIdx = address.lastIndexOf("@");
     if (atIdx === -1) return null;
     const domain = address.slice(atIdx + 1).trim();
-    return domain || null;
+    if (domain && /^[a-zA-Z0-9.-]+$/.test(domain)) return domain;
+    return null;
   }
   try {
     const parsed = new URL(trimmed);
