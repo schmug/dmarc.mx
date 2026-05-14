@@ -1,10 +1,13 @@
-import { queryTxt } from "../dns/client.js";
+import { DnsLookupError, queryTxt } from "../dns/client.js";
 import type { TxtRecord } from "../dns/types.js";
 import { parseTags } from "../shared/parse-tags.js";
 import type { BimiResult, Validation } from "./types.js";
 
 export function prefetchBimiDns(domain: string): Promise<TxtRecord | null> {
-  return queryTxt(`default._bimi.${domain}`);
+  return queryTxt(`default._bimi.${domain}`).catch((err) => {
+    if (err instanceof DnsLookupError) return null;
+    throw err;
+  });
 }
 
 export async function analyzeBimi(
@@ -41,13 +44,12 @@ export async function analyzeBimi(
   if (!bimiRecord) {
     return {
       status: "warn",
-      record: txt.raw,
+      record: null,
       tags: null,
       validations: [
         {
           status: "warn",
-          message:
-            "TXT record exists but is not a valid BIMI record (possibly a wildcard DNS entry)",
+          message: `TXT record at default._bimi.${domain} is not a valid BIMI record`,
         },
       ],
     };
@@ -58,62 +60,51 @@ export async function analyzeBimi(
 
   validations.push({ status: "pass", message: "BIMI record found" });
 
-  // v= check
-  if (tags.v !== "BIMI1") {
-    validations.push({ status: "fail", message: "Invalid BIMI version tag" });
-  }
-
-  // l= check (logo URL)
-  if (tags.l) {
-    if (tags.l.startsWith("https://")) {
-      validations.push({
-        status: "pass",
-        message: "Logo URL (l=) is present and uses HTTPS",
-      });
-    } else {
-      validations.push({
-        status: "warn",
-        message: "Logo URL (l=) should use HTTPS",
-      });
-    }
+  if (dmarcPolicy === "reject") {
+    validations.push({
+      status: "pass",
+      message: "DMARC policy is reject — meets BIMI requirement",
+    });
+  } else if (dmarcPolicy === "quarantine") {
+    validations.push({
+      status: "warn",
+      message:
+        "DMARC quarantine policy meets minimum BIMI requirement, but reject is preferred",
+    });
   } else {
     validations.push({
       status: "warn",
-      message: "No logo URL (l=) specified",
+      message: "BIMI requires a DMARC policy of quarantine or reject",
     });
   }
 
-  // a= check (authority / VMC/CMC)
+  if (tags.l) {
+    validations.push({
+      status: "pass",
+      message: `Logo URL configured: ${tags.l}`,
+    });
+  } else {
+    validations.push({
+      status: "warn",
+      message: "No logo URL (l=) in BIMI record",
+    });
+  }
+
   if (tags.a) {
     validations.push({
       status: "pass",
-      message: "Authority evidence (a=) VMC/CMC certificate URL present",
+      message: `Authority certificate (VMC/CMC) configured: ${tags.a}`,
     });
   } else {
     validations.push({
       status: "warn",
       message:
-        "No authority certificate (a=) — add a VMC or CMC to display your logo in Gmail and Apple Mail",
+        "No authority certificate (a=) — logo may not appear in Gmail/Apple Mail",
     });
   }
 
-  // DMARC cross-check
-  if (dmarcPolicy && ["quarantine", "reject"].includes(dmarcPolicy)) {
-    validations.push({
-      status: "pass",
-      message: "DMARC policy meets BIMI requirement",
-    });
-  } else {
-    validations.push({
-      status: "fail",
-      message:
-        "DMARC policy must be quarantine or reject for BIMI to be honored",
-    });
-  }
-
-  const hasFailure = validations.some((v) => v.status === "fail");
   const hasWarn = validations.some((v) => v.status === "warn");
-  const status = hasFailure ? "fail" : hasWarn ? "warn" : "pass";
+  const status = hasWarn ? "warn" : "pass";
 
   return { status, record: bimiRecord, tags, validations };
 }

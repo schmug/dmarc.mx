@@ -1,4 +1,4 @@
-import { queryTxt } from "../dns/client.js";
+import { DnsLookupError, queryTxt } from "../dns/client.js";
 import type { SpfIncludeNode, SpfResult, Validation } from "./types.js";
 
 const MAX_LOOKUPS = 10;
@@ -9,7 +9,29 @@ export async function analyzeSpf(domain: string): Promise<SpfResult> {
     visited: new Set(),
     hasCycle: false,
   };
-  const tree = await resolveSpfTree(domain, ctx, 0);
+
+  let tree: SpfIncludeNode | null;
+  try {
+    tree = await resolveSpfTree(domain, ctx, 0);
+  } catch (err) {
+    if (err instanceof DnsLookupError) {
+      return {
+        status: "warn",
+        record: null,
+        lookups_used: 0,
+        lookup_limit: MAX_LOOKUPS,
+        include_tree: null,
+        lookup_error: { code: err.code, message: err.message },
+        validations: [
+          {
+            status: "warn",
+            message: `SPF lookup failed (${err.code}) — result may be incomplete`,
+          },
+        ],
+      };
+    }
+    throw err;
+  }
 
   if (!tree?.record) {
     return {
