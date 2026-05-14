@@ -320,4 +320,117 @@ describe("webhooks/dispatcher.dispatchWebhook", () => {
     expect(deliveries[0].ok).toBe(1);
     expect(deliveries[0].event_type).toBe("scan.completed");
   });
+
+  it("retries once after a 429 and records the retry result as ok=true", async () => {
+    webhooksByUser.set("u1", {
+      id: 30,
+      user_id: "u1",
+      url: "https://chat.googleapis.com/v1/spaces/X/messages?key=k",
+      secret: null,
+      format: "google_chat",
+      created_at: 0,
+    });
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response("rate limited", { status: 429 }))
+      .mockResolvedValueOnce(new Response("{}", { status: 200 }));
+    const db = makeDb();
+
+    // retryDelayMs: 0 skips the real 2s backoff so the test is instant.
+    const result = await dispatchWebhook(
+      db,
+      "u1",
+      {
+        type: "scan.completed",
+        data: {
+          domain: "example.com",
+          grade: "A",
+          scan_id: "scn_1",
+          trigger: "cron",
+          report_url: "https://dmarc.mx/check?domain=example.com",
+        },
+      },
+      { retryDelayMs: 0 },
+    );
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(result?.ok).toBe(true);
+    expect(result?.status).toBe(200);
+    // Only one delivery row recorded — the final (post-retry) outcome.
+    expect(deliveries).toHaveLength(1);
+    expect(deliveries[0].ok).toBe(1);
+    expect(deliveries[0].status_code).toBe(200);
+  });
+
+  it("records ok=false when the retry after 429 also fails", async () => {
+    webhooksByUser.set("u1", {
+      id: 31,
+      user_id: "u1",
+      url: "https://chat.googleapis.com/v1/spaces/X/messages?key=k",
+      secret: null,
+      format: "google_chat",
+      created_at: 0,
+    });
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response("still limited", { status: 429 }));
+    const db = makeDb();
+
+    // retryDelayMs: 0 skips the real 2s backoff so the test is instant.
+    const result = await dispatchWebhook(
+      db,
+      "u1",
+      {
+        type: "scan.completed",
+        data: {
+          domain: "example.com",
+          grade: "B",
+          scan_id: "scn_2",
+          trigger: "cron",
+          report_url: "https://dmarc.mx/check?domain=example.com",
+        },
+      },
+      { retryDelayMs: 0 },
+    );
+
+    // Exactly 2 fetch calls — initial + one retry, no further recursion.
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(result?.ok).toBe(false);
+    expect(result?.status).toBe(429);
+    expect(result?.error).toBe("HTTP 429");
+    expect(deliveries).toHaveLength(1);
+    expect(deliveries[0].ok).toBe(0);
+  });
+
+  it("does NOT retry on non-429 errors (e.g. 500)", async () => {
+    webhooksByUser.set("u1", {
+      id: 32,
+      user_id: "u1",
+      url: "https://chat.googleapis.com/v1/spaces/X/messages?key=k",
+      secret: null,
+      format: "google_chat",
+      created_at: 0,
+    });
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response("server error", { status: 500 }));
+    const db = makeDb();
+
+    const result = await dispatchWebhook(db, "u1", {
+      type: "scan.completed",
+      data: {
+        domain: "example.com",
+        grade: "F",
+        scan_id: "scn_3",
+        trigger: "cron",
+        report_url: "https://dmarc.mx/check?domain=example.com",
+      },
+    });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(result?.ok).toBe(false);
+    expect(result?.status).toBe(500);
+    expect(deliveries).toHaveLength(1);
+    expect(deliveries[0].ok).toBe(0);
+  });
 });

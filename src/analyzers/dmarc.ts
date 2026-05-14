@@ -1,9 +1,28 @@
-import { queryTxt } from "../dns/client.js";
+import { DnsLookupError, queryTxt } from "../dns/client.js";
 import { parseTags } from "../shared/parse-tags.js";
 import type { DmarcResult, Validation } from "./types.js";
 
 export async function analyzeDmarc(domain: string): Promise<DmarcResult> {
-  const txt = await queryTxt(`_dmarc.${domain}`);
+  let txt: Awaited<ReturnType<typeof queryTxt>>;
+  try {
+    txt = await queryTxt(`_dmarc.${domain}`);
+  } catch (err) {
+    if (err instanceof DnsLookupError) {
+      return {
+        status: "warn",
+        record: null,
+        tags: null,
+        lookup_error: { code: err.code, message: err.message },
+        validations: [
+          {
+            status: "warn",
+            message: `DMARC lookup failed (${err.code}) — result may be incomplete`,
+          },
+        ],
+      };
+    }
+    throw err;
+  }
   if (!txt) {
     return {
       status: "fail",

@@ -1,10 +1,13 @@
-import { queryTxt } from "../dns/client.js";
+import { DnsLookupError, queryTxt } from "../dns/client.js";
 import type { TxtRecord } from "../dns/types.js";
 import { parseTags } from "../shared/parse-tags.js";
 import type { BimiResult, Validation } from "./types.js";
 
 export function prefetchBimiDns(domain: string): Promise<TxtRecord | null> {
-  return queryTxt(`default._bimi.${domain}`);
+  return queryTxt(`default._bimi.${domain}`).catch((err) => {
+    if (err instanceof DnsLookupError) return null;
+    throw err;
+  });
 }
 
 export async function analyzeBimi(

@@ -10,6 +10,7 @@ export interface DmarcResult {
   record: string | null;
   tags: Record<string, string> | null;
   validations: Validation[];
+  lookup_error?: { code: string; message: string };
 }
 
 export interface SpfIncludeNode {
@@ -26,6 +27,7 @@ export interface SpfResult {
   lookup_limit: number;
   include_tree: SpfIncludeNode | null;
   validations: Validation[];
+  lookup_error?: { code: string; message: string };
 }
 
 export interface DkimSelectorResult {
@@ -79,6 +81,7 @@ export interface MxResult {
   records: MxRecord[];
   providers: EmailProvider[];
   validations: Validation[];
+  lookup_error?: { code: string; message: string };
 }
 
 export interface SecurityTxtFields {
