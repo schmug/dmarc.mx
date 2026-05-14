@@ -6,6 +6,7 @@ import type {
   SecurityTxtResult,
   SpfResult,
   Status,
+  TlsRptResult,
 } from "../analyzers/types.js";
 
 interface Protocols {
@@ -19,6 +20,8 @@ interface Protocols {
   // The orchestrator always populates it; informational only — does not
   // affect grade resolution.
   security_txt?: SecurityTxtResult;
+  // Optional for same reason — older fixtures don't include tls_rpt.
+  tls_rpt?: TlsRptResult;
   [key: string]: unknown;
 }
 
@@ -47,7 +50,7 @@ export interface GradeBreakdown {
   protocolSummaries: Record<string, { status: Status; summary: string }>;
 }
 
-// ── Single decision engine ────────────────────────────────────
+// ── Single decision engine ─────────────────────────────────
 
 interface ScoringResult {
   grade: string;
@@ -227,7 +230,7 @@ function resolveScoring(protocols: Protocols): ScoringResult {
   };
 }
 
-// ── Public API (thin wrappers) ────────────────────────────────
+// ── Public API (thin wrappers) ────────────────────────
 
 export function computeGrade(protocols: Protocols): string {
   return resolveScoring(protocols).grade;
@@ -245,7 +248,7 @@ export function computeGradeBreakdown(protocols: Protocols): GradeBreakdown {
   };
 }
 
-// ── Modifier helpers ──────────────────────────────────────────
+// ── Modifier helpers ────────────────────────────────
 
 function applyModifier(base: "A" | "B" | "C" | "D", modifier: number): string {
   if (modifier >= 1) return `${base}+`;
@@ -261,7 +264,7 @@ function modifierToLabel(modifier: number): string {
   return "";
 }
 
-// ── Factor helpers ────────────────────────────────────────────
+// ── Factor helpers ────────────────────────────────
 
 function spfFactors(spf: SpfResult): ScoringFactor[] {
   const factors: ScoringFactor[] = [];
@@ -348,12 +351,12 @@ function dkimFactors(dkim: DkimResult): ScoringFactor[] {
   return factors;
 }
 
-// ── Protocol summaries ────────────────────────────────────────
+// ── Protocol summaries ────────────────────────────
 
 function buildProtocolSummaries(
   protocols: Protocols,
 ): GradeBreakdown["protocolSummaries"] {
-  const { dmarc, spf, dkim, bimi, mta_sts, security_txt } = protocols;
+  const { dmarc, spf, dkim, bimi, mta_sts, security_txt, tls_rpt } = protocols;
   const dmarcPolicy = dmarc.tags?.p ?? null;
   const dkimFound = Object.values(dkim.selectors).filter((s) => s.found);
 
@@ -400,10 +403,20 @@ function buildProtocolSummaries(
         : "Not published",
     };
   }
+  if (tls_rpt) {
+    summaries.tls_rpt = {
+      status: tls_rpt.status,
+      summary: tls_rpt.record
+        ? tls_rpt.tags?.rua
+          ? tls_rpt.tags.rua.split(",")[0].trim()
+          : "Record found (no rua)"
+        : "Not configured",
+    };
+  }
   return summaries;
 }
 
-// ── Recommendations ───────────────────────────────────────────
+// ── Recommendations ───────────────────────────────
 
 function generateRecommendations(
   tier: string,
