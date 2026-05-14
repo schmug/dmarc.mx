@@ -1,6 +1,7 @@
 import type {
   ScanResult,
   SecurityTxtResult,
+  TlsRptResult,
   Validation,
 } from "../analyzers/types.js";
 
@@ -44,6 +45,26 @@ Source: <${s.source_url}>${s.signed ? " (PGP-signed)" : ""}
 ${fieldLines.join("\n")}
 
 ${validationLines(s.validations)}`;
+}
+
+function renderTlsRptMarkdown(t: TlsRptResult): string {
+  if (!t.record) {
+    return `## TLS-RPT — ${t.status}
+
+_No TLS-RPT record found at _smtp._tls TXT._
+
+${validationLines(t.validations)}`;
+  }
+  const ruaLine = t.tags?.rua ? `rua: ${t.tags.rua}` : "rua: _(missing)_";
+  return `## TLS-RPT — ${t.status}
+
+\`\`\`
+${t.record}
+\`\`\`
+
+${ruaLine}
+
+${validationLines(t.validations)}`;
 }
 
 export function renderLandingMarkdown(): string {
@@ -159,6 +180,8 @@ ${bullet(protocols.mx.records.map((r) => `${r.priority} ${r.exchange}${r.provide
 ${validationLines(protocols.mx.validations)}
 
 ${protocols.security_txt ? renderSecurityTxtMarkdown(protocols.security_txt) : ""}
+
+${protocols.tls_rpt ? renderTlsRptMarkdown(protocols.tls_rpt) : ""}
 
 ---
 
