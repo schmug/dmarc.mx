@@ -610,7 +610,7 @@ app.get("/api/check/stream", async (c) => {
       persistBearerScanIfWatched(c, bearer.userId, domain, result);
     }
 
-    stream.writeSSE({
+    await stream.writeSSE({
       event: "done",
       data: JSON.stringify({
         grade: result.grade,
