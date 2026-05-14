@@ -33,11 +33,16 @@ export interface DispatchResult {
   event_id: string;
 }
 
+const RETRY_DELAY_MS = 2000;
+
 export interface DispatchOptions {
   // Override for tests so signatures and event timestamps are deterministic.
   now?: number;
   // Override for tests so generated event ids are deterministic.
   eventId?: string;
+  // Override the 429-retry backoff delay (ms). Pass 0 in tests to skip the
+  // real 2-second wait without needing fake timers.
+  retryDelayMs?: number;
 }
 
 export async function dispatchWebhook(
@@ -103,13 +108,35 @@ export async function dispatchWebhook(
       body,
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
-    result = {
-      ok: response.ok,
-      status: response.status,
-      error: response.ok ? null : `HTTP ${response.status}`,
-      attempted_at: now,
-      event_id: eventId,
-    };
+
+    if (response.status === 429) {
+      // One retry after a fixed backoff — Google Chat (and other platforms)
+      // return 429 when the per-space rate limit is exceeded. A single retry
+      // with a short pause clears the leaky-bucket window without looping.
+      const delay = options.retryDelayMs ?? RETRY_DELAY_MS;
+      await new Promise<void>((r) => setTimeout(r, delay));
+      const retry = await fetch(webhook.url, {
+        method: "POST",
+        headers,
+        body,
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+      result = {
+        ok: retry.ok,
+        status: retry.status,
+        error: retry.ok ? null : `HTTP ${retry.status}`,
+        attempted_at: now,
+        event_id: eventId,
+      };
+    } else {
+      result = {
+        ok: response.ok,
+        status: response.status,
+        error: response.ok ? null : `HTTP ${response.status}`,
+        attempted_at: now,
+        event_id: eventId,
+      };
+    }
   } catch (err) {
     result = {
       ok: false,

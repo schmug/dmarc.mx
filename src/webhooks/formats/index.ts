@@ -50,6 +50,20 @@ export function getFormatAdapter(format: WebhookFormat): FormatAdapter {
   return ADAPTERS[format];
 }
 
+// Per-format rate limit for outbound dispatches. Google Chat incoming webhooks
+// are capped at ~1 msg/second per space; the 10% buffer avoids hitting the
+// edge. `null` means "no enforced delay between sends" — the receiver (or a
+// future per-format config) handles backpressure itself.
+export const FORMAT_RATE_LIMIT_MS: Record<WebhookFormat, number | null> = {
+  raw: null, // enterprise receivers handle their own rate limits
+  slack: null, // Slack is more generous; throttle separately if needed
+  google_chat: 1100, // 1 msg/s cap + 10% buffer
+};
+
+export function getFormatRateLimitMs(format: WebhookFormat): number | null {
+  return FORMAT_RATE_LIMIT_MS[format];
+}
+
 export function isWebhookFormat(value: unknown): value is WebhookFormat {
   return (
     typeof value === "string" &&
