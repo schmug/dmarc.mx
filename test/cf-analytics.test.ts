@@ -117,11 +117,17 @@ describe("Cloudflare Web Analytics beacon injection", () => {
     }
   });
 
-  describe("CSP already permits the beacon origin", () => {
-    it("script-src allows static.cloudflareinsights.com on HTML responses", async () => {
+  describe("CSP nonce covers the beacon script", () => {
+    it("beacon script tag carries the per-request nonce", async () => {
       const res = await app.request("/", {}, envWithToken);
       const csp = res.headers.get("content-security-policy") ?? "";
-      expect(csp).toContain("https://static.cloudflareinsights.com");
+      // With 'strict-dynamic' + nonce, external URLs need not be listed in script-src
+      expect(csp).toMatch(/script-src 'nonce-[A-Za-z0-9+/]+=*' 'strict-dynamic'/);
+      const nonceMatch = csp.match(/'nonce-([A-Za-z0-9+/]+=*)'/);
+      expect(nonceMatch).not.toBeNull();
+      const nonce = nonceMatch![1];
+      const body = await res.text();
+      expect(body).toContain(`nonce="${nonce}" src="https://${BEACON_SRC}"`);
     });
   });
 });
