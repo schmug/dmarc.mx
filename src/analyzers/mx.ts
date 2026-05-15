@@ -1,4 +1,4 @@
-import { queryMx } from "../dns/client.js";
+import { DnsLookupError, queryMx } from "../dns/client.js";
 import type { EmailProvider, MxRecord, MxResult, Validation } from "./types.js";
 
 interface ProviderSignature {
@@ -113,7 +113,26 @@ export function detectProviders(
 }
 
 export async function analyzeMx(domain: string): Promise<MxResult> {
-  const rawRecords = await queryMx(domain);
+  let rawRecords: Awaited<ReturnType<typeof queryMx>>;
+  try {
+    rawRecords = await queryMx(domain);
+  } catch (err) {
+    if (err instanceof DnsLookupError) {
+      return {
+        status: "warn",
+        records: [],
+        providers: [],
+        lookup_error: { code: err.code, message: err.message },
+        validations: [
+          {
+            status: "warn",
+            message: `MX lookup failed (${err.code}) — result may be incomplete`,
+          },
+        ],
+      };
+    }
+    throw err;
+  }
 
   if (!rawRecords || rawRecords.length === 0) {
     return {

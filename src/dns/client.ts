@@ -11,6 +11,16 @@ export function parseDnsServers(raw: string | undefined): string[] | null {
   return servers.length > 0 ? servers : null;
 }
 
+export class DnsLookupError extends Error {
+  constructor(
+    public readonly code: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = "DnsLookupError";
+  }
+}
+
 const resolver = new dns.promises.Resolver();
 const DNS_TIMEOUT_MS = 3000;
 
@@ -40,6 +50,31 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   });
 }
 
+// ENOTFOUND/ENODATA = record genuinely absent (NXDOMAIN / NODATA).
+// ESERVFAIL and timeouts are resolver errors — the record may exist but
+// the query failed. These are re-thrown as DnsLookupError so callers can
+// surface them to the user rather than treating them as "not configured".
+function isDnsAbsent(err: unknown): boolean {
+  if (typeof err === "object" && err !== null && "code" in err) {
+    const code = (err as { code: string }).code;
+    return code === "ENOTFOUND" || code === "ENODATA";
+  }
+  return false;
+}
+
+function toDnsLookupError(err: unknown): DnsLookupError | null {
+  if (err instanceof Error && err.message === "DNS timeout") {
+    return new DnsLookupError("DNS_TIMEOUT", "DNS query timed out");
+  }
+  if (typeof err === "object" && err !== null && "code" in err) {
+    const code = (err as { code: string }).code;
+    if (code === "ESERVFAIL") {
+      return new DnsLookupError(code, "DNS server failure (SERVFAIL)");
+    }
+  }
+  return null;
+}
+
 export async function queryTxt(name: string): Promise<TxtRecord | null> {
   Sentry.addBreadcrumb({
     category: "dns.query",
@@ -60,7 +95,9 @@ export async function queryTxt(name: string): Promise<TxtRecord | null> {
     );
     return { entries, raw: entries.join(" ") };
   } catch (err: unknown) {
-    if (isDnsNotFound(err)) return null;
+    if (isDnsAbsent(err)) return null;
+    const lookupErr = toDnsLookupError(err);
+    if (lookupErr) throw lookupErr;
     throw err;
   }
 }
@@ -76,16 +113,9 @@ export async function queryMx(name: string): Promise<MxRecord[] | null> {
     const records = await withTimeout(resolver.resolveMx(name), DNS_TIMEOUT_MS);
     return records.map((r) => ({ priority: r.priority, exchange: r.exchange }));
   } catch (err: unknown) {
-    if (isDnsNotFound(err)) return null;
+    if (isDnsAbsent(err)) return null;
+    const lookupErr = toDnsLookupError(err);
+    if (lookupErr) throw lookupErr;
     throw err;
   }
-}
-
-function isDnsNotFound(err: unknown): boolean {
-  if (err instanceof Error && err.message === "DNS timeout") return true;
-  if (typeof err === "object" && err !== null && "code" in err) {
-    const code = (err as { code: string }).code;
-    return code === "ENOTFOUND" || code === "ENODATA" || code === "ESERVFAIL";
-  }
-  return false;
 }

@@ -62,6 +62,20 @@ function resolveScoring(protocols: Protocols): ScoringResult {
   const { dmarc, spf, dkim, bimi, mta_sts } = protocols;
   const dmarcPolicy = dmarc.tags?.p?.toLowerCase() ?? null;
 
+  // DNS lookup failure ≠ "no record" — avoid a false F when the resolver
+  // returned SERVFAIL or timed out. Report D so the user knows something
+  // went wrong but doesn't think they have no DMARC policy.
+  if (dmarc.lookup_error) {
+    return {
+      grade: "D",
+      tier: "D",
+      tierReason: `DMARC lookup failed (${dmarc.lookup_error.code}) — policy could not be verified`,
+      modifier: 0,
+      modifierLabel: "",
+      factors: [],
+    };
+  }
+
   // Gatekeeper: no DMARC or p=none is automatic F
   if (dmarc.status === "fail" || !dmarcPolicy || dmarcPolicy === "none") {
     const tierReason = !dmarcPolicy
