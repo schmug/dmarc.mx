@@ -380,14 +380,37 @@ describe("security headers", () => {
     expect(res.headers.get("X-Frame-Options")).toBeNull();
   });
 
-  it("sets CSP with inline scripts allowed on HTML responses", async () => {
+  it("sets nonce-based CSP without unsafe-inline on HTML responses", async () => {
     const res = await app.request("/");
-    const csp = res.headers.get("Content-Security-Policy");
-    expect(csp).toContain(
-      "script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com",
-    );
+    const csp = res.headers.get("Content-Security-Policy") ?? "";
+    expect(csp).toMatch(/script-src 'nonce-[A-Za-z0-9+/]+=*'/);
+    expect(csp).toContain("'strict-dynamic'");
+    // script-src must not have unsafe-inline; style-src keeps it (CSS has no nonce equiv here)
+    const scriptSrc = csp.match(/script-src[^;]*/)?.[0] ?? "";
+    expect(scriptSrc).not.toContain("'unsafe-inline'");
     expect(csp).toContain("style-src 'self' 'unsafe-inline'");
     expect(csp).toContain("frame-ancestors 'self' https://cortech.online");
+  });
+
+  it("injects nonce attribute into script tags in the HTML body", async () => {
+    const res = await app.request("/");
+    const csp = res.headers.get("Content-Security-Policy") ?? "";
+    const nonceMatch = csp.match(/'nonce-([A-Za-z0-9+/]+=*)'/);
+    expect(nonceMatch).not.toBeNull();
+    const nonce = nonceMatch?.[1];
+    const body = await res.text();
+    expect(body).toContain(`<script nonce="${nonce}"`);
+  });
+
+  it("does not add nonce to JSON-LD script blocks", async () => {
+    const res = await app.request("/check?domain=dmarc.mx");
+    const body = await res.text();
+    const jsonLdMatch = body.match(/<script type="application\/ld\+json"/g);
+    if (jsonLdMatch) {
+      for (const tag of jsonLdMatch) {
+        expect(tag).not.toContain("nonce=");
+      }
+    }
   });
 
   it("allows only cortech.online to embed (no wildcards, exact origin)", async () => {
@@ -524,7 +547,7 @@ describe("HTML head tags", () => {
     const res = await app.request("/");
     const html = await res.text();
     expect(html).toContain('rel="stylesheet" href="/assets/styles-');
-    expect(html).toContain('<script src="/assets/scripts-');
+    expect(html).toContain('src="/assets/scripts-');
     expect(html).not.toMatch(/<style>[^<]{500,}<\/style>/);
     expect(html).not.toMatch(/<script>[^<]{500,}<\/script>/);
   });
