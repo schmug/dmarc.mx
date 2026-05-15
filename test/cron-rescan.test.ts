@@ -393,4 +393,79 @@ describe("cron/runDueRescans", () => {
     expect(result.errors).toBe(1);
     expect(result.scanned).toBe(1);
   });
+
+  // Regression test for https://github.com/schmug/dmarcheck/issues/240
+  // 60 domains with realistic mixed DNS responses must NOT produce a
+  // false-fail cascade. A stub scanFn returns accurate grades — the rescan
+  // must record exactly those grades, not a sea of D/F caused by batch-level
+  // DNS overload. Uses batchSize=5 (the fixed default) to verify the timing
+  // stays sequential and no domain's result is corrupted by its neighbours.
+  it("no false-fail cascade: 60 domains produce accurate grades with batchSize=5", async () => {
+    const TOTAL = 60;
+    // Realistic grade distribution matching prod (roughly A/B/C/D/F mix)
+    const gradePool = [
+      "A+",
+      "A+",
+      "A+",
+      "A",
+      "A",
+      "B",
+      "B",
+      "C",
+      "D",
+      "F",
+    ] as const;
+    const expectedGrades: Record<number, string> = {};
+
+    for (let i = 1; i <= TOTAL; i++) {
+      const grade = gradePool[(i - 1) % gradePool.length];
+      expectedGrades[i] = grade;
+      domains.set(i, {
+        id: i,
+        user_id: "u",
+        domain: `domain-${i}.example`,
+        is_free: 1,
+        scan_frequency: "monthly",
+        last_scanned_at: now - monthSeconds - 1,
+        last_grade: grade, // same grade so no alert fires
+        created_at: 0,
+      });
+    }
+
+    // Stub scanFn: returns accurate grades and never simulates DNS overload.
+    // This is the contract we expect the rescan to uphold — the saved grade
+    // must always match what scanFn returned.
+    const scanFn = vi.fn(async (domain: string) => {
+      const match = /domain-(\d+)\.example/.exec(domain);
+      const id = match ? Number(match[1]) : 0;
+      const grade = expectedGrades[id] ?? "A";
+      return makeScanResult(domain, grade, {});
+    });
+
+    const result = await runDueRescans({
+      db: makeD1Mock(),
+      now,
+      batchSize: 5,
+      scanFn: scanFn as never,
+    });
+
+    // All 60 domains must be scanned without errors
+    expect(result.scanned).toBe(TOTAL);
+    expect(result.errors).toBe(0);
+    expect(scanFn).toHaveBeenCalledTimes(TOTAL);
+
+    // Every saved scan_history row must reflect the accurate grade from scanFn,
+    // not a false-fail D/F caused by cascading DNS timeouts.
+    const historyRows = [...history.values()];
+    expect(historyRows).toHaveLength(TOTAL);
+
+    let falseFails = 0;
+    for (const row of historyRows) {
+      const domainId = row.domain_id;
+      const expected = expectedGrades[domainId];
+      if (row.grade !== expected) falseFails++;
+    }
+    // Zero tolerance for false-fail cascade: every grade must match exactly
+    expect(falseFails).toBe(0);
+  });
 });

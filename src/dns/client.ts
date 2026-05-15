@@ -95,9 +95,29 @@ export async function queryTxt(name: string): Promise<TxtRecord | null> {
     );
     return { entries, raw: entries.join(" ") };
   } catch (err: unknown) {
-    if (isDnsAbsent(err)) return null;
+    if (isDnsAbsent(err)) {
+      Sentry.addBreadcrumb({
+        category: "dns.nxdomain",
+        message: `TXT ${name} not found`,
+        data: {
+          type: "TXT",
+          hostname: name,
+          reason: (err as { code?: string }).code ?? "nxdomain",
+        },
+        level: "info",
+      });
+      return null;
+    }
     const lookupErr = toDnsLookupError(err);
-    if (lookupErr) throw lookupErr;
+    if (lookupErr) {
+      Sentry.addBreadcrumb({
+        category: "dns.lookup_error",
+        message: `TXT ${name} lookup failed: ${lookupErr.code}`,
+        data: { type: "TXT", hostname: name, reason: lookupErr.code },
+        level: "warning",
+      });
+      throw lookupErr;
+    }
     throw err;
   }
 }
@@ -113,9 +133,29 @@ export async function queryMx(name: string): Promise<MxRecord[] | null> {
     const records = await withTimeout(resolver.resolveMx(name), DNS_TIMEOUT_MS);
     return records.map((r) => ({ priority: r.priority, exchange: r.exchange }));
   } catch (err: unknown) {
-    if (isDnsAbsent(err)) return null;
+    if (isDnsAbsent(err)) {
+      Sentry.addBreadcrumb({
+        category: "dns.nxdomain",
+        message: `MX ${name} not found`,
+        data: {
+          type: "MX",
+          hostname: name,
+          reason: (err as { code?: string }).code ?? "nxdomain",
+        },
+        level: "info",
+      });
+      return null;
+    }
     const lookupErr = toDnsLookupError(err);
-    if (lookupErr) throw lookupErr;
+    if (lookupErr) {
+      Sentry.addBreadcrumb({
+        category: "dns.lookup_error",
+        message: `MX ${name} lookup failed: ${lookupErr.code}`,
+        data: { type: "MX", hostname: name, reason: lookupErr.code },
+        level: "warning",
+      });
+      throw lookupErr;
+    }
     throw err;
   }
 }

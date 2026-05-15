@@ -127,15 +127,38 @@ async function rescanOne(
 // Entry point for the scheduled() handler. Runs the rescan pipeline across
 // all due domains in bounded batches. Failures on individual domains are
 // caught and counted — one domain's DNS timeout must not stop the rest.
+//
+// batchSize default is 5: each scan fires ~6 concurrent DNS queries, so
+// 5 × 6 = ~30 concurrent lookups per batch — well within the workerd
+// node:dns polyfill's capacity. The original value of 25 (~150 concurrent
+// lookups) overwhelmed the resolver and caused every query in the batch to
+// time out, producing a false-fail cascade across all monitored domains.
+// See: https://github.com/schmug/dmarcheck/issues/240
 export async function runDueRescans(deps: RescanDeps): Promise<RescanResult> {
-  const batchSize = deps.batchSize ?? 25;
+  const batchSize = deps.batchSize ?? 5;
   const due = await getDueDomains(deps.db, deps.now);
   let scanned = 0;
   let alertCount = 0;
   let errors = 0;
 
+  Sentry.addBreadcrumb({
+    category: "cron.rescan",
+    message: `Starting rescan: ${due.length} domains, batchSize=${batchSize}`,
+    data: { total: due.length, batchSize },
+    level: "info",
+  });
+
   for (let i = 0; i < due.length; i += batchSize) {
     const batch = due.slice(i, i + batchSize);
+    Sentry.addBreadcrumb({
+      category: "cron.rescan",
+      message: `Batch ${Math.floor(i / batchSize) + 1}: scanning ${batch.map((d) => d.domain).join(", ")}`,
+      data: {
+        batchIndex: Math.floor(i / batchSize),
+        domains: batch.map((d) => d.domain),
+      },
+      level: "info",
+    });
     const outcomes = await Promise.allSettled(
       batch.map((d) => rescanOne(deps, d)),
     );
@@ -154,6 +177,13 @@ export async function runDueRescans(deps: RescanDeps): Promise<RescanResult> {
       alertCount += outcome.value.alerts;
     }
   }
+
+  Sentry.addBreadcrumb({
+    category: "cron.rescan",
+    message: `Rescan complete: scanned=${scanned}, alerts=${alertCount}, errors=${errors}`,
+    data: { scanned, alerts: alertCount, errors },
+    level: errors > 0 ? "warning" : "info",
+  });
 
   return { scanned, alerts: alertCount, errors };
 }
