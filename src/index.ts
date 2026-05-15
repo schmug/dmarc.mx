@@ -588,36 +588,46 @@ app.get("/api/check/stream", async (c) => {
       return;
     }
 
-    const result = await scanStreaming(
-      domain,
-      selectors,
-      (id: ProtocolId, protocolResult: ProtocolResult) => {
-        const html = protocolRenderers[id](protocolResult);
-        stream.writeSSE({
-          event: "protocol",
-          data: JSON.stringify({ id, html }),
-        });
-      },
-    );
+    try {
+      const result = await scanStreaming(
+        domain,
+        selectors,
+        (id: ProtocolId, protocolResult: ProtocolResult) => {
+          const html = protocolRenderers[id](protocolResult);
+          stream.writeSSE({
+            event: "protocol",
+            data: JSON.stringify({ id, html }),
+          });
+        },
+      );
 
-    tagScanResult(result);
-    const pendingCacheWrite = setCachedScan(domain, selectors, result);
-    if (pendingCacheWrite) {
-      c.executionCtx.waitUntil(pendingCacheWrite.catch(() => {}));
+      tagScanResult(result);
+      const pendingCacheWrite = setCachedScan(domain, selectors, result);
+      if (pendingCacheWrite) {
+        c.executionCtx.waitUntil(pendingCacheWrite.catch(() => {}));
+      }
+
+      if (bearer) {
+        persistBearerScanIfWatched(c, bearer.userId, domain, result);
+      }
+
+      await stream.writeSSE({
+        event: "done",
+        data: JSON.stringify({
+          grade: result.grade,
+          headerHtml: renderReportHeader(result),
+          footerHtml: renderReportFooter(result),
+        }),
+      });
+    } catch (err) {
+      Sentry.captureException(err);
+      await stream.writeSSE({
+        event: "error",
+        data: JSON.stringify({
+          error: err instanceof Error ? err.message : "Scan failed",
+        }),
+      });
     }
-
-    if (bearer) {
-      persistBearerScanIfWatched(c, bearer.userId, domain, result);
-    }
-
-    stream.writeSSE({
-      event: "done",
-      data: JSON.stringify({
-        grade: result.grade,
-        headerHtml: renderReportHeader(result),
-        footerHtml: renderReportFooter(result),
-      }),
-    });
   });
 });
 
