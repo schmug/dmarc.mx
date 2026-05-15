@@ -1678,14 +1678,16 @@ export function renderDomainPanel({
   <a href="/dashboard/domain/add" class="btn">Add Domain</a>
 </div>`;
   } else {
-    const rows = domains
-      .map((d) => {
-        const alertCount = d.unacknowledgedAlerts ?? 0;
-        const alertBadge =
-          alertCount > 0
-            ? `<span class="badge-alert">${alertCount} alert${alertCount === 1 ? "" : "s"}</span>`
-            : "";
-        return `<tr data-domain="${esc(d.domain)}">
+    // ⚡ Bolt Optimization: Use for...of instead of .map().join("")
+    // Reduces GC pressure by avoiding intermediate array allocations on hot rendering paths.
+    let rows = "";
+    for (const d of domains) {
+      const alertCount = d.unacknowledgedAlerts ?? 0;
+      const alertBadge =
+        alertCount > 0
+          ? `<span class="badge-alert">${alertCount} alert${alertCount === 1 ? "" : "s"}</span>`
+          : "";
+      rows += `<tr data-domain="${esc(d.domain)}">
   <td>
     <a href="/dashboard/domain/${encodeURIComponent(d.domain)}" data-drawer-link>${esc(d.domain)}</a>
     ${d.isFree ? '<span class="badge-free">Free</span>' : ""}
@@ -1695,8 +1697,7 @@ export function renderDomainPanel({
   <td>${esc(d.frequency)}</td>
   <td>${d.lastScanned ? esc(d.lastScanned) : '<span style="color:var(--clr-text-muted)">Never</span>'}</td>
 </tr>`;
-      })
-      .join("");
+    }
 
     const headerRow = controls
       ? `<tr>
