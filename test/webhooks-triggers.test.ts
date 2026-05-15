@@ -6,13 +6,25 @@ vi.mock("../src/webhooks/dispatcher.js", () => ({
   dispatchWebhook: dispatchWebhookMock,
 }));
 
-// Imported after the mock so the trigger module sees the mocked dispatcher.
+// fireBulkScanWebhooks now calls getWebhookForUser to decide the dispatch
+// strategy (serial for rate-limited formats, parallel otherwise). Return null
+// here so the existing concurrency tests exercise the parallel path, which
+// matches the pre-throttle behaviour these tests were written to assert.
+const getWebhookForUserMock = vi.fn().mockResolvedValue(null);
+vi.mock("../src/db/webhooks.js", () => ({
+  getWebhookForUser: getWebhookForUserMock,
+}));
+
+// Imported after the mocks so the trigger module sees both mocked modules.
 const { fireBulkScanWebhooks, fireScanCompletedWebhook } = await import(
   "../src/webhooks/triggers.js"
 );
 
 beforeEach(() => {
   dispatchWebhookMock.mockReset();
+  getWebhookForUserMock.mockReset();
+  // Default: no webhook configured → parallel path (null format → no throttle).
+  getWebhookForUserMock.mockResolvedValue(null);
 });
 
 afterEach(() => {
