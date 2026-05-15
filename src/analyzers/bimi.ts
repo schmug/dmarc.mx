@@ -44,12 +44,13 @@ export async function analyzeBimi(
   if (!bimiRecord) {
     return {
       status: "warn",
-      record: null,
+      record: txt.raw,
       tags: null,
       validations: [
         {
           status: "warn",
-          message: `TXT record at default._bimi.${domain} is not a valid BIMI record`,
+          message:
+            "TXT record exists but is not a valid BIMI record (possibly a wildcard DNS entry)",
         },
       ],
     };
@@ -60,51 +61,62 @@ export async function analyzeBimi(
 
   validations.push({ status: "pass", message: "BIMI record found" });
 
-  if (dmarcPolicy === "reject") {
-    validations.push({
-      status: "pass",
-      message: "DMARC policy is reject — meets BIMI requirement",
-    });
-  } else if (dmarcPolicy === "quarantine") {
-    validations.push({
-      status: "warn",
-      message:
-        "DMARC quarantine policy meets minimum BIMI requirement, but reject is preferred",
-    });
-  } else {
-    validations.push({
-      status: "warn",
-      message: "BIMI requires a DMARC policy of quarantine or reject",
-    });
+  // v= check
+  if (tags.v !== "BIMI1") {
+    validations.push({ status: "fail", message: "Invalid BIMI version tag" });
   }
 
+  // l= check (logo URL)
   if (tags.l) {
-    validations.push({
-      status: "pass",
-      message: `Logo URL configured: ${tags.l}`,
-    });
+    if (tags.l.startsWith("https://")) {
+      validations.push({
+        status: "pass",
+        message: "Logo URL (l=) is present and uses HTTPS",
+      });
+    } else {
+      validations.push({
+        status: "warn",
+        message: "Logo URL (l=) should use HTTPS",
+      });
+    }
   } else {
     validations.push({
       status: "warn",
-      message: "No logo URL (l=) in BIMI record",
+      message: "No logo URL (l=) specified",
     });
   }
 
+  // a= check (authority / VMC/CMC)
   if (tags.a) {
     validations.push({
       status: "pass",
-      message: `Authority certificate (VMC/CMC) configured: ${tags.a}`,
+      message: "Authority evidence (a=) VMC/CMC certificate URL present",
     });
   } else {
     validations.push({
       status: "warn",
       message:
-        "No authority certificate (a=) — logo may not appear in Gmail/Apple Mail",
+        "No authority certificate (a=) — add a VMC or CMC to display your logo in Gmail and Apple Mail",
     });
   }
 
+  // DMARC cross-check
+  if (dmarcPolicy && ["quarantine", "reject"].includes(dmarcPolicy)) {
+    validations.push({
+      status: "pass",
+      message: "DMARC policy meets BIMI requirement",
+    });
+  } else {
+    validations.push({
+      status: "fail",
+      message:
+        "DMARC policy must be quarantine or reject for BIMI to be honored",
+    });
+  }
+
+  const hasFailure = validations.some((v) => v.status === "fail");
   const hasWarn = validations.some((v) => v.status === "warn");
-  const status = hasWarn ? "warn" : "pass";
+  const status = hasFailure ? "fail" : hasWarn ? "warn" : "pass";
 
   return { status, record: bimiRecord, tags, validations };
 }
