@@ -10,18 +10,16 @@ import type { MtaStsResult, MxResult, Validation } from "./types.js";
  * Trailing dots (FQDN notation) are stripped before comparison.
  */
 export function mxMatchesPattern(mx: string, pattern: string): boolean {
-  const h = mx.toLowerCase().replace(/\.$/, "");
-  const p = pattern.toLowerCase().replace(/\.$/, "");
-  if (p.startsWith("*.")) {
-    const suffix = p.slice(1); // ".example.com"
-    // h must end with the suffix AND the part before the suffix must not
-    // contain a dot (i.e. exactly one label is wildcarded).
-    return (
-      h.endsWith(suffix) &&
-      h.slice(0, h.length - suffix.length).indexOf(".") === -1
-    );
+  const hParts = mx.toLowerCase().replace(/\.$/,  "").split(".");
+  const pParts = pattern.toLowerCase().replace(/\.$/,  "").split(".");
+  if (pParts[0] === "*") {
+    // RFC 8461 §3.4: wildcard covers exactly one label (*.example.com matches
+    // mail.example.com but not mail.sub.example.com).
+    const pTail = pParts.slice(1);
+    if (hParts.length !== pTail.length + 1) return false;
+    return hParts.slice(1).join(".") === pTail.join(".");
   }
-  return h === p;
+  return hParts.join(".") === pParts.join(".");
 }
 
 /**
