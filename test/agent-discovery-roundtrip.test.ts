@@ -243,7 +243,7 @@ describe("WebMCP tool shape", () => {
     const js = await (await app.request(jsPath)).text();
 
     // The schema object appears in source: domain: { type: 'string', ... }
-    expect(js).toMatch(/domain\s*:\s*\{\s*type\s*:\s*['"\]string['"\]/);
+    expect(js).toMatch(/domain\s*:\s*\{\s*type\s*:\s*['"']string['"']/);
   });
 
   it("execute function URL pattern references /api/check", async () => {
