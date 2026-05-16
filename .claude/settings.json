@@ -1,4 +1,17 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(pnpm lint *)",
+      "mcp__ccd_session_mgmt__search_session_transcripts",
+      "Bash(pnpm typecheck *)",
+      "Bash(git fetch *)",
+      "Bash(gh search code *)",
+      "Bash(pnpm test *)",
+      "Bash(npm test *)",
+      "Bash(gh label list *)",
+      "Bash(npm run typecheck)"
+    ]
+  },
   "hooks": {
     "PostToolUse": [
       {
