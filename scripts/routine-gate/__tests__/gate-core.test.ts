@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { CONFIG } from "../config";
 import { parseClosesIssue, isProvenanceTrusted } from "../gate-core";
+import { touchesRiskPath, withinSizeEnvelope, scopeDrift } from "../gate-core";
 
 describe("CONFIG", () => {
   it("only allowlists the repo owner", () => {
@@ -51,5 +52,45 @@ describe("isProvenanceTrusted", () => {
   });
   it("rejects a null issue (fail-closed)", () => {
     expect(isProvenanceTrusted(null, cfg)).toBe(false);
+  });
+});
+
+describe("touchesRiskPath", () => {
+  it("flags a workflow file", () => {
+    expect(touchesRiskPath([".github/workflows/ci.yml"], CONFIG.riskPathDenylist))
+      .toEqual([".github/workflows/ci.yml"]);
+  });
+  it("flags an mta-sts source file", () => {
+    expect(touchesRiskPath(["src/mta-sts-fetch.ts"], CONFIG.riskPathDenylist))
+      .toEqual(["src/mta-sts-fetch.ts"]);
+  });
+  it("passes an ordinary source file", () => {
+    expect(touchesRiskPath(["src/analyzers/spf.ts"], CONFIG.riskPathDenylist)).toEqual([]);
+  });
+});
+
+describe("withinSizeEnvelope", () => {
+  const base = { number: 1, body: "", changedFiles: ["a.ts"], ciAllGreen: true };
+  it("accepts a small diff", () => {
+    expect(withinSizeEnvelope({ ...base, additions: 100, deletions: 40 }, CONFIG)).toBe(true);
+  });
+  it("rejects too many lines", () => {
+    expect(withinSizeEnvelope({ ...base, additions: 300, deletions: 0 }, CONFIG)).toBe(false);
+  });
+  it("rejects too many files", () => {
+    expect(withinSizeEnvelope(
+      { ...base, additions: 10, deletions: 0, changedFiles: Array(9).fill("x.ts") }, CONFIG)).toBe(false);
+  });
+});
+
+describe("scopeDrift", () => {
+  it("returns files outside declared pointers", () => {
+    expect(scopeDrift(["src/a.ts", "src/b.ts"], ["src/a.ts"])).toEqual(["src/b.ts"]);
+  });
+  it("treats empty pointers as total drift (fail-closed)", () => {
+    expect(scopeDrift(["src/a.ts"], [])).toEqual(["src/a.ts"]);
+  });
+  it("matches glob pointers", () => {
+    expect(scopeDrift(["src/analyzers/spf.ts"], ["src/analyzers/**"])).toEqual([]);
   });
 });
