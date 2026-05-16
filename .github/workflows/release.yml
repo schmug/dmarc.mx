@@ -31,7 +31,7 @@ jobs:
           echo "version=${PREFIX}${SERIAL}" >> "$GITHUB_OUTPUT"
 
       - name: Install git-cliff
-        uses: taiki-e/install-action@7769b73c2ec98c38dfcf2e18c83cfd4880c038c1 # v2.75.27
+        uses: taiki-e/install-action@3235f8901fd37ffed0052b276cec25a362fb82e9 # v2.77.7
         with:
           tool: git-cliff
 
