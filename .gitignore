@@ -4,6 +4,7 @@ node_modules/
 dist/
 .dev.vars
 .worktrees/
+.claude/worktrees/
 docs/internal/
 pnpm-lock.yaml
 .jules/
