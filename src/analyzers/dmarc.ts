@@ -2,6 +2,62 @@ import { DnsLookupError, queryTxt } from "../dns/client.js";
 import { parseTags } from "../shared/parse-tags.js";
 import type { DmarcResult, Validation } from "./types.js";
 
+/**
+ * Extract the domain portion from a mailto: URI.
+ * Returns null if the URI is not a mailto: or has no @ sign.
+ * Does NOT use new URL() — that throws on mailto: in some runtimes.
+ */
+function extractMailtoDomain(uri: string): string | null {
+  const trimmed = uri.trim();
+  if (!trimmed.startsWith("mailto:")) return null;
+  const address = trimmed.slice("mailto:".length);
+  const atIndex = address.indexOf("@");
+  if (atIndex === -1) return null;
+  return address.slice(atIndex + 1).toLowerCase();
+}
+
+/**
+ * Parse a comma-separated rua/ruf tag value and return the list of mailto URIs.
+ */
+function parseReportUris(tagValue: string): string[] {
+  return tagValue
+    .split(",")
+    .map((u) => u.trim())
+    .filter((u) => u.length > 0);
+}
+
+/**
+ * Check external report destination authorization per RFC 7489 §7.1.
+ * For each reporting address whose domain differs from the sending domain,
+ * query <sending-domain>._report._dmarc.<reporting-domain> for v=DMARC1.
+ */
+async function checkReportingAuthorization(
+  localDomain: string,
+  tagValue: string,
+  tagName: "rua" | "ruf",
+  validations: Validation[],
+): Promise<void> {
+  const uris = parseReportUris(tagValue);
+  for (const uri of uris) {
+    const reportingDomain = extractMailtoDomain(uri);
+    if (!reportingDomain) continue;
+    // Same domain — no external authorization needed
+    if (reportingDomain === localDomain.toLowerCase()) continue;
+    const authRecord = await queryTxt(
+      `${localDomain}._report._dmarc.${reportingDomain}`,
+    );
+    const isAuthorized =
+      authRecord?.entries.some((e) => e.trimStart().startsWith("v=DMARC1")) ??
+      false;
+    if (!isAuthorized) {
+      validations.push({
+        status: "warn",
+        message: `External ${tagName} destination ${reportingDomain} has not authorized ${localDomain} to send reports — missing or invalid ${localDomain}._report._dmarc.${reportingDomain} TXT record`,
+      });
+    }
+  }
+}
+
 export async function analyzeDmarc(domain: string): Promise<DmarcResult> {
   let txt: Awaited<ReturnType<typeof queryTxt>>;
   try {
@@ -82,10 +138,22 @@ export async function analyzeDmarc(domain: string): Promise<DmarcResult> {
 
   // sp= check
   if (tags.sp) {
+    const spLower = tags.sp.toLowerCase();
     validations.push({
       status: "pass",
       message: "Subdomain policy explicitly set",
     });
+    // sp=none overrides stronger parent policy — subdomains lose enforcement
+    if (
+      spLower === "none" &&
+      (policy === "quarantine" || policy === "reject")
+    ) {
+      validations.push({
+        status: "warn",
+        message:
+          "sp=none overrides subdomain enforcement — subdomains have no DMARC policy applied",
+      });
+    }
   }
 
   // rua= check
@@ -94,6 +162,7 @@ export async function analyzeDmarc(domain: string): Promise<DmarcResult> {
       status: "pass",
       message: "Aggregate reporting (rua) configured",
     });
+    await checkReportingAuthorization(domain, tags.rua, "rua", validations);
   } else {
     validations.push({
       status: "warn",
@@ -107,14 +176,24 @@ export async function analyzeDmarc(domain: string): Promise<DmarcResult> {
       status: "pass",
       message: "Forensic reporting (ruf) configured",
     });
+    await checkReportingAuthorization(domain, tags.ruf, "ruf", validations);
   }
 
   // pct check
-  if (tags.pct && parseInt(tags.pct, 10) < 100) {
-    validations.push({
-      status: "warn",
-      message: `Only ${tags.pct}% of messages are subject to the policy`,
-    });
+  if (tags.pct !== undefined && tags.pct !== null && tags.pct !== "") {
+    const pctVal = parseInt(tags.pct, 10);
+    if (pctVal === 0) {
+      validations.push({
+        status: "warn",
+        message:
+          "pct=0 means no messages are actually subjected to DMARC policy",
+      });
+    } else if (pctVal < 100) {
+      validations.push({
+        status: "warn",
+        message: `pct=${tags.pct} means only ${tags.pct}% of messages are subjected to DMARC policy (less than full enforcement)`,
+      });
+    }
   }
 
   const hasFailure = validations.some((v) => v.status === "fail");
