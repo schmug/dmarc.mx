@@ -9,6 +9,7 @@ import { generateApiKey } from "../auth/api-key.js";
 import { requireAuth } from "../auth/middleware.js";
 import type { SessionPayload } from "../auth/session.js";
 import { dashboardBillingRoutes } from "../billing/routes.js";
+import { escapeCsvField } from "../csv.js";
 import {
   acknowledgeAlert,
   countUnacknowledgedByDomain,
@@ -30,6 +31,7 @@ import {
   listDomainsForUserPaged,
 } from "../db/domains.js";
 import {
+  getLatestScansForUser,
   getPortfolioTrendForUser,
   getScanHistory,
   getScanHistoryWithProtocols,
@@ -857,6 +859,126 @@ dashboardRoutes.post("/domain/:domain/delete", async (c) => {
   const domainName = c.req.param("domain");
   await deleteDomain(db, session.sub, domainName);
   return c.redirect("/dashboard", 303);
+});
+
+// Dashboard export — Pro only. Returns CSV (default) or JSON of all watchlisted
+// domains with their most recent scan result. No fresh DNS lookups; reads from
+// scan_history only. Free users get a 402 with an upsell prompt.
+dashboardRoutes.get("/export", async (c) => {
+  const session = c.get("user" as never) as SessionPayload;
+  const db = (c.env as { DB: D1Database }).DB;
+  const plan = await getPlanForUser(db, session.sub);
+
+  if (plan !== "pro") {
+    return c.html(
+      `<!doctype html><html lang="en"><head><meta charset="utf-8">
+<title>Export — Pro feature</title></head><body>
+<h1>Export requires Pro</h1>
+<p>Upgrade to Pro to export your full watchlist and scan results.
+<a href="/pricing">View Pro plans</a></p>
+</body></html>`,
+      402,
+    );
+  }
+
+  const rows = await getLatestScansForUser(db, session.sub);
+  const format = c.req.query("format") === "json" ? "json" : "csv";
+  const dateStr = new Date().toISOString().slice(0, 10);
+
+  function parseProtocolStatuses(protocolResultsJson: string | null): {
+    dmarc_status: string;
+    spf_status: string;
+    dkim_status: string;
+    bimi_status: string;
+    mta_sts_status: string;
+    mx_status: string;
+  } {
+    let parsed: Record<string, { status?: unknown } | undefined> | null = null;
+    if (protocolResultsJson) {
+      try {
+        parsed = JSON.parse(protocolResultsJson) as Record<
+          string,
+          { status?: unknown } | undefined
+        >;
+      } catch {
+        parsed = null;
+      }
+    }
+    return {
+      dmarc_status: String(parsed?.dmarc?.status ?? ""),
+      spf_status: String(parsed?.spf?.status ?? ""),
+      dkim_status: String(parsed?.dkim?.status ?? ""),
+      bimi_status: String(parsed?.bimi?.status ?? ""),
+      mta_sts_status: String(parsed?.mta_sts?.status ?? ""),
+      mx_status: String(parsed?.mx?.status ?? ""),
+    };
+  }
+
+  function parseScore(scoreFactorsJson: string | null): number | null {
+    if (!scoreFactorsJson) return null;
+    try {
+      const obj = JSON.parse(scoreFactorsJson) as { score?: unknown };
+      return typeof obj.score === "number" ? obj.score : null;
+    } catch {
+      return null;
+    }
+  }
+
+  if (format === "json") {
+    const data = rows.map((row) => ({
+      domain: row.domain,
+      last_scanned_at: row.last_scanned_at
+        ? new Date(row.last_scanned_at * 1000).toISOString()
+        : null,
+      grade: row.grade,
+      score: parseScore(row.score_factors),
+      ...parseProtocolStatuses(row.protocol_results),
+    }));
+    return c.newResponse(JSON.stringify(data, null, 2), 200, {
+      "Content-Type": "application/json",
+      "Content-Disposition": `attachment; filename="dmarcheck-dashboard-${dateStr}.json"`,
+    });
+  }
+
+  const CSV_HEADERS = [
+    "domain",
+    "last_scanned_at",
+    "grade",
+    "score",
+    "dmarc_status",
+    "spf_status",
+    "dkim_status",
+    "bimi_status",
+    "mta_sts_status",
+    "mx_status",
+  ];
+  const csvLines = [
+    CSV_HEADERS.join(","),
+    ...rows.map((row) => {
+      const p = parseProtocolStatuses(row.protocol_results);
+      const score = parseScore(row.score_factors);
+      const scannedAt = row.last_scanned_at
+        ? new Date(row.last_scanned_at * 1000).toISOString()
+        : "";
+      return [
+        escapeCsvField(row.domain),
+        escapeCsvField(scannedAt),
+        escapeCsvField(row.grade ?? ""),
+        escapeCsvField(score !== null ? String(score) : ""),
+        escapeCsvField(p.dmarc_status),
+        escapeCsvField(p.spf_status),
+        escapeCsvField(p.dkim_status),
+        escapeCsvField(p.bimi_status),
+        escapeCsvField(p.mta_sts_status),
+        escapeCsvField(p.mx_status),
+      ].join(",");
+    }),
+  ].join("\r\n");
+
+  return c.newResponse(`﻿${csvLines}`, 200, {
+    "Content-Type": "text/csv; charset=utf-8",
+    "Content-Disposition": `attachment; filename="dmarcheck-dashboard-${dateStr}.csv"`,
+  });
 });
 
 // Settings page

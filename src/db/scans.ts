@@ -185,3 +185,44 @@ export async function getScanHistoryWithProtocols(
     };
   });
 }
+
+export interface LatestScanRow {
+  domain: string;
+  last_scanned_at: number | null;
+  grade: string | null;
+  protocol_results: string | null;
+  score_factors: string | null;
+}
+
+// Returns the most recent scan for every domain the user owns, in domain
+// alphabetical order. Uses the cached last_grade on `domains` for the grade
+// column (avoids a nested aggregate per row) and fetches protocol_results +
+// score_factors from the matching scan_history row via a correlated subquery.
+// Safe for the Pro cap (≤25 domains) — D1 handles this trivially.
+export async function getLatestScansForUser(
+  db: D1Database,
+  userId: string,
+): Promise<LatestScanRow[]> {
+  const result = await db
+    .prepare(
+      `SELECT
+         d.domain,
+         d.last_scanned_at,
+         d.last_grade AS grade,
+         sh.protocol_results,
+         sh.score_factors
+       FROM domains d
+       LEFT JOIN scan_history sh
+         ON sh.domain_id = d.id
+         AND sh.scanned_at = (
+           SELECT MAX(sh2.scanned_at)
+           FROM scan_history sh2
+           WHERE sh2.domain_id = d.id
+         )
+       WHERE d.user_id = ?
+       ORDER BY d.domain`,
+    )
+    .bind(userId)
+    .all<LatestScanRow>();
+  return result.results;
+}
