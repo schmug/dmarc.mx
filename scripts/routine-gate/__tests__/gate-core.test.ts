@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { CONFIG } from "../config";
 import { parseClosesIssue, isProvenanceTrusted } from "../gate-core";
 import { touchesRiskPath, withinSizeEnvelope, scopeDrift } from "../gate-core";
+import { evaluateGate, type GateInput } from "../gate-core";
 
 describe("CONFIG", () => {
   it("only allowlists the repo owner", () => {
@@ -92,5 +93,69 @@ describe("scopeDrift", () => {
   });
   it("matches glob pointers", () => {
     expect(scopeDrift(["src/analyzers/spf.ts"], ["src/analyzers/**"])).toEqual([]);
+  });
+});
+
+function baseInput(): GateInput {
+  return {
+    cfg: CONFIG,
+    issue: { number: 42, author: "schmug", labels: ["spec-approved"], filePointers: ["src/analyzers/**"] },
+    pr: {
+      number: 100,
+      body: "Implements analyzer tweak.\n\nCloses #42",
+      changedFiles: ["src/analyzers/spf.ts"],
+      additions: 30, deletions: 5, ciAllGreen: true,
+    },
+  };
+}
+
+describe("evaluateGate", () => {
+  it("PASSES a trusted, small, in-scope, green PR", () => {
+    const v = evaluateGate(baseInput());
+    expect(v.pass).toBe(true);
+    expect(v.reasons).toEqual([]);
+  });
+  it("FAILS a stranger's issue (provenance)", () => {
+    const i = baseInput(); i.issue!.author = "drive-by";
+    const v = evaluateGate(i);
+    expect(v.pass).toBe(false);
+    expect(v.reasons.join(" ")).toMatch(/not on allowlist/);
+  });
+  it("FAILS when no Closes link", () => {
+    const i = baseInput(); i.pr.body = "no link";
+    const v = evaluateGate(i);
+    expect(v.pass).toBe(false);
+    expect(v.reasons.join(" ")).toMatch(/Closes/);
+  });
+  it("FAILS when linked issue is missing (fail-closed)", () => {
+    const i = baseInput(); i.issue = null;
+    const v = evaluateGate(i);
+    expect(v.pass).toBe(false);
+  });
+  it("FAILS on risk path even if everything else is fine", () => {
+    const i = baseInput(); i.pr.changedFiles = [".github/workflows/ci.yml"]; i.issue!.filePointers = [".github/workflows/**"];
+    const v = evaluateGate(i);
+    expect(v.pass).toBe(false);
+    expect(v.reasons.join(" ")).toMatch(/risk-path/);
+  });
+  it("FAILS on oversize diff", () => {
+    const i = baseInput(); i.pr.additions = 500;
+    expect(evaluateGate(i).pass).toBe(false);
+  });
+  it("FAILS on scope drift", () => {
+    const i = baseInput(); i.pr.changedFiles = ["src/unrelated.ts"];
+    const v = evaluateGate(i);
+    expect(v.pass).toBe(false);
+    expect(v.reasons.join(" ")).toMatch(/scope drift/);
+  });
+  it("FAILS on red CI", () => {
+    const i = baseInput(); i.pr.ciAllGreen = false;
+    expect(evaluateGate(i).pass).toBe(false);
+  });
+  it("FAILS when PR closes a different issue than evaluated", () => {
+    const i = baseInput(); i.pr.body = "Closes #999";
+    const v = evaluateGate(i);
+    expect(v.pass).toBe(false);
+    expect(v.reasons.join(" ")).toMatch(/#999/);
   });
 });
