@@ -1,5 +1,5 @@
 import { minimatch } from "minimatch";
-import type { CONFIG as CONFIG_T } from "./config";
+import type { CONFIG as CONFIG_T } from "./config.js";
 
 export interface IssueInfo {
   number: number;

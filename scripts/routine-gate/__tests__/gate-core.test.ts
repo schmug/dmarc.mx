@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { CONFIG } from "../config";
-import { parseClosesIssue, isProvenanceTrusted, closesIssueRefs } from "../gate-core";
-import { touchesRiskPath, withinSizeEnvelope, scopeDrift } from "../gate-core";
-import { evaluateGate, type GateInput } from "../gate-core";
+import { CONFIG } from "../config.js";
+import { parseClosesIssue, isProvenanceTrusted, closesIssueRefs } from "../gate-core.js";
+import { touchesRiskPath, withinSizeEnvelope, scopeDrift } from "../gate-core.js";
+import { evaluateGate, type GateInput } from "../gate-core.js";
 
 describe("CONFIG", () => {
   it("only allowlists the repo owner", () => {
