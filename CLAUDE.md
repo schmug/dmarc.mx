@@ -52,7 +52,7 @@ Live at dmarc.mx | Repo: github.com/schmug/dmarcheck
 ## Conventions
 
 - Each analyzer is a standalone async function returning a typed result
-- DNS errors (NXDOMAIN/NODATA) return null, not exceptions
+- DNS record absence (NXDOMAIN/NODATA) returns null, not exceptions; resolver errors (SERVFAIL/timeout) throw `DnsLookupError` so callers surface them as `warn` + `lookup_error` instead of false "not configured"
 - Status is `"pass"` | `"warn"` | `"fail"` for scored protocols, `"info"` for informational (MX)
 - HTML is generated server-side as template literal strings, no JSX or build step
 - Client-side JS is minimal (expand/collapse, tooltips) — inline script tag

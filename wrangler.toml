@@ -21,11 +21,8 @@ port = 8790
 ACCESS_AUD = "7b283d5d9b56f6fffa342280310a4ae68f13cbb05dc27f3c1d2faec2deae507a"
 ACCESS_TEAM_DOMAIN = "coryrankin.cloudflareaccess.com"
 
-# TEMPORARY test cron — primary fire at 23:33 UTC with a 23:50 UTC safety
-# net to validate the end-to-end alert email pipeline against a seeded
-# alerts row. Revert to ["17 6 * * *"] after verification.
 [triggers]
-crons = ["33 23 * * *", "50 23 * * *"]
+crons = ["17 6 * * *"]
 
 [[d1_databases]]
 binding = "DB"
