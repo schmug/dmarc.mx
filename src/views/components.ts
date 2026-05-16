@@ -218,19 +218,20 @@ export function statusDot(status: Status): string {
 }
 
 export function validationList(validations: Validation[]): string {
-  const items = validations
-    .map((v) => {
-      const icon =
-        v.status === "pass"
-          ? '<span class="icon-pass" aria-hidden="true">&#10003;</span>'
-          : v.status === "warn"
-            ? '<span class="icon-warn" aria-hidden="true">&#9888;</span>'
-            : v.status === "info"
-              ? '<span class="icon-info" aria-hidden="true">&#9432;</span>'
-              : '<span class="icon-fail" aria-hidden="true">&#10007;</span>';
-      return `<li>${icon} ${esc(v.message)}</li>`;
-    })
-    .join("");
+  // ⚡ Bolt Optimization: Use a single-pass loop instead of .map().join("")
+  // Reduces GC pressure on a hot rendering path by avoiding array allocations
+  let items = "";
+  for (const v of validations) {
+    const icon =
+      v.status === "pass"
+        ? '<span class="icon-pass" aria-hidden="true">&#10003;</span>'
+        : v.status === "warn"
+          ? '<span class="icon-warn" aria-hidden="true">&#9888;</span>'
+          : v.status === "info"
+            ? '<span class="icon-info" aria-hidden="true">&#9432;</span>'
+            : '<span class="icon-fail" aria-hidden="true">&#10007;</span>';
+    items += `<li>${icon} ${esc(v.message)}</li>`;
+  }
   return `<ul class="validation-list">${items}</ul>`;
 }
 
@@ -289,83 +290,80 @@ export function protocolCard(
 }
 
 export function spfTree(node: SpfIncludeNode): string {
-  const items = node.mechanisms
-    .map((m) => {
-      const bare = m.replace(/^[+\-~?]/, "");
-      if (bare.startsWith("include:") || bare.startsWith("redirect=")) {
-        return "";
-      }
-      return `<li><span class="spf-node mechanism">${esc(m)}</span></li>`;
-    })
-    .filter(Boolean)
-    .join("");
+  // ⚡ Bolt Optimization: Use a single-pass loop instead of .map().filter().join("")
+  // Reduces GC pressure on a hot rendering path by avoiding array allocations
+  let items = "";
+  for (const m of node.mechanisms) {
+    const bare = m.replace(/^[+\-~?]/, "");
+    if (!bare.startsWith("include:") && !bare.startsWith("redirect=")) {
+      items += `<li><span class="spf-node mechanism">${esc(m)}</span></li>`;
+    }
+  }
 
-  const includes = node.includes
-    .map((child, i) => {
-      const inner = spfTreeInner(child);
-      const isExpandable = inner !== "";
-      const safeId = child.domain.replace(/[^a-z0-9]+/g, "-");
-      const listId = `spf-list-${safeId}-${i}`;
-      const attrs = isExpandable
-        ? ' role="button" tabindex="0" aria-expanded="true" aria-controls="' +
-          listId +
-          '"'
-        : "";
-      const innerWithId = isExpandable
-        ? inner.replace("<ul>", `<ul id="${listId}">`)
-        : inner;
-      return (
-        '<li><span class="spf-node include"' +
-        attrs +
-        ">" +
-        esc(`include:${child.domain}`) +
-        "</span>" +
-        innerWithId +
-        "</li>"
-      );
-    })
-    .join("");
+  let includes = "";
+  for (let i = 0; i < node.includes.length; i++) {
+    const child = node.includes[i];
+    const inner = spfTreeInner(child);
+    const isExpandable = inner !== "";
+    const safeId = child.domain.replace(/[^a-z0-9]+/g, "-");
+    const listId = `spf-list-${safeId}-${i}`;
+    const attrs = isExpandable
+      ? ' role="button" tabindex="0" aria-expanded="true" aria-controls="' +
+        listId +
+        '"'
+      : "";
+    const innerWithId = isExpandable
+      ? inner.replace("<ul>", `<ul id="${listId}">`)
+      : inner;
+    includes +=
+      '<li><span class="spf-node include"' +
+      attrs +
+      ">" +
+      esc(`include:${child.domain}`) +
+      "</span>" +
+      innerWithId +
+      "</li>";
+  }
 
   return `<div class="spf-tree"><ul>${items}${includes}</ul></div>`;
 }
 
 function spfTreeInner(node: SpfIncludeNode): string {
   if (!node.record) return "";
-  const items = node.mechanisms
-    .map((m) => {
-      const bare = m.replace(/^[+\-~?]/, "");
-      if (bare.startsWith("include:") || bare.startsWith("redirect="))
-        return "";
-      return `<li><span class="spf-node mechanism">${esc(m)}</span></li>`;
-    })
-    .filter(Boolean)
-    .join("");
 
-  const includes = node.includes
-    .map((child, i) => {
-      const inner = spfTreeInner(child);
-      const isExpandable = inner !== "";
-      const safeId = child.domain.replace(/[^a-z0-9]+/g, "-");
-      const listId = `spf-list-${safeId}-${i}`;
-      const attrs = isExpandable
-        ? ' role="button" tabindex="0" aria-expanded="true" aria-controls="' +
-          listId +
-          '"'
-        : "";
-      const innerWithId = isExpandable
-        ? inner.replace("<ul>", `<ul id="${listId}">`)
-        : inner;
-      return (
-        '<li><span class="spf-node include"' +
-        attrs +
-        ">" +
-        esc(`include:${child.domain}`) +
-        "</span>" +
-        innerWithId +
-        "</li>"
-      );
-    })
-    .join("");
+  // ⚡ Bolt Optimization: Use a single-pass loop instead of .map().filter().join("")
+  let items = "";
+  for (const m of node.mechanisms) {
+    const bare = m.replace(/^[+\-~?]/, "");
+    if (!bare.startsWith("include:") && !bare.startsWith("redirect=")) {
+      items += `<li><span class="spf-node mechanism">${esc(m)}</span></li>`;
+    }
+  }
+
+  let includes = "";
+  for (let i = 0; i < node.includes.length; i++) {
+    const child = node.includes[i];
+    const inner = spfTreeInner(child);
+    const isExpandable = inner !== "";
+    const safeId = child.domain.replace(/[^a-z0-9]+/g, "-");
+    const listId = `spf-list-${safeId}-${i}`;
+    const attrs = isExpandable
+      ? ' role="button" tabindex="0" aria-expanded="true" aria-controls="' +
+        listId +
+        '"'
+      : "";
+    const innerWithId = isExpandable
+      ? inner.replace("<ul>", `<ul id="${listId}">`)
+      : inner;
+    includes +=
+      '<li><span class="spf-node include"' +
+      attrs +
+      ">" +
+      esc(`include:${child.domain}`) +
+      "</span>" +
+      innerWithId +
+      "</li>";
+  }
 
   if (!items && !includes) return "";
   return `<ul>${items}${includes}</ul>`;
@@ -431,12 +429,13 @@ export function providerBadge(provider: EmailProvider): string {
 export function mxTable(records: MxRecord[]): string {
   if (records.length === 0) return "";
 
-  const rows = records
-    .map((r) => {
-      const providerCell = r.provider ? providerBadge(r.provider) : "";
-      return `<tr class="mx-row"><td class="mx-priority">${r.priority}</td><td class="mx-exchange">${esc(r.exchange)}</td><td class="mx-provider">${providerCell}</td></tr>`;
-    })
-    .join("");
+  // ⚡ Bolt Optimization: Use a single-pass loop instead of .map().join("")
+  // Reduces GC pressure on a hot rendering path by avoiding array allocations
+  let rows = "";
+  for (const r of records) {
+    const providerCell = r.provider ? providerBadge(r.provider) : "";
+    rows += `<tr class="mx-row"><td class="mx-priority">${r.priority}</td><td class="mx-exchange">${esc(r.exchange)}</td><td class="mx-provider">${providerCell}</td></tr>`;
+  }
 
   return `<table class="mx-table">
   <thead><tr><th>Priority</th><th>Exchange</th><th>Provider</th></tr></thead>
@@ -516,27 +515,35 @@ export function scoringFactorsTable(
     return "";
   }
 
-  const rows = factors
-    .map((f) => {
-      const effectClass =
-        f.effect > 0
-          ? "effect-plus"
-          : f.effect < 0
-            ? "effect-minus"
-            : "effect-neutral";
-      const effectText = f.effect > 0 ? "+1" : f.effect < 0 ? "\u22121" : "0";
-      return `<tr>
+  // ⚡ Bolt Optimization: Use a single-pass loop instead of .map().join("")
+  // Reduces GC pressure on a hot rendering path by avoiding array allocations
+  let rows = "";
+  let netModifierStr = "";
+  for (let i = 0; i < factors.length; i++) {
+    const f = factors[i];
+    const effectClass =
+      f.effect > 0
+        ? "effect-plus"
+        : f.effect < 0
+          ? "effect-minus"
+          : "effect-neutral";
+    const effectText = f.effect > 0 ? "+1" : f.effect < 0 ? "\u22121" : "0";
+    rows += `<tr>
       <td class="factor-proto">${esc(PROTO_LABELS[f.protocol] ?? f.protocol)}</td>
       <td class="factor-label">${esc(f.label)}</td>
       <td class="factor-effect ${effectClass}">${effectText}</td>
     </tr>`;
-    })
-    .join("");
+
+    if (factors.length > 1) {
+      if (i > 0) netModifierStr += " ";
+      netModifierStr += effectText;
+    }
+  }
 
   const summary =
     factors.length > 1
       ? `<div class="modifier-summary">
-      <span>Net modifier: ${factors.map((f) => (f.effect > 0 ? "+1" : f.effect < 0 ? "\u22121" : "0")).join(" ")} = ${modifier > 0 ? "+" : ""}${modifier}</span>
+      <span>Net modifier: ${netModifierStr} = ${modifier > 0 ? "+" : ""}${modifier}</span>
       <span class="modifier-result">&rarr; ${modifierLabel ? modifierLabel : "no change"}</span>
     </div>`
       : "";
@@ -585,19 +592,19 @@ export function recommendationList(recommendations: Recommendation[]): string {
 </div>`;
   }
 
-  const items = recommendations
-    .map(
-      (r) =>
-        `<div class="rec-item">
+  // ⚡ Bolt Optimization: Use a single-pass loop instead of .map().join("")
+  // Reduces GC pressure on a hot rendering path by avoiding array allocations
+  let items = "";
+  for (const r of recommendations) {
+    items += `<div class="rec-item">
       <div class="rec-priority priority-${r.priority}">P${r.priority}</div>
       <div class="rec-content">
         <div class="rec-title">${esc(r.title)}</div>
         <div class="rec-desc">${esc(r.description)}</div>
         <div class="rec-impact">${esc(r.impact)}</div>
       </div>
-    </div>`,
-    )
-    .join("");
+    </div>`;
+  }
 
   return `<div class="bd-card">
   <div class="bd-card-title">How to improve</div>
