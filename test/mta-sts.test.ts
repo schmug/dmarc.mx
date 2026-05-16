@@ -5,7 +5,7 @@ vi.mock("../src/dns/client.js", () => ({
   queryMx: vi.fn(),
 }));
 
-import { analyzeMtaSts } from "../src/analyzers/mta-sts.js";
+import { analyzeMtaSts, checkMxCoverage } from "../src/analyzers/mta-sts.js";
 import { queryTxt } from "../src/dns/client.js";
 
 const mockQueryTxt = vi.mocked(queryTxt);
@@ -272,5 +272,75 @@ describe("analyzeMtaSts", () => {
           v.message.includes("Policy file not accessible"),
       ),
     ).toBe(true);
+  });
+});
+
+describe("checkMxCoverage", () => {
+  it("returns empty array when all MX hosts are covered by literal patterns", () => {
+    const uncovered = checkMxCoverage(
+      ["mail.example.com", "backup.example.com"],
+      ["mail.example.com", "backup.example.com"],
+    );
+    expect(uncovered).toEqual([]);
+  });
+
+  it("returns uncovered host when one MX host is missing from policy", () => {
+    const uncovered = checkMxCoverage(
+      ["mail.example.com", "unlisted.example.com"],
+      ["mail.example.com"],
+    );
+    expect(uncovered).toEqual(["unlisted.example.com"]);
+  });
+
+  it("wildcard pattern *.example.com matches mail.example.com (one subdomain level)", () => {
+    const uncovered = checkMxCoverage(["mail.example.com"], ["*.example.com"]);
+    expect(uncovered).toEqual([]);
+  });
+
+  it("wildcard pattern *.example.com does NOT match sub.mail.example.com (two subdomain levels)", () => {
+    const uncovered = checkMxCoverage(
+      ["sub.mail.example.com"],
+      ["*.example.com"],
+    );
+    expect(uncovered).toEqual(["sub.mail.example.com"]);
+  });
+
+  it("wildcard pattern *.example.com does NOT match example.com itself", () => {
+    const uncovered = checkMxCoverage(["example.com"], ["*.example.com"]);
+    expect(uncovered).toEqual(["example.com"]);
+  });
+
+  it("matching is case-insensitive for both host and pattern", () => {
+    const uncovered = checkMxCoverage(
+      ["MAIL.Example.COM"],
+      ["mail.example.com"],
+    );
+    expect(uncovered).toEqual([]);
+  });
+
+  it("wildcard matching is case-insensitive", () => {
+    const uncovered = checkMxCoverage(["MAIL.EXAMPLE.COM"], ["*.example.com"]);
+    expect(uncovered).toEqual([]);
+  });
+
+  it("returns empty array when mxHosts is empty", () => {
+    const uncovered = checkMxCoverage([], ["*.example.com"]);
+    expect(uncovered).toEqual([]);
+  });
+
+  it("returns all hosts as uncovered when stsMxPatterns is empty", () => {
+    const uncovered = checkMxCoverage(
+      ["mail.example.com", "backup.example.com"],
+      [],
+    );
+    expect(uncovered).toEqual(["mail.example.com", "backup.example.com"]);
+  });
+
+  it("multiple patterns: host covered by any one pattern is not flagged", () => {
+    const uncovered = checkMxCoverage(
+      ["mail.example.com", "mx.other.com"],
+      ["*.example.com", "mx.other.com"],
+    );
+    expect(uncovered).toEqual([]);
   });
 });

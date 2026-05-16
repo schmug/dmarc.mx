@@ -1,6 +1,67 @@
 import { queryTxt } from "../dns/client.js";
 import type { MtaStsPolicy, MtaStsResult, Validation } from "./types.js";
 
+/**
+ * Check whether each MX hostname is covered by at least one MTA-STS mx pattern.
+ *
+ * Pattern matching follows RFC 8461 §3.1:
+ * - A pattern that begins with "*." is a wildcard covering exactly one
+ *   subdomain level (e.g. "*.example.com" matches "mail.example.com" but NOT
+ *   "deep.mail.example.com" and NOT "example.com" itself).
+ * - All other patterns are compared as literal hostnames (case-insensitive).
+ *
+ * Returns the subset of mxHosts that are NOT covered by any pattern.
+ */
+export function checkMxCoverage(
+  mxHosts: string[],
+  stsMxPatterns: string[],
+): string[] {
+  const uncovered: string[] = [];
+
+  for (const host of mxHosts) {
+    const normalizedHost = host.toLowerCase();
+    let covered = false;
+
+    for (const pattern of stsMxPatterns) {
+      const normalizedPattern = pattern.toLowerCase();
+
+      if (normalizedPattern.slice(0, 2) === "*.") {
+        // Wildcard pattern: "*.suffix" — host must be exactly one label deeper
+        // than the suffix, i.e. host === "<single-label>.<suffix>"
+        const suffix = normalizedPattern.slice(2); // e.g. "example.com"
+        // The host must end with ".<suffix>" and the part before that must
+        // contain no dots (single label only).
+        if (normalizedHost.length > suffix.length + 1) {
+          const dotSuffix = `.${suffix}`;
+          if (normalizedHost.slice(-dotSuffix.length) === dotSuffix) {
+            const prefix = normalizedHost.slice(
+              0,
+              normalizedHost.length - dotSuffix.length,
+            );
+            // prefix must be a single label (no dots)
+            if (prefix.indexOf(".") === -1 && prefix.length > 0) {
+              covered = true;
+              break;
+            }
+          }
+        }
+      } else {
+        // Literal match (case-insensitive)
+        if (normalizedHost === normalizedPattern) {
+          covered = true;
+          break;
+        }
+      }
+    }
+
+    if (!covered) {
+      uncovered.push(host);
+    }
+  }
+
+  return uncovered;
+}
+
 export async function analyzeMtaSts(domain: string): Promise<MtaStsResult> {
   const [dnsResult, policyResult] = await Promise.allSettled([
     queryTxt(`_mta-sts.${domain}`),

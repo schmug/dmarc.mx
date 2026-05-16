@@ -2,7 +2,7 @@ import * as Sentry from "@sentry/cloudflare";
 import { analyzeBimi, prefetchBimiDns } from "./analyzers/bimi.js";
 import { analyzeDkim } from "./analyzers/dkim.js";
 import { analyzeDmarc } from "./analyzers/dmarc.js";
-import { analyzeMtaSts } from "./analyzers/mta-sts.js";
+import { analyzeMtaSts, checkMxCoverage } from "./analyzers/mta-sts.js";
 import { analyzeMx } from "./analyzers/mx.js";
 import { analyzeSecurityTxt } from "./analyzers/security-txt.js";
 import { analyzeSpf } from "./analyzers/spf.js";
@@ -36,10 +36,41 @@ export type ProtocolResult =
   | MtaStsResult
   | SecurityTxtResult;
 
+function applyMxCoverageCheck(protocols: ScanResult["protocols"]): void {
+  const { mx, mta_sts } = protocols;
+
+  // Only run when MX records exist and MTA-STS policy is present and enforced
+  // (mode "none" means the policy is intentionally disabled, so no check needed)
+  if (
+    mx.records.length === 0 ||
+    mta_sts.policy === null ||
+    mta_sts.policy.mode === "none"
+  ) {
+    return;
+  }
+
+  const mxHosts = mx.records.map((r) => r.exchange);
+  const uncovered = checkMxCoverage(mxHosts, mta_sts.policy.mx);
+
+  for (const host of uncovered) {
+    mta_sts.validations.push({
+      status: "warn",
+      message: `MX host "${host}" is not covered by any MTA-STS mx pattern`,
+    });
+  }
+
+  // Recalculate status if we added new warnings and the result was previously "pass"
+  if (uncovered.length > 0 && mta_sts.status === "pass") {
+    mta_sts.status = "warn";
+  }
+}
+
 async function buildScanResult(
   domain: string,
   protocols: ScanResult["protocols"],
 ): Promise<ScanResult> {
+  applyMxCoverageCheck(protocols);
+
   const breakdown = computeGradeBreakdown(protocols);
 
   // Easter egg: S grade for A+ domains advertising dmarc.mx
