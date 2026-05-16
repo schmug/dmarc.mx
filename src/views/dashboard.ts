@@ -1873,11 +1873,10 @@ function renderOnFireBanner(failing: number): string {
 }
 
 function renderDashboardHero(
-  domains: DashboardDomain[],
+  stats: PortfolioStats,
+  worst: DashboardDomain | null,
   portfolioTrend: number[],
 ): string {
-  const stats = portfolioStats(domains);
-  const worst = worstDomain(domains);
   // Mood comes from the worst *graded* domain. With nothing scored yet there
   // is no signal to react to, so DMarcus defaults to neutral rather than
   // panicking at a freshly-added entry that just hasn't been scanned.
@@ -1978,8 +1977,7 @@ function renderAddDomainWizardShell(): string {
 </div>`;
 }
 
-function renderDashboardStatStrip(domains: DashboardDomain[]): string {
-  const stats = portfolioStats(domains);
+function renderDashboardStatStrip(stats: PortfolioStats): string {
   const totalCard = statCard(
     "Domains",
     stats.total,
@@ -2040,6 +2038,7 @@ export function renderDashboardPage({
   isFirstRun?: boolean;
 }): string {
   const stats = portfolioStats(domains);
+  const worst = worstDomain(domains);
   const banners: string[] = [];
   if (plan === "free") banners.push(renderFreeTierBanner());
   if (isFirstRun && domains.length === 1) {
@@ -2049,9 +2048,13 @@ export function renderDashboardPage({
 
   const hero =
     domains.length > 0
-      ? renderDashboardHero(domains, portfolioTrend)
-      : renderDashboardHero([], []);
-  const statStrip = domains.length > 0 ? renderDashboardStatStrip(domains) : "";
+      ? renderDashboardHero(stats, worst, portfolioTrend)
+      : renderDashboardHero(
+          { total: 0, healthy: 0, drifting: 0, failing: 0, ungraded: 0 },
+          null,
+          [],
+        );
+  const statStrip = domains.length > 0 ? renderDashboardStatStrip(stats) : "";
 
   return dashboardPage(
     "Domains — dmarc.mx",
