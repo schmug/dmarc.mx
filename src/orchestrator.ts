@@ -4,6 +4,7 @@ import { analyzeDkim } from "./analyzers/dkim.js";
 import { analyzeDmarc } from "./analyzers/dmarc.js";
 import { analyzeMtaSts } from "./analyzers/mta-sts.js";
 import { analyzeMx } from "./analyzers/mx.js";
+import { checkMxMtaStsConsistency } from "./analyzers/mx-mta-sts-consistency.js";
 import { analyzeSecurityTxt } from "./analyzers/security-txt.js";
 import { analyzeSpf } from "./analyzers/spf.js";
 import { analyzeTlsRpt } from "./analyzers/tls-rpt.js";
@@ -44,6 +45,23 @@ async function buildScanResult(
   domain: string,
   protocols: ScanResult["protocols"],
 ): Promise<ScanResult> {
+  // Cross-check MX hosts against MTA-STS policy patterns (RFC 8461 §3.4)
+  const consistencyValidations = checkMxMtaStsConsistency(
+    protocols.mx,
+    protocols.mta_sts,
+  );
+  if (consistencyValidations.length > 0) {
+    protocols.mta_sts.validations.push(...consistencyValidations);
+    // Re-derive status in case new warn validations were added
+    const hasFailure = protocols.mta_sts.validations.some(
+      (v) => v.status === "fail",
+    );
+    const hasWarn = protocols.mta_sts.validations.some(
+      (v) => v.status === "warn",
+    );
+    protocols.mta_sts.status = hasFailure ? "fail" : hasWarn ? "warn" : "pass";
+  }
+
   const breakdown = computeGradeBreakdown(protocols);
 
   // Easter egg: S grade for A+ domains advertising dmarc.mx
