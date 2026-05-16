@@ -20,7 +20,7 @@ export default defineConfig({
         test: {
           name: "node",
           globals: true,
-          include: ["test/**/*.test.ts"],
+          include: ["test/**/*.test.ts", "scripts/**/__tests__/*.test.ts"],
           exclude: ["test/integration/**", "node_modules/**"],
         },
       },
