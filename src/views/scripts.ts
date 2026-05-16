@@ -1291,6 +1291,7 @@ if (typeof navigator !== 'undefined' && navigator.modelContext && typeof navigat
       lastFocusedBeforeOpen = triggerEl || document.activeElement;
       if (form) form.reset();
       if (errorEl) { errorEl.hidden = true; errorEl.textContent = ''; }
+      if (domainInput) domainInput.removeAttribute('aria-invalid');
       showStep(1);
       setOpen(wizard, true);
     }
@@ -1319,9 +1320,11 @@ if (typeof navigator !== 'undefined' && navigator.modelContext && typeof navigat
               errorEl.textContent = 'Enter a valid domain like example.com.';
               errorEl.hidden = false;
             }
+            if (domainInput) domainInput.setAttribute('aria-invalid', 'true');
             return;
           }
           if (errorEl) errorEl.hidden = true;
+          if (domainInput) domainInput.removeAttribute('aria-invalid');
           if (confirmDom) confirmDom.textContent = raw;
           showStep(2);
         } else if (step === 2) {
