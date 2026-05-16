@@ -206,9 +206,14 @@ app.use("*", async (c, next) => {
   const isHtml = contentType.includes("text/html");
   if (isHtml) {
     const frameAncestors = ["'self'", ...EMBED_ALLOWED_ORIGINS].join(" ");
+    // Per-request nonce eliminates 'unsafe-inline' from script-src. Scripts
+    // with a matching nonce attribute execute; all others are blocked.
+    const nonce = btoa(
+      String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16))),
+    );
     c.res.headers.set(
       "Content-Security-Policy",
-      `default-src 'none'; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; manifest-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors ${frameAncestors}`,
+      `default-src 'none'; script-src 'nonce-${nonce}' 'strict-dynamic'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; manifest-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors ${frameAncestors}`,
     );
     if (!c.res.headers.has("Link")) {
       c.res.headers.set("Link", AGENT_DISCOVERY_LINK_HEADER);
@@ -222,28 +227,29 @@ app.use("*", async (c, next) => {
       );
     }
 
-    // Inject the Cloudflare Web Analytics beacon on public HTML pages.
-    // Skipped when the token isn't configured (self-host default) and on
-    // auth/dashboard/webhook paths whose URLs can carry user-specific detail.
-    // Our HTML responses are already buffered strings (never streamed), so a
-    // simple `</body>` replace is both correct and keeps tests in the Node
-    // pool runnable without HTMLRewriter.
+    // Inject nonce into all <script> tags (excluding JSON-LD data blocks which
+    // are not executable JS and don't fall under script-src).  Combine with the
+    // optional Cloudflare Analytics beacon injection to avoid reading the body
+    // twice — HTML responses are buffered strings, never true streams.
     const token = (c.env as Env | undefined)?.CF_ANALYTICS_TOKEN;
     const path = c.req.path;
     const isAnalyticsEligible =
       token &&
       CF_ANALYTICS_TOKEN_RE.test(token) &&
       !ANALYTICS_SKIP_PATH_PREFIXES.some((p) => path.startsWith(p));
+    let body = (await c.res.text()).replace(
+      /<script(?!\s+type=["']application\/ld\+json)/g,
+      `<script nonce="${nonce}"`,
+    );
     if (isAnalyticsEligible) {
-      const beacon = `<script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token":"${token}"}'></script>`;
-      const body = await c.res.text();
-      const injected = body.replace("</body>", `${beacon}</body>`);
-      c.res = new Response(injected, {
-        status: c.res.status,
-        statusText: c.res.statusText,
-        headers: c.res.headers,
-      });
+      const beacon = `<script defer nonce="${nonce}" src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon='{"token":"${token}"}'></script>`;
+      body = body.replace("</body>", `${beacon}</body>`);
     }
+    c.res = new Response(body, {
+      status: c.res.status,
+      statusText: c.res.statusText,
+      headers: c.res.headers,
+    });
   } else {
     // `frame-ancestors` does not inherit from `default-src`, so it must be
     // declared explicitly to keep JSON/CSV/SSE responses unframable.
