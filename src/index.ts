@@ -14,6 +14,7 @@ import type {
   ScanResult,
   SecurityTxtResult,
   SpfResult,
+  TlsRptResult,
 } from "./analyzers/types.js";
 import {
   getAgentSkillsIndexJson,
@@ -80,6 +81,7 @@ import {
   renderSecurityTxtCard,
   renderSpfCard,
   renderStreamingLoading,
+  renderTlsRptCard,
 } from "./views/html.js";
 import {
   renderLearnBimi,
@@ -519,6 +521,7 @@ const protocolRenderers: Record<
   bimi: (r) => renderBimiCard(r as BimiResult),
   mta_sts: (r) => renderMtaStsCard(r as MtaStsResult),
   security_txt: (r) => renderSecurityTxtCard(r as SecurityTxtResult),
+  tls_rpt: (r) => renderTlsRptCard(r as TlsRptResult),
 };
 
 function tagScanResult(result: ScanResult): void {

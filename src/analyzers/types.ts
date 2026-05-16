@@ -105,6 +105,13 @@ export interface SecurityTxtResult {
   validations: Validation[];
 }
 
+export interface TlsRptResult {
+  status: Status;
+  record: string | null;
+  tags: Record<string, string> | null;
+  validations: Validation[];
+}
+
 export interface ScanSummary {
   mx_records: number;
   mx_providers: string[];
@@ -130,5 +137,6 @@ export interface ScanResult {
     bimi: BimiResult;
     mta_sts: MtaStsResult;
     security_txt: SecurityTxtResult;
+    tls_rpt?: TlsRptResult;
   };
 }

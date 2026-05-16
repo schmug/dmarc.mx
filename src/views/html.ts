@@ -7,6 +7,7 @@ import type {
   ScanResult,
   SecurityTxtResult,
   SpfResult,
+  TlsRptResult,
 } from "../analyzers/types.js";
 import { isIndexableScanDomain } from "../shared/indexable-domains.js";
 import { CSS_PATH, JS_PATH } from "./assets.js";
@@ -328,17 +329,38 @@ export function renderSecurityTxtCard(s: SecurityTxtResult): string {
   );
 }
 
+export function renderTlsRptCard(t: TlsRptResult): string {
+  const subtitle = t.record
+    ? t.tags?.rua
+      ? t.tags.rua.split(",")[0].trim()
+      : "Record found (no rua)"
+    : "Not configured";
+  let body = "";
+  if (t.tags?.rua) {
+    const ruas = t.tags.rua
+      .split(",")
+      .map((v) => v.trim())
+      .filter(Boolean);
+    body += `<div class="tag-grid"><div><strong>rua</strong></div><div>${ruas.map((v) => `<code>${esc(v)}</code>`).join("<br>")}</div></div>`;
+  }
+  body += validationList(t.validations);
+  if (t.record) {
+    body += rawRecord(t.record);
+  }
+  return protocolCard("TLS-RPT", t.status, subtitle, body, false, "tls-rpt");
+}
+
 export function renderMxCard(mx: MxResult): string {
   const subtitle =
     mx.records.length > 0
-      ? `${mx.records.length} record${mx.records.length !== 1 ? "s" : ""}${mx.providers.length > 0 ? ` \u00b7 ${mx.providers.map((p) => p.name).join(", ")}` : ""}`
+      ? `${mx.records.length} record${mx.records.length !== 1 ? "s" : ""}${mx.providers.length > 0 ? ` · ${mx.providers.map((p) => p.name).join(", ")}` : ""}`
       : "No MX records";
   const body = mxTable(mx.records) + validationList(mx.validations);
   return protocolCard("MX", mx.status, subtitle, body);
 }
 
 function reportBody(result: ScanResult): string {
-  const { mx, dmarc, spf, dkim, bimi, mta_sts, security_txt } =
+  const { mx, dmarc, spf, dkim, bimi, mta_sts, security_txt, tls_rpt } =
     result.protocols;
 
   return `<main class="report">
@@ -367,6 +389,7 @@ function reportBody(result: ScanResult): string {
   ${renderBimiCard(bimi)}
   ${renderMtaStsCard(mta_sts)}
   ${security_txt ? renderSecurityTxtCard(security_txt) : ""}
+  ${tls_rpt ? renderTlsRptCard(tls_rpt) : ""}
   ${monitorSnapshotCard(result)}
   <div class="learn-link" style="margin-top:2.5rem">Analyze message headers: <a href="https://toolbox.googleapps.com/apps/messageheader/" target="_blank" rel="noopener">Google &#8599;</a> &middot; <a href="https://mha.azurewebsites.net/" target="_blank" rel="noopener">Microsoft &#8599;</a></div>
   <div class="learn-link" style="margin-top:0.4rem;margin-bottom:1rem"><a href="/scoring">How is my score calculated?</a> &middot; <a href="https://www.cloudflare.com/learning/email-security/dmarc-dkim-spf/" target="_blank" rel="noopener">What is email security? &#8599;</a></div>
@@ -805,9 +828,9 @@ export function renderApiDocs(): string {
       <p>Content-negotiated human endpoint.</p>
       <ul>
         <li>Default: HTML</li>
-        <li><code>Accept: application/json</code> → JSON (same shape as <code>/api/check</code>)</li>
-        <li><code>Accept: text/markdown</code> → markdown for agents</li>
-        <li><code>format=csv</code> → CSV download</li>
+        <li><code>Accept: application/json</code> &rarr; JSON (same shape as <code>/api/check</code>)</li>
+        <li><code>Accept: text/markdown</code> &rarr; markdown for agents</li>
+        <li><code>format=csv</code> &rarr; CSV download</li>
       </ul>
     </div>
   </div>

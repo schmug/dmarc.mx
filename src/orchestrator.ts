@@ -6,6 +6,7 @@ import { analyzeMtaSts } from "./analyzers/mta-sts.js";
 import { analyzeMx } from "./analyzers/mx.js";
 import { analyzeSecurityTxt } from "./analyzers/security-txt.js";
 import { analyzeSpf } from "./analyzers/spf.js";
+import { analyzeTlsRpt } from "./analyzers/tls-rpt.js";
 import type {
   BimiResult,
   DkimResult,
@@ -15,6 +16,7 @@ import type {
   ScanResult,
   SecurityTxtResult,
   SpfResult,
+  TlsRptResult,
 } from "./analyzers/types.js";
 import { queryTxt } from "./dns/client.js";
 import { computeGradeBreakdown } from "./shared/scoring.js";
@@ -26,7 +28,8 @@ export type ProtocolId =
   | "dkim"
   | "bimi"
   | "mta_sts"
-  | "security_txt";
+  | "security_txt"
+  | "tls_rpt";
 export type ProtocolResult =
   | MxResult
   | DmarcResult
@@ -34,7 +37,8 @@ export type ProtocolResult =
   | DkimResult
   | BimiResult
   | MtaStsResult
-  | SecurityTxtResult;
+  | SecurityTxtResult
+  | TlsRptResult;
 
 async function buildScanResult(
   domain: string,
@@ -89,6 +93,7 @@ export async function scan(
   const bimiDnsPromise = prefetchBimiDns(domain);
   const mxPromise = analyzeMx(domain);
   const securityTxtPromise = analyzeSecurityTxt(domain);
+  const tlsRptPromise = analyzeTlsRpt(domain);
 
   // Chain DKIM off MX so it starts as soon as MX resolves
   // without blocking on unrelated queries
@@ -118,6 +123,7 @@ export async function scan(
     bimiResult,
     mxResult,
     securityTxtResult,
+    tlsRptResult,
   ] = await Promise.all([
     dmarcPromise,
     spfPromise,
@@ -126,6 +132,7 @@ export async function scan(
     bimiPromise,
     mxPromise,
     securityTxtPromise,
+    tlsRptPromise,
   ]);
 
   Sentry.addBreadcrumb({
@@ -164,6 +171,12 @@ export async function scan(
     data: { protocol: "security_txt", status: securityTxtResult.status },
     level: "info",
   });
+  Sentry.addBreadcrumb({
+    category: "analyzer.complete",
+    message: `tls_rpt: ${tlsRptResult.status}`,
+    data: { protocol: "tls_rpt", status: tlsRptResult.status },
+    level: "info",
+  });
 
   return await buildScanResult(domain, {
     mx: mxResult,
@@ -173,6 +186,7 @@ export async function scan(
     bimi: bimiResult,
     mta_sts: mtaStsResult,
     security_txt: securityTxtResult,
+    tls_rpt: tlsRptResult,
   });
 }
 
@@ -192,6 +206,7 @@ export async function scanStreaming(
   const bimiDnsPromise = prefetchBimiDns(domain);
   const mxPromise = analyzeMx(domain);
   const securityTxtPromise = analyzeSecurityTxt(domain);
+  const tlsRptPromise = analyzeTlsRpt(domain);
 
   // Chain DKIM off MX so it starts as soon as MX resolves
   const dkimPromise = mxPromise.then((mxResult) => {
@@ -278,6 +293,16 @@ export async function scanStreaming(
     onResult("security_txt", r);
   });
 
+  tlsRptPromise.then((r) => {
+    Sentry.addBreadcrumb({
+      category: "analyzer.complete",
+      message: `tls_rpt: ${r.status}`,
+      data: { protocol: "tls_rpt", status: r.status },
+      level: "info",
+    });
+    onResult("tls_rpt", r);
+  });
+
   const [
     dmarcResult,
     spfResult,
@@ -286,6 +311,7 @@ export async function scanStreaming(
     bimiResult,
     mxResult,
     securityTxtResult,
+    tlsRptResult,
   ] = await Promise.all([
     dmarcPromise,
     spfPromise,
@@ -294,6 +320,7 @@ export async function scanStreaming(
     bimiPromise,
     mxPromise,
     securityTxtPromise,
+    tlsRptPromise,
   ]);
 
   return await buildScanResult(domain, {
@@ -304,5 +331,6 @@ export async function scanStreaming(
     bimi: bimiResult,
     mta_sts: mtaStsResult,
     security_txt: securityTxtResult,
+    tls_rpt: tlsRptResult,
   });
 }
