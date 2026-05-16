@@ -31,5 +31,6 @@ export const CONFIG = {
     "**/*cloudflare*access*", "**/*access*cloudflare*",
     "infra/**", "**/terraform/**", "**/*.tf",
     "**/wrangler.toml", "**/wrangler.jsonc",
+    "scripts/routine-gate/**", "scripts/routine-pipeline/**",
   ],
 };

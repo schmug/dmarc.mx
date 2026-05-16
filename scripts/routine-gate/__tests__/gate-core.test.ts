@@ -193,6 +193,21 @@ describe("evaluateGate ambiguity + provenance source-of-truth", () => {
   });
 });
 
+describe("gate self-modification is denylisted", () => {
+  it("blocks changes to the gate core", () => {
+    expect(touchesRiskPath(["scripts/routine-gate/gate-core.ts"], CONFIG.riskPathDenylist).length).toBe(1);
+  });
+  it("blocks changes to the gate config", () => {
+    expect(touchesRiskPath(["scripts/routine-gate/config.ts"], CONFIG.riskPathDenylist).length).toBe(1);
+  });
+  it("blocks changes to pipeline scripts/prompts", () => {
+    expect(touchesRiskPath(["scripts/routine-pipeline/routine-reviewer.md"], CONFIG.riskPathDenylist).length).toBe(1);
+  });
+  it("still allows ordinary source", () => {
+    expect(touchesRiskPath(["src/analyzers/spf.ts"], CONFIG.riskPathDenylist).length).toBe(0);
+  });
+});
+
 describe("denylist hardening + normalization", () => {
   it("blocks nested wrangler.toml", () => {
     expect(touchesRiskPath(["packages/x/wrangler.toml"], CONFIG.riskPathDenylist).length).toBe(1);
