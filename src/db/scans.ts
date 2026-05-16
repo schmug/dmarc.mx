@@ -154,6 +154,47 @@ export async function getPortfolioTrendForUser(
   });
 }
 
+// One row per domain the user monitors: the domain name, grade, last_scanned_at
+// (from the domains table), and the protocol_results blob from the most-recent
+// scan_history row. Used exclusively by GET /dashboard/export — no fresh DNS
+// lookups are performed.
+//
+// Future work: a historical bulk-export (all scans over time) would need a
+// different query shape; that is intentionally out of scope for this route.
+export interface DashboardExportRow {
+  domain: string;
+  last_scanned_at: number | null;
+  last_grade: string | null;
+  protocol_results: string | null;
+}
+
+export async function getDashboardExportRows(
+  db: D1Database,
+  userId: string,
+): Promise<DashboardExportRow[]> {
+  // Correlated subquery picks the single most-recent protocol_results blob per
+  // domain without a second round-trip. domains.last_grade / last_scanned_at
+  // are the authoritative "current posture" fields maintained by recordScan.
+  const result = await db
+    .prepare(
+      `SELECT
+         d.domain,
+         d.last_scanned_at,
+         d.last_grade,
+         (SELECT sh.protocol_results
+            FROM scan_history sh
+           WHERE sh.domain_id = d.id
+           ORDER BY sh.scanned_at DESC
+           LIMIT 1) AS protocol_results
+       FROM domains d
+       WHERE d.user_id = ?
+       ORDER BY d.domain ASC`,
+    )
+    .bind(userId)
+    .all<DashboardExportRow>();
+  return result.results;
+}
+
 export async function getScanHistoryWithProtocols(
   db: D1Database,
   domainId: number,

@@ -2061,6 +2061,11 @@ ${statStrip}
 ${renderAlertsSection(alerts)}
 <div class="dashboard-domains-header" style="display:flex;align-items:center;gap:1rem;margin-bottom:0.75rem;">
   <h2 class="dashboard-title" style="margin:0;flex:1;">Your Domains</h2>
+  ${
+    plan === "pro"
+      ? `<a href="/dashboard/export" class="btn btn-secondary" style="font-size:0.8125rem">Export</a>`
+      : `<a href="/dashboard/export" class="btn btn-secondary" style="font-size:0.8125rem;opacity:0.6" title="Pro feature">Export</a>`
+  }
   <button type="button" class="dashboard-add-btn" data-wizard-open>Add domain</button>
 </div>
 ${renderDomainPanel({ domains, controls, usage })}
@@ -2068,6 +2073,19 @@ ${renderDomainDrawerShell()}
 ${renderAddDomainWizardShell()}`,
     email,
   );
+}
+
+// 402 upsell page shown to free-plan users who hit GET /dashboard/export.
+// The route is not hidden (same pattern as /domain/:domain/history) so the URL
+// is stable and can appear in docs without breaking links for non-Pro visitors.
+export function renderExportUpsellPage({ email }: { email: string }): string {
+  const body = `<h1 class="dashboard-title">Export Watchlist</h1>
+<div class="upgrade-prompt">
+  <h2>Pro feature</h2>
+  <p>Export your full watchlist and the most recent scan result for every domain to CSV or JSON. Available on the Pro plan.</p>
+  <a href="/dashboard/billing/subscribe" class="btn">Upgrade to Pro</a>
+</div>`;
+  return dashboardPage("Export — dmarc.mx", body, email);
 }
 
 // === Local-only fixture preview ============================================

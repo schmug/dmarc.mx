@@ -9,6 +9,7 @@ import { generateApiKey } from "../auth/api-key.js";
 import { requireAuth } from "../auth/middleware.js";
 import type { SessionPayload } from "../auth/session.js";
 import { dashboardBillingRoutes } from "../billing/routes.js";
+import { escapeCsvField } from "../csv.js";
 import {
   acknowledgeAlert,
   countUnacknowledgedByDomain,
@@ -30,6 +31,7 @@ import {
   listDomainsForUserPaged,
 } from "../db/domains.js";
 import {
+  getDashboardExportRows,
   getPortfolioTrendForUser,
   getScanHistory,
   getScanHistoryWithProtocols,
@@ -54,6 +56,7 @@ import {
   renderDomainDetailPage,
   renderDomainHistoryPage,
   renderDomainPanel,
+  renderExportUpsellPage,
   renderSettingsPage,
   toApiKeyListEntry,
 } from "../views/dashboard.js";
@@ -541,6 +544,147 @@ dashboardRoutes.get("/domains", async (c) => {
   // no-store keeps a CDN from caching one user's domain list and serving it
   // to another. The route is auth-required, but belt-and-suspenders.
   return c.html(html, 200, { "Cache-Control": "no-store" });
+});
+
+// Dashboard export — Pro only. Serves the user's full watchlist + most-recent
+// scan result for every domain as either CSV or JSON, depending on ?format=.
+// Strictly reads from the existing scan_history table — no fresh DNS lookups,
+// so this is fast and never hits the rate limiter.
+//
+// Future work (out of scope): historical bulk-export (all scans over time),
+// scheduled/emailed exports, PDF reports. See issue #194 for context.
+dashboardRoutes.get("/export", async (c) => {
+  const session = c.get("user" as never) as SessionPayload;
+  const db = (c.env as { DB: D1Database }).DB;
+  const plan = await getPlanForUser(db, session.sub);
+
+  // Gate on Pro — but return a 402 upsell page, not 404, so the URL is stable
+  // and can appear in docs/pricing without breaking for non-Pro visitors.
+  if (plan !== "pro") {
+    return c.html(renderExportUpsellPage({ email: session.email }), 402);
+  }
+
+  const rows = await getDashboardExportRows(db, session.sub);
+  const formatParam = new URL(c.req.url).searchParams.get("format");
+  const format = formatParam === "json" ? "json" : "csv";
+
+  const dateStr = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+
+  if (format === "json") {
+    const payload = rows.map((row) => {
+      let protocols: Record<string, unknown> | null = null;
+      if (row.protocol_results) {
+        try {
+          protocols = JSON.parse(row.protocol_results) as Record<
+            string,
+            unknown
+          >;
+        } catch {
+          protocols = null;
+        }
+      }
+      return {
+        domain: row.domain,
+        last_scanned_at: row.last_scanned_at,
+        grade: row.last_grade,
+        protocols,
+      };
+    });
+
+    return new Response(JSON.stringify(payload, null, 2), {
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Disposition": `attachment; filename="dmarcheck-dashboard-${dateStr}.json"`,
+        "Cache-Control": "no-store",
+      },
+    });
+  }
+
+  // CSV: one row per domain with flat protocol-status columns
+  const CSV_HEADERS = [
+    "domain",
+    "last_scanned_at",
+    "grade",
+    "score",
+    "dmarc_status",
+    "spf_status",
+    "dkim_status",
+    "bimi_status",
+    "mta_sts_status",
+    "mx_status",
+  ];
+
+  // Grade → numeric score (0–12), mirroring the GRADE_SCORE table in scans.ts
+  const GRADE_SCORE: Record<string, number> = {
+    S: 12,
+    "A+": 11,
+    A: 10,
+    "A-": 9,
+    "B+": 8,
+    B: 7,
+    "B-": 6,
+    "C+": 5,
+    C: 4,
+    "C-": 3,
+    "D+": 2,
+    D: 1,
+    "D-": 1,
+    F: 0,
+  };
+
+  function extractStatus(
+    protocols: Record<string, unknown> | null,
+    key: string,
+  ): string {
+    const proto = protocols?.[key] as { status?: unknown } | undefined | null;
+    const s = proto?.status;
+    return typeof s === "string" ? s : "";
+  }
+
+  const csvRows: string[] = [];
+  // BOM so Excel auto-detects UTF-8
+  csvRows.push(`﻿${CSV_HEADERS.map(escapeCsvField).join(",")}`);
+
+  for (const row of rows) {
+    let protocols: Record<string, unknown> | null = null;
+    if (row.protocol_results) {
+      try {
+        protocols = JSON.parse(row.protocol_results) as Record<string, unknown>;
+      } catch {
+        protocols = null;
+      }
+    }
+
+    const lastScannedIso = row.last_scanned_at
+      ? new Date(row.last_scanned_at * 1000).toISOString()
+      : "";
+    const grade = row.last_grade ?? "";
+    const score = grade ? String(GRADE_SCORE[grade] ?? "") : "";
+
+    const fields = [
+      row.domain,
+      lastScannedIso,
+      grade,
+      score,
+      extractStatus(protocols, "dmarc"),
+      extractStatus(protocols, "spf"),
+      extractStatus(protocols, "dkim"),
+      extractStatus(protocols, "bimi"),
+      extractStatus(protocols, "mta_sts"),
+      extractStatus(protocols, "mx"),
+    ];
+    csvRows.push(fields.map(escapeCsvField).join(","));
+  }
+
+  const csv = `${csvRows.join("\r\n")}\r\n`;
+
+  return new Response(csv, {
+    headers: {
+      "Content-Type": "text/csv; charset=utf-8",
+      "Content-Disposition": `attachment; filename="dmarcheck-dashboard-${dateStr}.csv"`,
+      "Cache-Control": "no-store",
+    },
+  });
 });
 
 dashboardRoutes.post("/alerts/:id/acknowledge", async (c) => {
