@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { CONFIG } from "../config";
-import { parseClosesIssue, isProvenanceTrusted } from "../gate-core";
+import { parseClosesIssue, isProvenanceTrusted, closesIssueRefs } from "../gate-core";
 import { touchesRiskPath, withinSizeEnvelope, scopeDrift } from "../gate-core";
 import { evaluateGate, type GateInput } from "../gate-core";
 
@@ -157,5 +157,66 @@ describe("evaluateGate", () => {
     const v = evaluateGate(i);
     expect(v.pass).toBe(false);
     expect(v.reasons.join(" ")).toMatch(/#999/);
+  });
+});
+
+describe("parseClosesIssue / closesIssueRefs hardening", () => {
+  it("ignores Closes inside HTML comments", () => {
+    expect(parseClosesIssue("<!-- Closes #999 -->\n\nCloses #42")).toBe(42);
+  });
+  it("ignores Closes inside blockquotes", () => {
+    expect(parseClosesIssue("> Closes #999\n\nCloses #42")).toBe(42);
+  });
+  it("fails closed on multiple distinct refs", () => {
+    expect(parseClosesIssue("Closes #42\nCloses #999")).toBeNull();
+  });
+  it("collapses duplicate identical refs to one", () => {
+    expect(parseClosesIssue("Closes #42 and again Closes #42")).toBe(42);
+    expect(closesIssueRefs("Closes #42 Closes #42")).toEqual([42]);
+  });
+});
+
+describe("evaluateGate ambiguity + provenance source-of-truth", () => {
+  function baseInput2() {
+    return {
+      cfg: CONFIG,
+      issue: { number: 42, author: "schmug", labels: ["spec-approved"], filePointers: ["src/analyzers/**"] },
+      pr: { number: 100, body: "Implements analyzer tweak.\n\nCloses #42",
+            changedFiles: ["src/analyzers/spf.ts"], additions: 30, deletions: 5, ciAllGreen: true },
+    };
+  }
+  it("FAILS with an ambiguous reason on multiple Closes refs", () => {
+    const i = baseInput2(); i.pr.body = "Closes #42\nCloses #999";
+    const v = evaluateGate(i);
+    expect(v.pass).toBe(false);
+    expect(v.reasons.join(" ")).toMatch(/ambiguous Closes refs/);
+  });
+});
+
+describe("denylist hardening + normalization", () => {
+  it("blocks nested wrangler.toml", () => {
+    expect(touchesRiskPath(["packages/x/wrangler.toml"], CONFIG.riskPathDenylist).length).toBe(1);
+  });
+  it("blocks nested .github/workflows", () => {
+    expect(touchesRiskPath(["apps/web/.github/workflows/ci.yml"], CONFIG.riskPathDenylist).length).toBe(1);
+  });
+  it("blocks an authz directory file", () => {
+    expect(touchesRiskPath(["src/authz/policy.ts"], CONFIG.riskPathDenylist).length).toBe(1);
+  });
+  it("blocks capitalized AuthGuard via case-insensitive denylist", () => {
+    expect(touchesRiskPath(["src/AuthGuard.ts"], CONFIG.riskPathDenylist).length).toBe(1);
+  });
+  it("blocks reversed access*cloudflare order", () => {
+    expect(touchesRiskPath(["src/access-cloudflare.ts"], CONFIG.riskPathDenylist).length).toBe(1);
+  });
+  it("normalizes ./-prefixed risky paths", () => {
+    expect(touchesRiskPath(["./src/auth/login.ts"], CONFIG.riskPathDenylist).length).toBe(1);
+  });
+  it("scopeDrift normalizes ./-prefixed in-scope paths", () => {
+    expect(scopeDrift(["./src/analyzers/spf.ts"], ["src/analyzers/**"])).toEqual([]);
+  });
+  it("size envelope exact boundary passes (<=)", () => {
+    const pr = { number: 1, body: "", changedFiles: Array(8).fill("a.ts"), additions: 200, deletions: 50, ciAllGreen: true };
+    expect(withinSizeEnvelope(pr, CONFIG)).toBe(true);
   });
 });

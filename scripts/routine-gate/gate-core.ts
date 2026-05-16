@@ -19,9 +19,24 @@ export interface PrInfo {
 
 type Cfg = typeof CONFIG_T;
 
+// Strip HTML comments and markdown blockquote lines, then collect DISTINCT issue refs.
+export function closesIssueRefs(body: string): number[] {
+  const cleaned = body
+    .replace(/<!--[\s\S]*?-->/g, " ")          // drop HTML comments
+    .split("\n")
+    .filter((line) => !/^\s*>/.test(line))      // drop blockquote lines
+    .join("\n");
+  const refs = new Set<number>();
+  for (const m of cleaned.matchAll(/\bcloses\s+#(\d+)\b/gi)) {
+    refs.add(Number(m[1]));
+  }
+  return [...refs];
+}
+
+// Fail-closed: exactly one distinct ref => that number; zero OR ambiguous(>1) => null.
 export function parseClosesIssue(body: string): number | null {
-  const m = body.match(/\bcloses\s+#(\d+)\b/i);
-  return m ? Number(m[1]) : null;
+  const refs = closesIssueRefs(body);
+  return refs.length === 1 ? refs[0] : null;
 }
 
 export function isProvenanceTrusted(issue: IssueInfo | null, cfg: Cfg): boolean {
@@ -32,8 +47,15 @@ export function isProvenanceTrusted(issue: IssueInfo | null, cfg: Cfg): boolean 
   );
 }
 
+function normalizePath(p: string): string {
+  return p.replace(/^(\.\/)+/, "").replace(/\/{2,}/g, "/");
+}
+
 export function touchesRiskPath(files: string[], denylist: string[]): string[] {
-  return files.filter((f) => denylist.some((p) => minimatch(f, p, { dot: true })));
+  return files.filter((f) => {
+    const nf = normalizePath(f);
+    return denylist.some((p) => minimatch(nf, p, { dot: true, nocase: true }));
+  });
 }
 
 export function withinSizeEnvelope(pr: PrInfo, cfg: Cfg): boolean {
@@ -47,7 +69,10 @@ export function withinSizeEnvelope(pr: PrInfo, cfg: Cfg): boolean {
 // Empty pointers => every file is drift (fail-closed: no declared scope = not safe).
 export function scopeDrift(changedFiles: string[], pointers: string[]): string[] {
   if (pointers.length === 0) return [...changedFiles];
-  return changedFiles.filter((f) => !pointers.some((p) => minimatch(f, p, { dot: true })));
+  return changedFiles.filter((f) => {
+    const nf = normalizePath(f);
+    return !pointers.some((p) => minimatch(nf, p, { dot: true }));
+  });
 }
 
 export interface GateInput {
@@ -65,9 +90,11 @@ export function evaluateGate(input: GateInput): GateVerdict {
   const { cfg, issue, pr } = input;
   const reasons: string[] = [];
 
-  // Condition 3: linkage
-  const closes = parseClosesIssue(pr.body);
-  if (closes === null) reasons.push("PR body has no `Closes #n` link");
+  // Condition 3: linkage (fail-closed on zero OR ambiguous Closes refs)
+  const refs = closesIssueRefs(pr.body);
+  const closes = refs.length === 1 ? refs[0] : null;
+  if (refs.length === 0) reasons.push("PR body has no `Closes #n` link");
+  else if (refs.length > 1) reasons.push(`ambiguous Closes refs (#${refs.join(", #")}) — fail-closed`);
 
   // Conditions 1 + 2: provenance + intent token
   if (!issue) {
@@ -76,11 +103,13 @@ export function evaluateGate(input: GateInput): GateVerdict {
     if (closes !== null && closes !== issue.number) {
       reasons.push(`PR closes #${closes} but evaluated issue is #${issue.number}`);
     }
-    if (!cfg.allowlistAuthors.includes(issue.author)) {
-      reasons.push(`issue author @${issue.author} not on allowlist`);
-    }
-    if (!issue.labels.includes(cfg.labels.specApproved)) {
-      reasons.push(`issue #${issue.number} missing "${cfg.labels.specApproved}" label`);
+    if (!isProvenanceTrusted(issue, cfg)) {
+      if (!cfg.allowlistAuthors.includes(issue.author)) {
+        reasons.push(`issue author @${issue.author} not on allowlist`);
+      }
+      if (!issue.labels.includes(cfg.labels.specApproved)) {
+        reasons.push(`issue #${issue.number} missing "${cfg.labels.specApproved}" label`);
+      }
     }
   }
 

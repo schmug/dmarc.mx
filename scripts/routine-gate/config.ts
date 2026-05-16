@@ -23,9 +23,13 @@ export const CONFIG = {
 
   // Condition 4: any match -> escalate, never auto-merge. Globs are minimatch with { dot: true }.
   riskPathDenylist: [
-    "**/auth/**", "**/*auth*", "**/crypto/**", "**/*jwt*",
-    ".github/workflows/**", "**/migrations/**", "**/*.env*", "**/.dev.vars",
-    "**/*mta-sts*", "**/*mta_sts*", "**/*cloudflare*access*",
-    "infra/**", "**/terraform/**", "**/*.tf", "wrangler.toml",
+    "**/auth/**", "**/auth*/**", "**/authz/**", "**/*auth*", "**/*authz*",
+    "**/crypto/**", "**/*jwt*",
+    "**/.github/workflows/**", "**/migrations/**",
+    "**/*.env*", "**/.dev.vars",
+    "**/*mta-sts*", "**/*mta_sts*",
+    "**/*cloudflare*access*", "**/*access*cloudflare*",
+    "infra/**", "**/terraform/**", "**/*.tf",
+    "**/wrangler.toml", "**/wrangler.jsonc",
   ],
 };
