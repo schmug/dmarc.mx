@@ -1,5 +1,17 @@
 {
   "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "git log main..HEAD --oneline 2>/dev/null | grep -qm1 '.' && printf '\\n— Session had commits. Run /revise-claude-md to capture any new gotchas or conventions in CLAUDE.md.\\n' || true",
+            "statusMessage": "Checking for CLAUDE.md update opportunities..."
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Edit|Write",
