@@ -1,0 +1,33 @@
+# CODEOWNERS — human-review gate for security-sensitive paths.
+#
+# Why this exists: autonomous Claude Code routines (see claude-routines repo)
+# open PRs against this PUBLIC repo daily, sourced from public issue bodies, and
+# auto-merge them once the `check` status is green. `main` requires 0 approving
+# reviews in the general case (preserving that autonomy). This file is the
+# hybrid gate: any PR whose diff touches a path below requires an approving
+# review from a code owner before it can merge, regardless of CI.
+#
+# Enforced by the `main-protection` ruleset rule `require_code_owner_review`.
+# A code owner must have write access. The autonomous bot MUST run as a
+# distinct, non-admin identity (not @schmug) or this gate cannot be satisfied
+# (GitHub forbids self-approval) — tracked separately as the bot-identity split.
+
+# CI / supply chain — a PR can otherwise rewrite its own merge gate, since
+# pull_request workflows run from the PR head ref.
+/.github/                       @schmug
+/package.json                   @schmug
+/package-lock.json              @schmug
+/wrangler.toml                  @schmug
+
+# Documented security invariants and the regression-blocking hooks.
+/SECURITY.md                    @schmug
+/CLAUDE.md                      @schmug
+/.claude/settings.json          @schmug
+
+# Input validation, redirect posture, rate limiting, and prod-mutating
+# DB migrations — the highest-blast-radius source paths.
+/src/index.ts                   @schmug
+/src/rate-limit.ts              @schmug
+/src/analyzers/mta-sts.ts       @schmug
+/src/analyzers/security-txt.ts  @schmug
+/src/db/                        @schmug
