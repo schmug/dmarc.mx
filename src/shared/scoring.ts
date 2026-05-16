@@ -15,10 +15,10 @@ interface Protocols {
   bimi: BimiResult;
   mta_sts: MtaStsResult;
   // Optional in this internal interface so older test fixtures (which
-  // don't know about security_txt) keep typechecking against this shape.
-  // The orchestrator always populates it; informational only — does not
-  // affect grade resolution.
+  // don't know about security_txt or tls_rpt) keep typechecking.
+  // The orchestrator always populates both; neither affects grade resolution.
   security_txt?: SecurityTxtResult;
+  tls_rpt?: unknown;
   [key: string]: unknown;
 }
 
