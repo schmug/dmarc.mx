@@ -24,6 +24,17 @@ export default defineConfig({
           exclude: ["test/integration/**", "node_modules/**"],
         },
       },
+      // stripe-lifecycle lives in test/integration/ but uses vi.mock and
+      // vi.stubGlobal (Node-only APIs). It gets its own project entry so the
+      // Workers pool exclude and the Node pool exclude don't fight each other.
+      {
+        extends: true,
+        test: {
+          name: "node-integration",
+          globals: true,
+          include: ["test/integration/stripe-lifecycle.test.ts"],
+        },
+      },
       {
         extends: true,
         plugins: [
@@ -34,6 +45,8 @@ export default defineConfig({
         test: {
           name: "workers",
           include: ["test/integration/**/*.test.ts"],
+          // stripe-lifecycle uses vi.mock/vi.stubGlobal — Node pool only.
+          exclude: ["test/integration/stripe-lifecycle.test.ts"],
         },
       },
     ],
