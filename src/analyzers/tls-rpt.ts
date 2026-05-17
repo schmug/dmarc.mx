@@ -1,4 +1,4 @@
-import { queryTxt } from "../dns/client.js";
+import { DnsLookupError, queryTxt } from "../dns/client.js";
 import { parseTags } from "../shared/parse-tags.js";
 import type { TlsRptResult, Validation } from "./types.js";
 
@@ -8,7 +8,26 @@ import type { TlsRptResult, Validation } from "./types.js";
 // not change the enforcement posture.
 
 export async function analyzeTlsRpt(domain: string): Promise<TlsRptResult> {
-  const txt = await queryTxt(`_smtp._tls.${domain}`);
+  let txt: Awaited<ReturnType<typeof queryTxt>>;
+  try {
+    txt = await queryTxt(`_smtp._tls.${domain}`);
+  } catch (err) {
+    if (err instanceof DnsLookupError) {
+      return {
+        status: "warn",
+        record: null,
+        tags: null,
+        lookup_error: { code: err.code, message: err.message },
+        validations: [
+          {
+            status: "warn",
+            message: `TLS-RPT lookup failed (${err.code}) — result may be incomplete`,
+          },
+        ],
+      };
+    }
+    throw err;
+  }
 
   if (!txt || txt.entries.length === 0) {
     return {

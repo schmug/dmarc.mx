@@ -110,6 +110,7 @@ export interface TlsRptResult {
   record: string | null;
   tags: Record<string, string> | null;
   validations: Validation[];
+  lookup_error?: { code: string; message: string };
 }
 
 export interface ScanSummary {
