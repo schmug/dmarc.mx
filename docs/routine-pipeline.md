@@ -25,5 +25,42 @@ prompt file contents, set schedule (implementer every 4h; reviewer offset +1h),
 enable `claude/`-branch pushes for the implementer. Routine commits appear as
 `schmug`.
 
+## Kill switch (emergency pause)
+
+Both Routines check for the `pipeline-paused` repo label as their very first
+action. While that label exists, neither Routine will open PRs, merge, push
+branches, comment on issues, or modify any label — they exit immediately with a
+clear no-op message.
+
+**To pause the pipeline:**
+```
+gh label create pipeline-paused --repo schmug/dmarcheck --color B60205 \
+  --description "Kill switch: both Routines no-op while this label exists" \
+  --force
+```
+Or create it in the GitHub UI: repo → Issues → Labels → New label,
+name `pipeline-paused`, color `#B60205`.
+
+**To resume the pipeline:**
+```
+gh label delete pipeline-paused --repo schmug/dmarcheck --yes
+```
+Or delete it in the GitHub UI: repo → Issues → Labels → delete `pipeline-paused`.
+
+The `setup-labels.sh` script creates this label along with the other pipeline
+labels, so it is available from first setup. The kill switch is idempotent:
+running `setup-labels.sh` again will not re-pause a running pipeline; the label
+must be present for Routines to no-op.
+
+## Audit trail
+
+Every auto-merged PR receives a comment from the reviewer Routine containing the
+full gate verdict JSON (`pass: true`, `reasons` array) before the merge is
+triggered. This gives an immutable record on each PR of exactly why the gate
+passed it, supporting forensics after any unexpected merge.
+
+Escalated PRs (exit code 2) also receive a comment with the `reasons` array, as
+before.
+
 ## Pilot validation log
 Filled in during go-live. Scenario → expected → actual.
