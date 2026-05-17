@@ -8,6 +8,7 @@ import type { ScanResult } from "../analyzers/types.js";
 import { recordAlert } from "../db/alerts.js";
 import { type Domain, getDueDomains } from "../db/domains.js";
 import { recordScan } from "../db/scans.js";
+import { getUserById } from "../db/users.js";
 import { scan as defaultScan } from "../orchestrator.js";
 import { fireScanCompletedWebhook } from "../webhooks/triggers.js";
 
@@ -17,11 +18,23 @@ export interface RescanResult {
   errors: number;
 }
 
+type WebhookFireFn = (
+  db: D1Database,
+  userId: string,
+  input: {
+    domain: string;
+    grade: string;
+    scanId: string | number;
+    trigger: "cron";
+  },
+) => Promise<void>;
+
 interface RescanDeps {
   db: D1Database;
   now: number;
   batchSize?: number;
   scanFn?: (domain: string) => Promise<ScanResult>;
+  fireWebhookFn?: WebhookFireFn;
 }
 
 interface PreviousProtocolStatuses {
@@ -73,6 +86,23 @@ function extractStatuses(result: ScanResult): PreviousProtocolStatuses {
   };
 }
 
+function resultChanged(
+  domain: Domain,
+  prevStatuses: PreviousProtocolStatuses | null,
+  result: ScanResult,
+): boolean {
+  if (result.grade !== domain.last_grade) return true;
+  if (!prevStatuses) return true;
+  const next = extractStatuses(result);
+  return (
+    prevStatuses.dmarc !== next.dmarc ||
+    prevStatuses.spf !== next.spf ||
+    prevStatuses.dkim !== next.dkim ||
+    prevStatuses.bimi !== next.bimi ||
+    prevStatuses.mta_sts !== next.mta_sts
+  );
+}
+
 async function rescanOne(
   deps: RescanDeps,
   domain: Domain,
@@ -95,12 +125,18 @@ async function rescanOne(
     scannedAt: deps.now,
   });
 
-  await fireScanCompletedWebhook(deps.db, domain.user_id, {
-    domain: domain.domain,
-    grade: result.grade,
-    scanId: domain.id,
-    trigger: "cron",
-  });
+  const user = await getUserById(deps.db, domain.user_id);
+  const shouldFireWebhook =
+    !user?.notify_on_change_only || resultChanged(domain, prevStatuses, result);
+  if (shouldFireWebhook) {
+    const fireWebhook = deps.fireWebhookFn ?? fireScanCompletedWebhook;
+    await fireWebhook(deps.db, domain.user_id, {
+      domain: domain.domain,
+      grade: result.grade,
+      scanId: domain.id,
+      trigger: "cron",
+    });
+  }
 
   const alerts: AlertPayload[] = [];
   const gradeAlert = detectGradeDrop(domain.last_grade, result.grade);

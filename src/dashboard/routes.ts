@@ -40,6 +40,7 @@ import {
   acknowledgeApiKeyRetirement,
   getUserById,
   setEmailAlertsEnabled,
+  setNotifyOnChangeOnly,
 } from "../db/users.js";
 import { getRecentDeliveriesForUser } from "../db/webhook-deliveries.js";
 import { scan } from "../orchestrator.js";
@@ -901,6 +902,7 @@ dashboardRoutes.get("/settings", async (c) => {
       plan,
       billingEnabled: Boolean(env.STRIPE_SECRET_KEY),
       emailAlertsEnabled: user.email_alerts_enabled === 1,
+      notifyOnChangeOnly: user.notify_on_change_only === 1,
       showRetirementBanner: user.api_key_retirement_acknowledged_at === null,
       recentDeliveries: deliveries.map((row) => ({
         eventType: row.event_type,
@@ -922,6 +924,16 @@ dashboardRoutes.post("/settings/email-alerts", async (c) => {
   const body = await c.req.parseBody();
   const enabled = body.enabled === "on" || body.enabled === "1";
   await setEmailAlertsEnabled(db, session.sub, enabled);
+  return c.redirect("/dashboard/settings");
+});
+
+// Toggle notify-on-change-only preference. Same checkbox semantics as email-alerts.
+dashboardRoutes.post("/settings/notify-on-change", async (c) => {
+  const session = c.get("user" as never) as SessionPayload;
+  const db = (c.env as { DB: D1Database }).DB;
+  const body = await c.req.parseBody();
+  const enabled = body.enabled === "on" || body.enabled === "1";
+  await setNotifyOnChangeOnly(db, session.sub, enabled);
   return c.redirect("/dashboard/settings");
 });
 
