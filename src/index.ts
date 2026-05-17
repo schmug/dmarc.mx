@@ -43,6 +43,7 @@ import { recordScan } from "./db/scans.js";
 import { getPlanForUser } from "./db/subscriptions.js";
 import { setEmailAlertsEnabled } from "./db/users.js";
 import type { Env } from "./env.js";
+import { handleMcpRequest, MCP_SERVER_CARD } from "./mcp/handler.js";
 import type { ProtocolId, ProtocolResult } from "./orchestrator.js";
 import { scan, scanStreaming } from "./orchestrator.js";
 import {
@@ -510,6 +511,14 @@ app.use(
   ),
 );
 
+// MCP endpoint runs a full scan on cache miss — same per-IP budget as /api/check.
+app.use(
+  "/mcp",
+  rateLimitMiddleware((c, result, headers) =>
+    c.json({ error: blockedMessage(result) }, { status: 429, headers }),
+  ),
+);
+
 const protocolRenderers: Record<
   ProtocolId,
   (result: ProtocolResult) => string
@@ -826,6 +835,34 @@ app.get("/.well-known/agent-skills/index.json", async (c) => {
 app.get("/.well-known/agent-skills/scan-domain/SKILL.md", (c) => {
   return c.body(SCAN_DOMAIN_SKILL_MD, 200, {
     "Content-Type": "text/markdown; charset=utf-8",
+    "Cache-Control": "public, max-age=3600",
+  });
+});
+
+// Remote MCP server — streamable-HTTP transport (POST only; stateless).
+// Agents discover this endpoint via /.well-known/mcp/server-card.json and
+// the agent-skills index.
+app.post("/mcp", async (c) => {
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json(
+      {
+        jsonrpc: "2.0",
+        id: null,
+        error: { code: -32700, message: "Parse error" },
+      },
+      400,
+    );
+  }
+  return handleMcpRequest(body, { executionCtx: c.executionCtx });
+});
+
+// SEP-1649 MCP server card — minimal shape, served before the RFC finalises.
+app.get("/.well-known/mcp/server-card.json", (c) => {
+  return c.body(MCP_SERVER_CARD, 200, {
+    "Content-Type": "application/json; charset=utf-8",
     "Cache-Control": "public, max-age=3600",
   });
 });

@@ -30,6 +30,7 @@ export function buildApiCatalog(origin: string = CANONICAL_ORIGIN): ApiCatalog {
       // anchors for parameterized resources. Agents resolve `{name}` from
       // the OpenAPI path parameter.
       { anchor: `${origin}/api/domain/{name}/history`, ...sharedRefs },
+      { anchor: `${origin}/mcp`, ...sharedRefs },
     ],
   };
 }
