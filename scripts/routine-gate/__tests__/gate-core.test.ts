@@ -174,6 +174,26 @@ describe("parseClosesIssue / closesIssueRefs hardening", () => {
     expect(parseClosesIssue("Closes #42 and again Closes #42")).toBe(42);
     expect(closesIssueRefs("Closes #42 Closes #42")).toEqual([42]);
   });
+  it("ignores Closes inside inline backtick code", () => {
+    expect(parseClosesIssue("Example: `Closes #999`\n\nCloses #42")).toBe(42);
+  });
+  it("ignores Closes inside fenced code block", () => {
+    expect(parseClosesIssue("Example:\n```\nCloses #999\n```\n\nCloses #42")).toBe(42);
+  });
+  it("ignores Closes in unterminated HTML comment (no closing -->)", () => {
+    expect(parseClosesIssue("<!-- Closes #999\n\nCloses #42")).toBe(null);
+  });
+  it("inline code example plus real ref resolves to real ref only", () => {
+    expect(parseClosesIssue("Use `Closes #999` syntax.\n\nCloses #42")).toBe(42);
+  });
+  it("fenced code example plus real ref resolves to real ref only", () => {
+    const body = "Usage:\n```\nCloses #999\n```\n\nCloses #42";
+    expect(parseClosesIssue(body)).toBe(42);
+    expect(closesIssueRefs(body)).toEqual([42]);
+  });
+  it("still fails closed on two distinct real refs (not in code)", () => {
+    expect(parseClosesIssue("Closes #42\nAlso closes #99")).toBeNull();
+  });
 });
 
 describe("evaluateGate ambiguity + provenance source-of-truth", () => {
