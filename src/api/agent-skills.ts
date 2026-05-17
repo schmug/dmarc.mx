@@ -138,8 +138,8 @@ export async function getAgentSkillsIndexJson(
         name: "scan_domain",
         type: "mcp",
         description:
-          "MCP streamable-HTTP tool — call scan_domain via JSON-RPC 2.0 at POST /mcp.",
-        url: `${origin}/mcp`,
+          "MCP streamable-HTTP tool — call scan_domain via JSON-RPC 2.0 at POST /mcp. This url serves the MCP server card (the POST transport lives at /mcp).",
+        url: `${origin}/.well-known/mcp/server-card.json`,
         sha256: mcpCardSha,
       },
     ],
