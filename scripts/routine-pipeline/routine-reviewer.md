@@ -6,7 +6,22 @@ The gate is a deterministic script — TRUST ITS EXIT CODE, do not re-judge.
 1. `gh pr list --repo <REPO> --label auto-impl --state open --json number,labels`
 2. Skip any PR that already has the `needs-you` label (idempotent).
 3. For EACH remaining PR #P:
-   a. Run: `npx tsx scripts/routine-gate/gate.ts --repo <REPO> --pr P`
+   a. Run the gate from the `main` branch, NOT from the current working checkout
+      (so a PR that modifies the gate cannot be judged by its own modified logic).
+      The gate queries PR diff/metadata via `gh` — only the gate *code* must come
+      from `main`. Exact command sequence:
+      ```
+      git worktree add /tmp/gate-from-main main
+      cd /tmp/gate-from-main
+      npx tsx scripts/routine-gate/gate.ts --repo <REPO> --pr P
+      EXIT_CODE=$?
+      cd -
+      git worktree remove --force /tmp/gate-from-main
+      ```
+      Capture stdout (JSON verdict) and `$EXIT_CODE`.
+      If the `git worktree add` step fails (e.g. `/tmp/gate-from-main` already
+      exists from a crashed prior run), remove it first:
+      `git worktree remove --force /tmp/gate-from-main 2>/dev/null; git worktree add /tmp/gate-from-main main`
    b. Capture stdout (JSON verdict) and the exit code.
    c. If exit code == 0 (PASS):
       `gh pr merge P --repo <REPO> --squash --auto --delete-branch`

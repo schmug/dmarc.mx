@@ -14,6 +14,30 @@ protection is the independent backstop. Note: the gate over-blocks on ambiguous
 `Closes` refs and code-fenced examples (fails safe → escalates, never
 auto-merges).
 
+## Gate self-modification defence (belt-and-suspenders)
+Two layered controls prevent a PR from weakening the gate and then being
+auto-merged by the weakened gate:
+
+1. **Denylist** (primary, PR #311): any PR that touches `scripts/routine-gate/**`
+   matches a risk-path and force-escalates to `needs-you` regardless of any other
+   condition.
+
+2. **Gate-from-main** (secondary, issue #312): the reviewer Routine always
+   executes the gate binary from a fresh `main` worktree, not from the PR branch.
+   The gate queries PR diff/metadata via `gh` (not the working tree), so running
+   it from `main` is transparent — only the gate *code* origin changes.
+   Command sequence (see `scripts/routine-pipeline/routine-reviewer.md` step 3a):
+   ```
+   git worktree add /tmp/gate-from-main main
+   cd /tmp/gate-from-main
+   npx tsx scripts/routine-gate/gate.ts --repo <REPO> --pr P
+   EXIT_CODE=$?
+   cd -
+   git worktree remove --force /tmp/gate-from-main
+   ```
+   Even if the denylist were later weakened or bypassed, this layer ensures the
+   evaluation logic itself cannot be modified by the PR under review.
+
 ## Cap math (Max = 15 Routine runs/day)
 4 cycles/day × (implementer + reviewer) = 8 runs/day. Implementer 6 issues/run ×
 4 = up to 24 issues/day. One-off scheduled runs don't count against the cap.
