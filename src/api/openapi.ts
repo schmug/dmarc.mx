@@ -425,6 +425,112 @@ export const OPENAPI_DOCUMENT = {
         },
       },
     },
+    "/mcp": {
+      post: {
+        summary: "MCP streamable-HTTP transport (JSON-RPC 2.0)",
+        description:
+          "Stateless MCP endpoint. Each POST is a complete JSON-RPC 2.0 exchange. Implements the `scan_domain` tool — equivalent to `GET /api/check` but wrapped in the Model Context Protocol (2025-03-26). Rate-limited to 10 req/IP/60s. Discover via `/.well-known/mcp/server-card.json`.",
+        operationId: "mcpRpc",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["jsonrpc", "method"],
+                properties: {
+                  jsonrpc: { type: "string", enum: ["2.0"] },
+                  id: {
+                    oneOf: [
+                      { type: "string" },
+                      { type: "number" },
+                      { type: "null" },
+                    ],
+                  },
+                  method: { type: "string" },
+                  params: { type: "object" },
+                },
+              },
+              examples: {
+                initialize: {
+                  summary: "Initialize handshake",
+                  value: {
+                    jsonrpc: "2.0",
+                    id: 1,
+                    method: "initialize",
+                    params: {
+                      protocolVersion: "2025-03-26",
+                      clientInfo: { name: "my-agent", version: "1.0" },
+                    },
+                  },
+                },
+                toolsList: {
+                  summary: "List available tools",
+                  value: { jsonrpc: "2.0", id: 2, method: "tools/list" },
+                },
+                scanDomain: {
+                  summary: "Call scan_domain tool",
+                  value: {
+                    jsonrpc: "2.0",
+                    id: 3,
+                    method: "tools/call",
+                    params: {
+                      name: "scan_domain",
+                      arguments: { domain: "dmarc.mx" },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "200": {
+            description:
+              "JSON-RPC 2.0 response (always 200; errors use the JSON-RPC `error` field)",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["jsonrpc", "id"],
+                  properties: {
+                    jsonrpc: { type: "string", enum: ["2.0"] },
+                    id: {
+                      oneOf: [
+                        { type: "string" },
+                        { type: "number" },
+                        { type: "null" },
+                      ],
+                    },
+                    result: { type: "object" },
+                    error: {
+                      type: "object",
+                      required: ["code", "message"],
+                      properties: {
+                        code: { type: "integer" },
+                        message: { type: "string" },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          "204": {
+            description:
+              "Notification acknowledged (no JSON-RPC `id` — no response body per spec)",
+          },
+          "429": {
+            description: "Rate limit exceeded (10 req/min per IP)",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/Error" },
+              },
+            },
+          },
+        },
+      },
+    },
     "/.well-known/api-catalog": {
       get: {
         summary: "RFC 9727 API catalog",

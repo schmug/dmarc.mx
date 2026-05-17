@@ -9,6 +9,7 @@
 // don't allow top-level await. Cached per Worker instance after the first
 // request.
 
+import { MCP_SERVER_CARD } from "../mcp/handler.js";
 import { CANONICAL_ORIGIN } from "./catalog.js";
 import { OPENAPI_JSON } from "./openapi.js";
 
@@ -61,6 +62,14 @@ per request. See the OpenAPI doc for the request/response shape.
 curl -H 'Accept: application/json' 'https://dmarc.mx/api/check?domain=dmarc.mx'
 \`\`\`
 
+## MCP variant
+
+The same scan is also available as an MCP tool via the streamable-HTTP
+transport at \`https://dmarc.mx/mcp\`. Each POST is a complete JSON-RPC 2.0
+exchange; the server is stateless. Supported methods: \`initialize\`,
+\`tools/list\`, \`tools/call\` (tool: \`scan_domain\`).
+Server card at \`https://dmarc.mx/.well-known/mcp/server-card.json\`.
+
 ## Related
 
 - API catalog: \`https://dmarc.mx/.well-known/api-catalog\` (RFC 9727)
@@ -100,9 +109,10 @@ export async function getAgentSkillsIndexJson(
   const cached = cache.get(origin);
   if (cached) return cached;
 
-  const [skillSha, openapiSha] = await Promise.all([
+  const [skillSha, openapiSha, mcpCardSha] = await Promise.all([
     sha256Hex(SCAN_DOMAIN_SKILL_MD),
     sha256Hex(OPENAPI_JSON),
+    sha256Hex(MCP_SERVER_CARD),
   ]);
 
   const index: SkillsIndex = {
@@ -123,6 +133,14 @@ export async function getAgentSkillsIndexJson(
           "OpenAPI 3.1 description of the scan API and related endpoints.",
         url: `${origin}/openapi.json`,
         sha256: openapiSha,
+      },
+      {
+        name: "scan_domain",
+        type: "mcp",
+        description:
+          "MCP streamable-HTTP tool — call scan_domain via JSON-RPC 2.0 at POST /mcp.",
+        url: `${origin}/mcp`,
+        sha256: mcpCardSha,
       },
     ],
   };
