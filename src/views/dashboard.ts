@@ -2707,6 +2707,7 @@ export function renderSettingsPage({
   plan,
   billingEnabled,
   emailAlertsEnabled,
+  notifyOnChangeOnly,
   showRetirementBanner,
   recentDeliveries = [],
   testFlash = null,
@@ -2717,6 +2718,7 @@ export function renderSettingsPage({
   plan: "free" | "pro";
   billingEnabled: boolean;
   emailAlertsEnabled: boolean;
+  notifyOnChangeOnly: boolean;
   showRetirementBanner: boolean;
   recentDeliveries?: RecentWebhookDelivery[];
   testFlash?: WebhookTestFlash | null;
@@ -2803,6 +2805,20 @@ ${retirementBanner}
     <label style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.75rem">
       <input type="checkbox" name="enabled" ${emailAlertsEnabled ? "checked" : ""}>
       <span>Send me grade-drop alerts by email</span>
+    </label>
+    <button type="submit" class="btn btn-secondary">Save Preference</button>
+  </form>
+</div>
+
+<div class="settings-section">
+  <h2>Scan Notifications</h2>
+  <p style="font-size:0.875rem;color:var(--clr-text-muted);margin-bottom:0.75rem">
+    By default, your webhook receives a <code>scan.completed</code> event on every scheduled rescan. Enable this to receive events only when something actually changed.
+  </p>
+  <form method="POST" action="/dashboard/settings/notify-on-change">
+    <label style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.75rem">
+      <input type="checkbox" name="enabled" ${notifyOnChangeOnly ? "checked" : ""}>
+      <span>Only notify me when a scan result changes (grade or protocol status)</span>
     </label>
     <button type="submit" class="btn btn-secondary">Save Preference</button>
   </form>

@@ -1,6 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { runDueRescans } from "../src/cron/rescan.js";
 
+interface UserRow {
+  id: string;
+  email: string;
+  email_domain: string;
+  stripe_customer_id: string | null;
+  email_alerts_enabled: number;
+  notify_on_change_only: number;
+  api_key_retirement_acknowledged_at: number | null;
+  created_at: number;
+}
+
 interface DomainRow {
   id: number;
   user_id: string;
@@ -31,6 +42,7 @@ interface ScanHistoryRow {
   scanned_at: number;
 }
 
+let users: Map<string, UserRow>;
 let domains: Map<number, DomainRow>;
 let alerts: Map<number, AlertRow>;
 let history: Map<number, ScanHistoryRow>;
@@ -95,6 +107,10 @@ function makeD1Mock(): D1Database {
             .filter((r) => r.domain_id === domainId)
             .sort((a, b) => b.scanned_at - a.scanned_at);
           return (rows[0] ?? null) as T | null;
+        }
+        if (/FROM users WHERE id = \?/i.test(sql)) {
+          const [userId] = params as [string];
+          return (users.get(userId) ?? null) as T | null;
         }
         return null;
       },
@@ -177,6 +193,7 @@ describe("cron/runDueRescans", () => {
   const weekSeconds = 7 * 24 * 60 * 60;
 
   beforeEach(() => {
+    users = new Map();
     domains = new Map();
     alerts = new Map();
     history = new Map();
@@ -467,5 +484,154 @@ describe("cron/runDueRescans", () => {
     }
     // Zero tolerance for false-fail cascade: every grade must match exactly
     expect(falseFails).toBe(0);
+  });
+
+  describe("notify_on_change_only webhook gating", () => {
+    const monthSeconds = 30 * 24 * 60 * 60;
+
+    function makeDomain(overrides: Partial<DomainRow> = {}): DomainRow {
+      return {
+        id: 1,
+        user_id: "u1",
+        domain: "stable.com",
+        is_free: 1,
+        scan_frequency: "monthly",
+        last_scanned_at: now - monthSeconds - 1,
+        last_grade: "A",
+        created_at: 0,
+        ...overrides,
+      };
+    }
+
+    function makeUser(notifyOnChangeOnly: number): UserRow {
+      return {
+        id: "u1",
+        email: "user@example.com",
+        email_domain: "example.com",
+        stripe_customer_id: null,
+        email_alerts_enabled: 1,
+        notify_on_change_only: notifyOnChangeOnly,
+        api_key_retirement_acknowledged_at: null,
+        created_at: 0,
+      };
+    }
+
+    it("default off (setting=0): webhook fires even when result is identical", async () => {
+      users.set("u1", makeUser(0));
+      domains.set(1, makeDomain({ last_grade: "A" }));
+      history.set(99, {
+        id: 99,
+        domain_id: 1,
+        grade: "A",
+        score_factors: null,
+        protocol_results: JSON.stringify({
+          dmarc: { status: "pass" },
+          spf: { status: "pass" },
+          dkim: { status: "pass" },
+          bimi: { status: "pass" },
+          mta_sts: { status: "pass" },
+        }),
+        scanned_at: now - monthSeconds - 1,
+      });
+
+      const webhookFn = vi.fn().mockResolvedValue(undefined);
+      const scanFn = vi
+        .fn()
+        .mockResolvedValue(makeScanResult("stable.com", "A", {}));
+
+      await runDueRescans({
+        db: makeD1Mock(),
+        now,
+        scanFn: scanFn as never,
+        fireWebhookFn: webhookFn as never,
+      });
+
+      expect(webhookFn).toHaveBeenCalledOnce();
+    });
+
+    it("setting=1, no change: webhook suppressed", async () => {
+      users.set("u1", makeUser(1));
+      domains.set(1, makeDomain({ last_grade: "A" }));
+      history.set(99, {
+        id: 99,
+        domain_id: 1,
+        grade: "A",
+        score_factors: null,
+        protocol_results: JSON.stringify({
+          dmarc: { status: "pass" },
+          spf: { status: "pass" },
+          dkim: { status: "pass" },
+          bimi: { status: "pass" },
+          mta_sts: { status: "pass" },
+        }),
+        scanned_at: now - monthSeconds - 1,
+      });
+
+      const webhookFn = vi.fn().mockResolvedValue(undefined);
+      const scanFn = vi
+        .fn()
+        .mockResolvedValue(makeScanResult("stable.com", "A", {}));
+
+      await runDueRescans({
+        db: makeD1Mock(),
+        now,
+        scanFn: scanFn as never,
+        fireWebhookFn: webhookFn as never,
+      });
+
+      expect(webhookFn).not.toHaveBeenCalled();
+    });
+
+    it("setting=1, grade dropped: webhook fires", async () => {
+      users.set("u1", makeUser(1));
+      domains.set(1, makeDomain({ last_grade: "A" }));
+
+      const webhookFn = vi.fn().mockResolvedValue(undefined);
+      const scanFn = vi
+        .fn()
+        .mockResolvedValue(makeScanResult("stable.com", "C", {}));
+
+      await runDueRescans({
+        db: makeD1Mock(),
+        now,
+        scanFn: scanFn as never,
+        fireWebhookFn: webhookFn as never,
+      });
+
+      expect(webhookFn).toHaveBeenCalledOnce();
+    });
+
+    it("setting=1, grade improved: webhook fires", async () => {
+      users.set("u1", makeUser(1));
+      domains.set(1, makeDomain({ last_grade: "B" }));
+      history.set(99, {
+        id: 99,
+        domain_id: 1,
+        grade: "B",
+        score_factors: null,
+        protocol_results: JSON.stringify({
+          dmarc: { status: "pass" },
+          spf: { status: "pass" },
+          dkim: { status: "pass" },
+          bimi: { status: "pass" },
+          mta_sts: { status: "pass" },
+        }),
+        scanned_at: now - monthSeconds - 1,
+      });
+
+      const webhookFn = vi.fn().mockResolvedValue(undefined);
+      const scanFn = vi
+        .fn()
+        .mockResolvedValue(makeScanResult("stable.com", "A+", {}));
+
+      await runDueRescans({
+        db: makeD1Mock(),
+        now,
+        scanFn: scanFn as never,
+        fireWebhookFn: webhookFn as never,
+      });
+
+      expect(webhookFn).toHaveBeenCalledOnce();
+    });
   });
 });

@@ -4,6 +4,7 @@ export interface User {
   email_domain: string;
   stripe_customer_id: string | null;
   email_alerts_enabled: number;
+  notify_on_change_only: number;
   api_key_retirement_acknowledged_at: number | null;
   created_at: number;
 }
@@ -69,6 +70,17 @@ export async function setEmailAlertsEnabled(
 ): Promise<void> {
   await db
     .prepare("UPDATE users SET email_alerts_enabled = ? WHERE id = ?")
+    .bind(enabled ? 1 : 0, userId)
+    .run();
+}
+
+export async function setNotifyOnChangeOnly(
+  db: D1Database,
+  userId: string,
+  enabled: boolean,
+): Promise<void> {
+  await db
+    .prepare("UPDATE users SET notify_on_change_only = ? WHERE id = ?")
     .bind(enabled ? 1 : 0, userId)
     .run();
 }
