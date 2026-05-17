@@ -5,9 +5,17 @@ import { analyzeTlsRpt } from "../src/analyzers/tls-rpt.js";
 vi.mock("../src/dns/client.js", () => ({
   queryTxt: vi.fn(),
   queryMx: vi.fn(),
+  DnsLookupError: class DnsLookupError extends Error {
+    code: string;
+    constructor(code: string, message: string) {
+      super(message);
+      this.name = "DnsLookupError";
+      this.code = code;
+    }
+  },
 }));
 
-import { queryTxt } from "../src/dns/client.js";
+import { DnsLookupError, queryTxt } from "../src/dns/client.js";
 
 const mockQueryTxt = vi.mocked(queryTxt);
 
@@ -170,5 +178,47 @@ describe("analyzeTlsRpt", () => {
     });
     const result = await analyzeTlsRpt("example.com");
     expect(result.status).toBe("pass");
+  });
+
+  it("returns warn + lookup_error on SERVFAIL", async () => {
+    mockQueryTxt.mockRejectedValue(
+      new DnsLookupError("ESERVFAIL", "DNS server failure (SERVFAIL)"),
+    );
+    const result = await analyzeTlsRpt("example.com");
+    expect(result.status).toBe("warn");
+    expect(result.record).toBeNull();
+    expect(result.tags).toBeNull();
+    expect(result.lookup_error).toEqual({
+      code: "ESERVFAIL",
+      message: "DNS server failure (SERVFAIL)",
+    });
+    expect(
+      result.validations.some(
+        (v) => v.status === "warn" && v.message.includes("ESERVFAIL"),
+      ),
+    ).toBe(true);
+  });
+
+  it("returns warn + lookup_error on DNS timeout", async () => {
+    mockQueryTxt.mockRejectedValue(
+      new DnsLookupError("DNS_TIMEOUT", "DNS query timed out"),
+    );
+    const result = await analyzeTlsRpt("example.com");
+    expect(result.status).toBe("warn");
+    expect(result.lookup_error?.code).toBe("DNS_TIMEOUT");
+  });
+
+  it("re-throws non-DnsLookupError errors", async () => {
+    mockQueryTxt.mockRejectedValue(new Error("unexpected error"));
+    await expect(analyzeTlsRpt("example.com")).rejects.toThrow(
+      "unexpected error",
+    );
+  });
+
+  it("still returns info with no record when NXDOMAIN (null)", async () => {
+    mockQueryTxt.mockResolvedValue(null);
+    const result = await analyzeTlsRpt("example.com");
+    expect(result.status).toBe("info");
+    expect(result.lookup_error).toBeUndefined();
   });
 });
