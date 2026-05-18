@@ -3,6 +3,13 @@
 You are the implementer for the issue→PR pipeline. The repo is checked out at the
 working directory. Do exactly this:
 
+0. **Kill-switch check (do this FIRST, before any other action):**
+   Run: `gh label list --repo <REPO> --json name | jq -e '.[].name | select(. == "pipeline-paused")' > /dev/null 2>&1`
+   If the `pipeline-paused` label exists on the repo, stop immediately. Open NO
+   PRs, comment NOTHING, mutate NOTHING. Output exactly:
+   `Pipeline is paused (pipeline-paused label is set). Implementer Routine exiting — no-op.`
+   Then end the run. Do not proceed to step 1.
+
 1. List candidate issues:
    `gh issue list --repo <REPO> --label spec-approved --state open --json number,author,createdAt`
 2. Discard any whose `author.login` is not `schmug`. Sort the rest oldest-first.

@@ -25,5 +25,37 @@ prompt file contents, set schedule (implementer every 4h; reviewer offset +1h),
 enable `claude/`-branch pushes for the implementer. Routine commits appear as
 `schmug`.
 
+## Kill switch (pipeline-paused label)
+
+Both Routines check for the `pipeline-paused` repo label **before any other
+action**. If the label is present, the Routine exits immediately with a no-op
+message and mutates nothing (no PRs opened, no merges, no comments).
+
+**To pause the pipeline:**
+```
+gh label create pipeline-paused --repo schmug/dmarcheck \
+  --color 5319E7 --description "Kill switch: both Routines will no-op while this label exists" \
+  --force
+```
+(If `setup-labels.sh` has already been run, the label already exists — you only
+need to ensure it is present; `--force` makes this idempotent.)
+
+**To resume the pipeline:**
+```
+gh label delete pipeline-paused --repo schmug/dmarcheck --yes
+```
+
+Once the label is deleted, the next scheduled Routine run resumes normal
+operation automatically — no config change required.
+
+## Audit trail (gate verdict comments)
+
+On every auto-merged PR the reviewer Routine posts a comment containing the full
+gate verdict JSON (`pass: true`, `reasons` array) as returned by
+`scripts/routine-gate/gate.ts`. This creates an immutable per-PR record of
+exactly why the gate passed the PR, supporting forensics after the fact.
+Escalated PRs have always carried a `reasons` comment; auto-merges now carry an
+equivalent comment.
+
 ## Pilot validation log
 Filled in during go-live. Scenario → expected → actual.
