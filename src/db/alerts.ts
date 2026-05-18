@@ -19,6 +19,31 @@ export interface RecordAlertInput {
   createdAt?: number;
 }
 
+// ⚡ Bolt Optimization: Batch insert multiple alerts in a single D1 transaction
+// Reduces network round-trips and DB transaction overhead when a domain
+// generates multiple protocol alerts in a single scan.
+export async function recordAlerts(
+  db: D1Database,
+  inputs: RecordAlertInput[],
+): Promise<void> {
+  if (inputs.length === 0) return;
+  const statements = inputs.map((input) => {
+    const createdAt = input.createdAt ?? Math.floor(Date.now() / 1000);
+    return db
+      .prepare(
+        "INSERT INTO alerts (domain_id, alert_type, previous_value, new_value, created_at) VALUES (?, ?, ?, ?, ?)",
+      )
+      .bind(
+        input.domainId,
+        input.type,
+        input.previousValue,
+        input.newValue,
+        createdAt,
+      );
+  });
+  await db.batch(statements);
+}
+
 export async function recordAlert(
   db: D1Database,
   input: RecordAlertInput,
