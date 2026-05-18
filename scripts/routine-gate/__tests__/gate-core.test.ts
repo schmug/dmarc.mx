@@ -174,6 +174,34 @@ describe("parseClosesIssue / closesIssueRefs hardening", () => {
     expect(parseClosesIssue("Closes #42 and again Closes #42")).toBe(42);
     expect(closesIssueRefs("Closes #42 Closes #42")).toEqual([42]);
   });
+
+  // Code-fence and inline-code stripping (issue #309)
+  it("ignores Closes inside inline backtick code", () => {
+    expect(parseClosesIssue("Example: `Closes #999`\n\nCloses #42")).toBe(42);
+  });
+  it("ignores Closes inside fenced code block", () => {
+    expect(parseClosesIssue("Example:\n```\nCloses #999\n```\n\nCloses #42")).toBe(42);
+  });
+  it("ignores Closes inside fenced code block with language tag", () => {
+    expect(parseClosesIssue("```markdown\nCloses #999\n```\n\nCloses #42")).toBe(42);
+  });
+  it("PR with only a code-fenced Closes ref resolves to null (not a real ref)", () => {
+    expect(parseClosesIssue("```\nCloses #42\n```")).toBeNull();
+  });
+  it("preserves fail-closed for two real refs even with code-fenced noise", () => {
+    expect(parseClosesIssue("`Closes #999`\n\nCloses #42\nCloses #7")).toBeNull();
+  });
+
+  // Unterminated HTML comment tolerance (issue #309)
+  it("ignores Closes inside unterminated HTML comment (to end of body)", () => {
+    expect(parseClosesIssue("Closes #42\n<!-- stale: Closes #999")).toBe(42);
+  });
+  it("returns null when the only ref is inside an unterminated HTML comment", () => {
+    expect(parseClosesIssue("<!-- Closes #42")).toBeNull();
+  });
+  it("terminated comment before unterminated comment: real ref still resolves", () => {
+    expect(parseClosesIssue("<!-- done -->\nCloses #42\n<!-- leftover")).toBe(42);
+  });
 });
 
 describe("evaluateGate ambiguity + provenance source-of-truth", () => {
