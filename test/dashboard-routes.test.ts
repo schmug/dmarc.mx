@@ -1198,8 +1198,12 @@ describe("dashboard/routes", () => {
       });
       expect(res.status).toBe(200);
       const body = await res.text();
-      expect(body).toContain("No scans yet to chart");
-      expect(body).toContain("No scans yet.");
+      expect(body).toContain(
+        "No scans yet. Check back after your first scan to see the trend.",
+      );
+      expect(body).toContain(
+        "No scans yet. Changes to your domain's protocols will appear here after the next scan.",
+      );
     });
 
     it("marks protocol-status transitions with drift-changed", async () => {
