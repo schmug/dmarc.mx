@@ -5,7 +5,7 @@ import {
   detectProtocolRegressions,
 } from "../alerts/detector.js";
 import type { ScanResult } from "../analyzers/types.js";
-import { recordAlert } from "../db/alerts.js";
+import { recordAlerts } from "../db/alerts.js";
 import { type Domain, getDueDomains } from "../db/domains.js";
 import { recordScan } from "../db/scans.js";
 import { getUserById } from "../db/users.js";
@@ -147,14 +147,17 @@ async function rescanOne(
   );
   alerts.push(...protocolAlerts);
 
-  for (const alert of alerts) {
-    await recordAlert(deps.db, {
-      domainId: domain.id,
-      type: alert.type,
-      previousValue: alert.previousValue,
-      newValue: alert.newValue,
-      createdAt: deps.now,
-    });
+  if (alerts.length > 0) {
+    await recordAlerts(
+      deps.db,
+      alerts.map((alert) => ({
+        domainId: domain.id,
+        type: alert.type,
+        previousValue: alert.previousValue,
+        newValue: alert.newValue,
+        createdAt: deps.now,
+      })),
+    );
   }
 
   return { alerts: alerts.length };
