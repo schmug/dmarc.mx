@@ -11,4 +11,5 @@ create "spec-approved" "0E8A16" "Issue spec'd by owner in interactive session; t
 create "auto-impl"     "1D76DB" "PR opened by the implementer Routine"
 create "needs-you"     "D93F0B" "Escalated by the reviewer Routine; needs owner decision"
 create "impl-blocked"  "B60205" "Implementer Routine could not produce a green PR"
+create "pipeline-paused" "E4E669" "Kill switch: apply to any open issue to pause both Routines; remove to resume"
 echo "labels ensured on $REPO"
