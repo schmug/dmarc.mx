@@ -2290,7 +2290,7 @@ export function renderDomainDetailPage({
   const historySection =
     scanHistory.length > 0
       ? `<ul class="history-list">${historyItems}</ul>`
-      : `<p style="color:var(--clr-text-muted);font-size:0.875rem;padding:0.75rem 0">No scan history yet.</p>`;
+      : `<p style="color:var(--clr-text-muted);font-size:0.875rem;padding:0.75rem 0">No scan history yet. Click 'Scan Now' to run your first scan.</p>`;
 
   const body = `<div class="domain-detail-header">
   <span class="grade-badge ${gradeClass(grade)}">${esc(grade)}</span>
@@ -2358,7 +2358,7 @@ const GRADE_RANK_FOR_SPARKLINE: Record<string, number> = {
 
 function renderSparkline(entries: HistoryScanEntry[]): string {
   if (entries.length === 0) {
-    return `<p style="color:var(--clr-text-muted);font-size:0.875rem;padding:0.75rem 0">No scans yet to chart.</p>`;
+    return `<p style="color:var(--clr-text-muted);font-size:0.875rem;padding:0.75rem 0">No scans yet to chart. Click 'Scan Now' to generate data.</p>`;
   }
   const width = 600;
   const height = 80;
@@ -2408,7 +2408,7 @@ function renderDriftCell(
 
 function renderDriftTable(entries: HistoryScanEntry[]): string {
   if (entries.length === 0) {
-    return `<p style="color:var(--clr-text-muted);font-size:0.875rem;padding:0.75rem 0">No scans yet.</p>`;
+    return `<p style="color:var(--clr-text-muted);font-size:0.875rem;padding:0.75rem 0">No scans yet. Click 'Scan Now' to compare scan results.</p>`;
   }
   // Rows are newest-first. To highlight "changed vs the prior (older) scan",
   // we compare each row to the NEXT row in the list (which is chronologically
@@ -2940,7 +2940,7 @@ export function renderApiKeysPage({
 
   let table: string;
   if (keys.length === 0) {
-    table = `<p style="color:var(--clr-text-muted);font-size:0.875rem">No API keys yet.</p>`;
+    table = `<p style="color:var(--clr-text-muted);font-size:0.875rem">No API keys yet. Generate your first one above.</p>`;
   } else {
     const rows = keys
       .map((k) => {
