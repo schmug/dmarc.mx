@@ -174,6 +174,21 @@ describe("parseClosesIssue / closesIssueRefs hardening", () => {
     expect(parseClosesIssue("Closes #42 and again Closes #42")).toBe(42);
     expect(closesIssueRefs("Closes #42 Closes #42")).toEqual([42]);
   });
+  it("ignores Closes ref inside inline code", () => {
+    expect(parseClosesIssue("See `Closes #999`.\n\nCloses #42")).toBe(42);
+  });
+  it("ignores Closes ref inside fenced code block", () => {
+    expect(parseClosesIssue("```\nCloses #999\n```\n\nCloses #42")).toBe(42);
+  });
+  it("ignores Closes ref inside unterminated HTML comment", () => {
+    expect(parseClosesIssue("<!-- Closes #999\n\nCloses #42")).toBe(42);
+  });
+  it("returns null when only ref is in inline code", () => {
+    expect(parseClosesIssue("See `Closes #999` for example")).toBeNull();
+  });
+  it("preserves terminated HTML comment stripping", () => {
+    expect(parseClosesIssue("<!-- Closes #888 -->\n\nCloses #42")).toBe(42);
+  });
 });
 
 describe("evaluateGate ambiguity + provenance source-of-truth", () => {
