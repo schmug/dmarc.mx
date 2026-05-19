@@ -24,24 +24,29 @@ import { analyzeMtaSts } from "../../src/analyzers/mta-sts.js";
 // configuration — if the MTA-STS record ever stops responding, CI tells
 // you before users notice.
 describe("analyzeMtaSts (runs inside real workerd runtime)", () => {
-  it("successfully fetches and parses the dmarc.mx MTA-STS policy (regression guard for #58/#92)", async () => {
-    const result = await analyzeMtaSts("dmarc.mx");
+  it.skipIf(!process.env.CI)(
+    "successfully fetches and parses the dmarc.mx MTA-STS policy (regression guard for #58/#92)",
+    async () => {
+      const result = await analyzeMtaSts("dmarc.mx");
 
-    // Key assertion — the fetch must have completed successfully inside
-    // the Workers runtime. If a future change reintroduces
-    // `redirect: "error"`, workerd throws at the fetch call, fetchPolicy's
-    // try/catch swallows it, `policy` becomes `null`, and this fails.
-    expect(result.policy).not.toBeNull();
-    expect(result.policy?.version).toBe("STSv1");
-    expect(result.dns_record).not.toBeNull();
+      // Key assertion — the fetch must have completed successfully inside
+      // the Workers runtime. If a future change reintroduces
+      // `redirect: "error"`, workerd throws at the fetch call, fetchPolicy's
+      // try/catch swallows it, `policy` becomes `null`, and this fails.
+      expect(result.policy).not.toBeNull();
+      expect(result.policy?.version).toBe("STSv1");
+      expect(result.dns_record).not.toBeNull();
 
-    // The analyzer should not have produced a failure-level validation
-    // about the policy being unreachable. (Warnings about mode/max_age
-    // are fine; they're mode-dependent.)
-    const unreachable = result.validations.find(
-      (v) =>
-        v.status === "fail" && v.message.includes("Policy file not accessible"),
-    );
-    expect(unreachable).toBeUndefined();
-  }, 15_000);
+      // The analyzer should not have produced a failure-level validation
+      // about the policy being unreachable. (Warnings about mode/max_age
+      // are fine; they're mode-dependent.)
+      const unreachable = result.validations.find(
+        (v) =>
+          v.status === "fail" &&
+          v.message.includes("Policy file not accessible"),
+      );
+      expect(unreachable).toBeUndefined();
+    },
+    15_000,
+  );
 });

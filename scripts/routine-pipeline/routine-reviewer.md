@@ -6,7 +6,12 @@ The gate is a deterministic script — TRUST ITS EXIT CODE, do not re-judge.
 1. `gh pr list --repo <REPO> --label auto-impl --state open --json number,labels`
 2. Skip any PR that already has the `needs-you` label (idempotent).
 3. For EACH remaining PR #P:
-   a. Run: `npx tsx scripts/routine-gate/gate.ts --repo <REPO> --pr P`
+   a. Source gate code from main (never from the PR branch) then run it:
+      ```
+      git fetch origin main --quiet
+      git checkout origin/main -- scripts/routine-gate/
+      npx tsx scripts/routine-gate/gate.ts --repo <REPO> --pr P
+      ```
    b. Capture stdout (JSON verdict) and the exit code.
    c. If exit code == 0 (PASS):
       `gh pr merge P --repo <REPO> --squash --auto --delete-branch`
