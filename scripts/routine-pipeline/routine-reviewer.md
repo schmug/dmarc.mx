@@ -3,13 +3,19 @@
 You are the reviewer/merger. The repo is checked out at the working directory.
 The gate is a deterministic script — TRUST ITS EXIT CODE, do not re-judge.
 
+0. **Kill switch check (first action — mutate nothing if paused):**
+   `gh label list --repo <REPO> | grep -q "^pipeline-paused" && echo "Pipeline is paused. No-op." && exit 0`
+   If the `pipeline-paused` label exists on the repo, stop immediately and do nothing else.
+
 1. `gh pr list --repo <REPO> --label auto-impl --state open --json number,labels`
 2. Skip any PR that already has the `needs-you` label (idempotent).
 3. For EACH remaining PR #P:
-   a. Run: `npx tsx scripts/routine-gate/gate.ts --repo <REPO> --pr P`
-   b. Capture stdout (JSON verdict) and the exit code.
+   a. Run: `npx tsx scripts/routine-gate/gate.ts --repo <REPO> --pr P 2>/tmp/gate-stderr.txt | tee /tmp/verdict.json; GATE_EXIT=${PIPESTATUS[0]}`
+   b. The verdict JSON is now in `/tmp/verdict.json`; exit code is in `$GATE_EXIT`.
    c. If exit code == 0 (PASS):
       `gh pr merge P --repo <REPO> --squash --auto --delete-branch`
+      Post the full gate verdict as an audit comment on PR #P:
+      `gh pr comment P --repo <REPO> --body "Gate verdict: $(cat /tmp/verdict.json)"`
       Then comment the one-line outcome on the issue the PR closes.
    d. If exit code == 2 (FAIL): add the `needs-you` label to PR #P and add a PR
       comment containing the `reasons` array from the JSON verdict.

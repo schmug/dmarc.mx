@@ -25,5 +25,27 @@ prompt file contents, set schedule (implementer every 4h; reviewer offset +1h),
 enable `claude/`-branch pushes for the implementer. Routine commits appear as
 `schmug`.
 
+## Kill switch — pausing both Routines
+
+Both the implementer and reviewer check for the `pipeline-paused` label **as
+their very first action** (step 0). If the label is present, the Routine exits
+immediately with "Pipeline is paused. No-op." and mutates nothing — no PRs
+opened, no merges, no escalations.
+
+**To pause:** add (or create) the `pipeline-paused` label on the repo:
+```
+gh label create pipeline-paused --repo schmug/dmarcheck \
+  --color CCCCCC --description "Pauses both Routines; remove to resume" --force
+```
+Or use `scripts/routine-pipeline/setup-labels.sh schmug/dmarcheck` (idempotent;
+creates all five labels including `pipeline-paused`).
+
+**To resume:** delete the label:
+```
+gh label delete pipeline-paused --repo schmug/dmarcheck --yes
+```
+
+The label is the sole gate — no cloud Routine config needs editing.
+
 ## Pilot validation log
 Filled in during go-live. Scenario → expected → actual.
