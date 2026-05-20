@@ -174,6 +174,26 @@ describe("parseClosesIssue / closesIssueRefs hardening", () => {
     expect(parseClosesIssue("Closes #42 and again Closes #42")).toBe(42);
     expect(closesIssueRefs("Closes #42 Closes #42")).toEqual([42]);
   });
+  it("ignores Closes inside backtick inline code", () => {
+    expect(parseClosesIssue("Example: `Closes #999`\n\nCloses #42")).toBe(42);
+  });
+  it("ignores Closes inside a fenced code block (triple backtick)", () => {
+    expect(parseClosesIssue("```\nCloses #999\n```\n\nCloses #42")).toBe(42);
+  });
+  it("ignores Closes inside a fenced code block (triple tilde)", () => {
+    expect(parseClosesIssue("~~~\nCloses #999\n~~~\n\nCloses #42")).toBe(42);
+  });
+  it("ignores Closes inside an unterminated HTML comment fragment", () => {
+    expect(parseClosesIssue("<!-- Closes #999\n\nCloses #42")).toBe(42);
+  });
+  it("fails closed when the only real ref is inside stripped content", () => {
+    expect(parseClosesIssue("`Closes #42`")).toBeNull();
+    expect(parseClosesIssue("```\nCloses #42\n```")).toBeNull();
+    expect(parseClosesIssue("<!-- Closes #42")).toBeNull();
+  });
+  it("still fails closed on two real refs outside code/comments", () => {
+    expect(parseClosesIssue("`Closes #999`\nCloses #42\nCloses #99")).toBeNull();
+  });
 });
 
 describe("evaluateGate ambiguity + provenance source-of-truth", () => {

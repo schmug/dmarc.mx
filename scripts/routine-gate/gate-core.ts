@@ -19,10 +19,14 @@ export interface PrInfo {
 
 type Cfg = typeof CONFIG_T;
 
-// Strip HTML comments and markdown blockquote lines, then collect DISTINCT issue refs.
+// Strip HTML comments, code spans/blocks, and markdown blockquote lines, then collect DISTINCT issue refs.
 export function closesIssueRefs(body: string): number[] {
   const cleaned = body
-    .replace(/<!--[\s\S]*?-->/g, " ")          // drop HTML comments
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/~~~[\s\S]*?~~~/g, " ")
+    .replace(/`[^`\n]+`/g, " ")
+    .replace(/<!--[\s\S]*?-->/g, " ")          // drop complete HTML comments
+    .replace(/<!--[^\n]*/g, " ")               // drop unterminated HTML comment fragments
     .split("\n")
     .filter((line) => !/^\s*>/.test(line))      // drop blockquote lines
     .join("\n");
