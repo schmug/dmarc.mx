@@ -38,6 +38,28 @@ export async function recordAlert(
     .run();
 }
 
+export async function recordAlerts(
+  db: D1Database,
+  inputs: RecordAlertInput[],
+): Promise<void> {
+  if (inputs.length === 0) return;
+  const stmt = db.prepare(
+    "INSERT INTO alerts (domain_id, alert_type, previous_value, new_value, created_at) VALUES (?, ?, ?, ?, ?)",
+  );
+  const now = Math.floor(Date.now() / 1000);
+  await db.batch(
+    inputs.map((input) =>
+      stmt.bind(
+        input.domainId,
+        input.type,
+        input.previousValue,
+        input.newValue,
+        input.createdAt ?? now,
+      ),
+    ),
+  );
+}
+
 // Returns alerts that haven't been delivered yet (notified_via IS NULL).
 // Joins to domains to expose the owning user_id for alert routing.
 export interface UnsentAlert extends AlertRow {
