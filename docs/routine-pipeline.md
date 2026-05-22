@@ -25,5 +25,25 @@ prompt file contents, set schedule (implementer every 4h; reviewer offset +1h),
 enable `claude/`-branch pushes for the implementer. Routine commits appear as
 `schmug`.
 
+## Kill switch (pause / resume)
+
+To pause both Routines immediately without editing cloud Routine config:
+1. Apply the `pipeline-paused` label to any open issue (e.g. the ledger issue #304).
+2. Both the implementer and reviewer Routines check this label as their very first
+   action. If any open issue carries it, they exit with a no-op message and mutate
+   nothing (no PRs opened, no merges, no labels added, no ledger updates).
+
+To resume: remove the `pipeline-paused` label from all issues.
+
+The `pipeline-paused` label is created by `setup-labels.sh`. It is never applied
+automatically — a human operator must apply and remove it.
+
+## Audit comments on auto-merged PRs
+
+Every PR that the reviewer Routine auto-merges receives a PR comment containing the
+full gate verdict JSON (`pass` + `reasons`) before the merge command runs. This
+provides an immutable per-PR record of why the gate approved the change, enabling
+forensic review after the fact.
+
 ## Pilot validation log
 Filled in during go-live. Scenario → expected → actual.
