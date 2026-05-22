@@ -41,8 +41,15 @@ export function escapeCsvField(value: string): string {
 function formatFindings(
   validations: Array<{ status: string; message: string }>,
 ): string {
+  // ⚡ Bolt Optimization: Use for...of loop instead of .map().join("")
+  // Avoids intermediate array allocations for the hot rendering path.
   if (validations.length === 0) return "";
-  return validations.map((v) => `[${v.status}] ${v.message}`).join("; ");
+  let result = "";
+  for (const v of validations) {
+    if (result.length > 0) result += "; ";
+    result += `[${v.status}] ${v.message}`;
+  }
+  return result;
 }
 
 function dkimRawSummary(
@@ -79,16 +86,24 @@ export function generateCsv(result: ScanResult): string {
 
   for (const key of protocols) {
     const proto = result.protocols[key];
-    const recs = result.breakdown.recommendations
-      .filter((r) => r.protocol === key)
-      .map((r) => `[P${r.priority}] ${r.title}`)
-      .join("; ");
+
+    // ⚡ Bolt Optimization: Use a single-pass loop instead of .filter().map().join("")
+    let recs = "";
+    for (const r of result.breakdown.recommendations) {
+      if (r.protocol === key) {
+        if (recs.length > 0) recs += "; ";
+        recs += `[P${r.priority}] ${r.title}`;
+      }
+    }
 
     let rawRecord: string;
     if (key === "mx") {
-      rawRecord = result.protocols.mx.records
-        .map((r) => `${r.priority} ${r.exchange}`)
-        .join("; ");
+      // ⚡ Bolt Optimization: Use a single-pass loop instead of .map().join("")
+      rawRecord = "";
+      for (const r of result.protocols.mx.records) {
+        if (rawRecord.length > 0) rawRecord += "; ";
+        rawRecord += `${r.priority} ${r.exchange}`;
+      }
     } else if (key === "dkim") {
       rawRecord = dkimRawSummary(result.protocols.dkim.selectors);
     } else if (key === "mta_sts") {
