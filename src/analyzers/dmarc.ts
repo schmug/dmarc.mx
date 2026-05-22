@@ -43,16 +43,27 @@ async function checkReportingAuthorization(
     if (!reportingDomain) continue;
     // Same domain — no external authorization needed
     if (reportingDomain === localDomain.toLowerCase()) continue;
-    const authRecord = await queryTxt(
-      `${localDomain}._report._dmarc.${reportingDomain}`,
-    );
+    const authName = `${localDomain}._report._dmarc.${reportingDomain}`;
+    let authRecord: Awaited<ReturnType<typeof queryTxt>>;
+    try {
+      authRecord = await queryTxt(authName);
+    } catch (err) {
+      if (err instanceof DnsLookupError) {
+        validations.push({
+          status: "warn",
+          message: `External ${tagName} authorization lookup for ${reportingDomain} failed (${err.code}) — could not verify ${authName}`,
+        });
+        continue;
+      }
+      throw err;
+    }
     const isAuthorized =
       authRecord?.entries.some((e) => e.trimStart().startsWith("v=DMARC1")) ??
       false;
     if (!isAuthorized) {
       validations.push({
         status: "warn",
-        message: `External ${tagName} destination ${reportingDomain} has not authorized ${localDomain} to send reports — missing or invalid ${localDomain}._report._dmarc.${reportingDomain} TXT record`,
+        message: `External ${tagName} destination ${reportingDomain} has not authorized ${localDomain} to send reports — missing or invalid ${authName} TXT record`,
       });
     }
   }
