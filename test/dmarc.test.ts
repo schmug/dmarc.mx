@@ -3,10 +3,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("../src/dns/client.js", () => ({
   queryTxt: vi.fn(),
   queryMx: vi.fn(),
+  DnsLookupError: class DnsLookupError extends Error {
+    code: string;
+    constructor(code: string, message: string) {
+      super(message);
+      this.name = "DnsLookupError";
+      this.code = code;
+    }
+  },
 }));
 
 import { analyzeDmarc } from "../src/analyzers/dmarc.js";
-import { queryTxt } from "../src/dns/client.js";
+import { DnsLookupError, queryTxt } from "../src/dns/client.js";
 
 const mockQueryTxt = vi.mocked(queryTxt);
 
@@ -79,6 +87,26 @@ describe("analyzeDmarc — external rua/ruf authorization", () => {
           v.message.includes("authorized"),
       ),
     ).toBe(false);
+  });
+
+  it("warns instead of throwing when external authorization lookup fails with DnsLookupError", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=reject; rua=mailto:reports@example.com"],
+      raw: "v=DMARC1; p=reject; rua=mailto:reports@example.com",
+    });
+    mockQueryTxt.mockRejectedValueOnce(
+      new DnsLookupError("ESERVFAIL", "DNS server failure (SERVFAIL)"),
+    );
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" &&
+          v.message.includes("authorization lookup") &&
+          v.message.includes("ESERVFAIL"),
+      ),
+    ).toBe(true);
   });
 
   it("warns when ruf points to external domain and authorization record is absent", async () => {
