@@ -25,5 +25,26 @@ prompt file contents, set schedule (implementer every 4h; reviewer offset +1h),
 enable `claude/`-branch pushes for the implementer. Routine commits appear as
 `schmug`.
 
+## Kill switch (emergency pause)
+
+To pause both Routines without touching cloud Routine config:
+
+1. Apply the `pipeline-paused` label to any open issue (e.g. the ledger issue #304):
+   `gh issue edit 304 --repo schmug/dmarcheck --add-label pipeline-paused`
+2. Both Routines check for this label as step 0 and no-op if present — they print a
+   clear message and mutate nothing (no PRs opened, no merges, no comments).
+
+To resume:
+   `gh issue edit 304 --repo schmug/dmarcheck --remove-label pipeline-paused`
+
+The `pipeline-paused` label is created by `scripts/routine-pipeline/setup-labels.sh`.
+
+## Audit trail
+
+Every auto-merged PR receives a comment from the reviewer Routine containing the full
+gate verdict JSON (`pass`, `reasons`). This provides an immutable per-PR record of
+why the gate passed the PR, enabling forensics after any unexpected auto-merge.
+Escalated PRs already receive a verdict comment with the `reasons` array.
+
 ## Pilot validation log
 Filled in during go-live. Scenario → expected → actual.
