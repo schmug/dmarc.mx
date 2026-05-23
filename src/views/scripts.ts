@@ -1163,7 +1163,7 @@ if (typeof navigator !== 'undefined' && navigator.modelContext && typeof navigat
     children.push(sectionTitle('Recent scans'));
     var hist = data.history || [];
     if (hist.length === 0) {
-      children.push(el('p', { class: 'drawer-history-empty', text: 'No scan history yet.' }));
+      children.push(el('p', { class: 'drawer-history-empty', text: 'No scan history yet. Use Scan Now below to generate your first grade.' }));
     } else {
       var histList = el('div', { class: 'drawer-history-list' });
       hist.slice(0, 8).forEach(function(h) { histList.appendChild(historyRowEl(h)); });
