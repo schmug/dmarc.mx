@@ -25,6 +25,15 @@ prompt file contents, set schedule (implementer every 4h; reviewer offset +1h),
 enable `claude/`-branch pushes for the implementer. Routine commits appear as
 `schmug`.
 
+## Gate integrity (belt-and-suspenders)
+
+The reviewer Routine always runs the gate from the `main` branch's code, not from
+the PR's checkout. For each PR, it uses `git archive main -- scripts/routine-gate/`
+to extract a clean copy into a temp dir, runs it there, then deletes the temp dir.
+This means a PR that weakens `scripts/routine-gate/gate-core.ts` is still evaluated
+by the unmodified `main` gate. The denylist (`config.ts` risk paths) is the primary
+control; this is belt-and-suspenders.
+
 ## Kill switch (emergency pause)
 
 Add the `pipeline-paused` label to the repo to no-op both Routines immediately.
