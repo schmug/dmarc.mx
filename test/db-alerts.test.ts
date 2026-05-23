@@ -7,6 +7,7 @@ import {
   listUnsentAlerts,
   markAlertNotified,
   recordAlert,
+  recordAlerts,
 } from "../src/db/alerts.js";
 
 let alertStore: Map<number, AlertRow>;
@@ -121,7 +122,15 @@ function makeD1Mock(): D1Database {
       },
     }),
   });
-  return { prepare } as unknown as D1Database;
+  return {
+    prepare,
+    batch: async (
+      stmts: Array<{ run: () => Promise<{ success: boolean }> }>,
+    ) => {
+      for (const stmt of stmts) await stmt.run();
+      return [];
+    },
+  } as unknown as D1Database;
 }
 
 describe("db/alerts", () => {
@@ -135,6 +144,43 @@ describe("db/alerts", () => {
     ]);
     nextId = 1;
     db = makeD1Mock();
+  });
+
+  describe("recordAlerts", () => {
+    it("inserts multiple alerts in a single batch", async () => {
+      await recordAlerts(db, [
+        {
+          domainId: 7,
+          type: "grade_drop",
+          previousValue: "A",
+          newValue: "C",
+          createdAt: 1_700_000_000,
+        },
+        {
+          domainId: 9,
+          type: "protocol_regression",
+          previousValue: "dmarc:pass",
+          newValue: "dmarc:fail",
+          createdAt: 1_700_000_001,
+        },
+      ]);
+
+      expect(alertStore.size).toBe(2);
+
+      const rows = [...alertStore.values()];
+      expect(rows[0].domain_id).toBe(7);
+      expect(rows[0].alert_type).toBe("grade_drop");
+      expect(rows[0].created_at).toBe(1_700_000_000);
+
+      expect(rows[1].domain_id).toBe(9);
+      expect(rows[1].alert_type).toBe("protocol_regression");
+      expect(rows[1].created_at).toBe(1_700_000_001);
+    });
+
+    it("does nothing when given an empty array", async () => {
+      await recordAlerts(db, []);
+      expect(alertStore.size).toBe(0);
+    });
   });
 
   describe("recordAlert", () => {
