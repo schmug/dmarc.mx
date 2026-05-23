@@ -25,5 +25,22 @@ prompt file contents, set schedule (implementer every 4h; reviewer offset +1h),
 enable `claude/`-branch pushes for the implementer. Routine commits appear as
 `schmug`.
 
+## Kill switch (emergency pause)
+
+Add the `pipeline-paused` label to the repo to no-op both Routines immediately.
+While the label exists, neither the implementer nor the reviewer will open PRs,
+merge anything, or update the ledger — they exit cleanly after the pause check.
+
+To pause: `gh label create pipeline-paused --repo schmug/dmarcheck --color 5319E7 --description "Kill switch" --force`
+To resume: `gh label delete pipeline-paused --repo schmug/dmarcheck --yes`
+
+`setup-labels.sh` creates the label idempotently. Routines detect it via step 0.
+
+## Audit trail
+
+Every auto-merged PR receives a comment containing the full gate verdict JSON
+(`pass`, `reasons`). This provides an immutable per-PR record of why the gate
+passed it, enabling post-hoc forensics if a bad merge slips through.
+
 ## Pilot validation log
 Filled in during go-live. Scenario → expected → actual.

@@ -3,6 +3,11 @@
 You are the reviewer/merger. The repo is checked out at the working directory.
 The gate is a deterministic script — TRUST ITS EXIT CODE, do not re-judge.
 
+0. **Kill switch check (first action — abort if paused):**
+   Run: `gh label list --repo <REPO> --json name --jq '.[].name' | grep -q pipeline-paused`
+   If `pipeline-paused` exists as a repo label, output "Pipeline paused — no-op."
+   and stop immediately. Do NOT list PRs, merge anything, or update the ledger.
+
 1. `gh pr list --repo <REPO> --label auto-impl --state open --json number,labels`
 2. Skip any PR that already has the `needs-you` label (idempotent).
 3. For EACH remaining PR #P:
@@ -10,6 +15,8 @@ The gate is a deterministic script — TRUST ITS EXIT CODE, do not re-judge.
    b. Capture stdout (JSON verdict) and the exit code.
    c. If exit code == 0 (PASS):
       `gh pr merge P --repo <REPO> --squash --auto --delete-branch`
+      Post a PR comment with the full gate verdict JSON for audit trail:
+      `gh pr comment P --repo <REPO> --body "Gate verdict (auto-merged):\n\`\`\`json\n<verdict JSON>\n\`\`\`"`
       Then comment the one-line outcome on the issue the PR closes.
    d. If exit code == 2 (FAIL): add the `needs-you` label to PR #P and add a PR
       comment containing the `reasons` array from the JSON verdict.
