@@ -14,6 +14,19 @@ protection is the independent backstop. Note: the gate over-blocks on ambiguous
 `Closes` refs and code-fenced examples (fails safe → escalates, never
 auto-merges).
 
+### Gate-from-main invariant (defence-in-depth)
+The reviewer Routine always runs gate code from the **`main` branch**, not from
+the PR being evaluated. It uses `git show main:scripts/routine-gate/<file>` to
+extract each gate source file into a temporary directory, symlinks the repo's
+`node_modules` there, then runs `npx tsx <tmpdir>/gate.ts`. The temp dir is
+removed after each PR.
+
+This means a PR that edits `scripts/routine-gate/` is still evaluated by the
+unmodified `main` gate — it cannot weaken its own judge. The denylist entry for
+`scripts/routine-gate/**` (added in #311) is the primary control; running from
+`main` is belt-and-suspenders. PR *metadata* (diff, files, CI status) continues
+to be fetched live via `gh`, unaffected by this change.
+
 ## Cap math (Max = 15 Routine runs/day)
 4 cycles/day × (implementer + reviewer) = 8 runs/day. Implementer 6 issues/run ×
 4 = up to 24 issues/day. One-off scheduled runs don't count against the cap.

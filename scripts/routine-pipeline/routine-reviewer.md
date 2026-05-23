@@ -9,11 +9,29 @@ The gate is a deterministic script — TRUST ITS EXIT CODE, do not re-judge.
    "Pipeline paused: `pipeline-paused` label detected. No-op this run."
    Do NOT open, merge, comment on, or label any PR or issue.
 
+**Security invariant:** always run the gate from the `main` branch, never from
+the PR branch. This ensures a PR that modifies `scripts/routine-gate/` cannot
+be judged by its own weakened gate code. PR metadata (diff, files, CI status)
+is still fetched live from GitHub via `gh`.
+
 1. `gh pr list --repo <REPO> --label auto-impl --state open --json number,labels`
 2. Skip any PR that already has the `needs-you` label (idempotent).
 3. For EACH remaining PR #P:
-   a. Run: `npx tsx scripts/routine-gate/gate.ts --repo <REPO> --pr P`
-   b. Capture stdout (JSON verdict) and the exit code.
+   a. Extract the gate from `main` into a temp dir and run it there:
+      ```sh
+      GATE_TMP=$(mktemp -d)
+      for f in gate.ts gate-core.ts config.ts github.ts tsconfig.json; do
+        git show main:scripts/routine-gate/$f > "$GATE_TMP/$f"
+      done
+      ln -s "$(pwd)/node_modules" "$GATE_TMP/node_modules"
+      GATE_OUT=$(npx tsx "$GATE_TMP/gate.ts" --repo <REPO> --pr P 2>gate_stderr.txt)
+      EXIT_CODE=$?
+      rm -rf "$GATE_TMP"
+      ```
+      The `git show main:...` commands extract each file verbatim from the
+      merged `main` tree — the PR checkout has no effect on gate logic.
+   b. `GATE_OUT` holds the JSON verdict; `EXIT_CODE` holds the exit code.
+      On crash, check `gate_stderr.txt` for the error message.
    c. If exit code == 0 (PASS):
       `gh pr merge P --repo <REPO> --squash --auto --delete-branch`
       Post the full gate verdict as a PR comment (for audit trail):
