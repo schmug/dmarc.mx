@@ -8,6 +8,7 @@ import type {
   Status,
   Validation,
 } from "../analyzers/types.js";
+import { lookupMxProvider } from "../data/mx-providers.js";
 import type { Recommendation, ScoringFactor } from "../shared/scoring.js";
 
 const DMARC_TOOLTIPS: Record<string, string> = {
@@ -433,7 +434,20 @@ export function mxTable(records: MxRecord[]): string {
   // Reduces GC pressure on a hot rendering path by avoiding array allocations
   let rows = "";
   for (const r of records) {
-    const providerCell = r.provider ? providerBadge(r.provider) : "";
+    // The analyzer's PROVIDER_SIGNATURES (used for r.provider) is intentionally
+    // stricter than this view's MX catalog — the catalog covers hostnames the
+    // analyzer doesn't label (e.g. route*.mx.cloudflare.net, *.messagingengine.com).
+    // Render a link whenever the catalog matches, regardless of analyzer label.
+    const catalogged = lookupMxProvider(r.exchange);
+    let providerCell = "";
+    if (r.provider) {
+      const badge = providerBadge(r.provider);
+      providerCell = catalogged
+        ? `<a class="mx-provider-link" href="/mx/${catalogged.slug}" title="What is ${esc(catalogged.shortName)}?">${badge}</a>`
+        : badge;
+    } else if (catalogged) {
+      providerCell = `<a class="mx-provider-link" href="/mx/${catalogged.slug}" title="What is ${esc(catalogged.shortName)}?">${esc(catalogged.shortName)}</a>`;
+    }
     rows += `<tr class="mx-row"><td class="mx-priority">${r.priority}</td><td class="mx-exchange">${esc(r.exchange)}</td><td class="mx-provider">${providerCell}</td></tr>`;
   }
 
