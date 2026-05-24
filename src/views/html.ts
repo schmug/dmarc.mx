@@ -9,6 +9,7 @@ import type {
   SpfResult,
   TlsRptResult,
 } from "../analyzers/types.js";
+import { lookupMxSlug } from "../data/mx-providers.js";
 import { isIndexableScanDomain } from "../shared/indexable-domains.js";
 import { CSS_PATH, JS_PATH } from "./assets.js";
 import {
@@ -355,7 +356,19 @@ export function renderMxCard(mx: MxResult): string {
     mx.records.length > 0
       ? `${mx.records.length} record${mx.records.length !== 1 ? "s" : ""}${mx.providers.length > 0 ? ` · ${mx.providers.map((p) => p.name).join(", ")}` : ""}`
       : "No MX records";
-  const body = mxTable(mx.records) + validationList(mx.validations);
+
+  const slugs = new Set<string>();
+  for (const r of mx.records) {
+    const slug = lookupMxSlug(r.exchange);
+    if (slug) slugs.add(slug);
+  }
+  const providerLinks =
+    slugs.size > 0
+      ? `<p class="tier-text" style="margin-top:8px">${[...slugs].map((s) => `<a href="/mx/${esc(s)}">What is this MX? &rarr;</a>`).join(" ")}</p>`
+      : "";
+
+  const body =
+    mxTable(mx.records) + validationList(mx.validations) + providerLinks;
   return protocolCard("MX", mx.status, subtitle, body);
 }
 
