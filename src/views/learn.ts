@@ -105,6 +105,16 @@ const LEARN_SIBLINGS: Array<{ slug: string; protocol: string; blurb: string }> =
       protocol: "MTA-STS",
       blurb: "TLS enforcement for inbound mail.",
     },
+    {
+      slug: "security-txt",
+      protocol: "security.txt",
+      blurb: "Machine-readable security disclosure policies.",
+    },
+    {
+      slug: "tls-rpt",
+      protocol: "TLS-RPT",
+      blurb: "SMTP TLS failure reporting via DNS.",
+    },
   ];
 
 function siblingLinks(currentSlug: string): string {
@@ -581,6 +591,174 @@ max_age: 604800</code></pre>
     headline: "What is MTA-STS? Enforcing TLS for inbound mail",
     description:
       "A plain-English guide to MTA-STS (RFC 8461): the _mta-sts DNS record, the HTTPS policy file, enforce vs testing mode, and how to roll out without breaking legitimate senders.",
+    body,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// security.txt
+// ---------------------------------------------------------------------------
+
+export function renderLearnSecurityTxt(): string {
+  const body = `
+  <p class="rubric-intro">security.txt (RFC 9116) is a plain-text file hosted on your web server that tells security researchers how to responsibly disclose vulnerabilities. A machine-readable format means automated scanners and bug-bounty platforms can find your contact information without guessing email addresses.</p>
+
+  <div class="bd-card">
+    <div class="bd-card-title">How security.txt works</div>
+    <div class="bd-card-body">
+      <p class="tier-text">The file must be served over HTTPS at one of two canonical paths. The preferred location is the <code>.well-known</code> directory:</p>
+      <pre class="learn-example"><code>https://example.com/.well-known/security.txt
+https://example.com/security.txt</code></pre>
+      <p class="tier-text">A minimal but complete security.txt looks like this:</p>
+      <pre class="learn-example"><code>Contact: mailto:security@example.com
+Expires: 2027-01-01T00:00:00.000Z
+Policy: https://example.com/security-policy
+Acknowledgments: https://example.com/hall-of-fame</code></pre>
+      <dl class="explainer-grid">
+        <div><dt><code>Contact</code></dt><dd>Required. One or more URI values — <code>mailto:</code>, <code>https:</code> (for a bug-bounty form), or <code>tel:</code>. Multiple <code>Contact</code> lines are allowed; researchers use the first they can reach.</dd></div>
+        <div><dt><code>Expires</code></dt><dd>Required. An ISO 8601 datetime after which the file should be considered stale. RFC 9116 recommends no more than one year in the future. dmarcheck flags files with an expiry more than 12 months out or that have already expired.</dd></div>
+        <div><dt><code>Policy</code></dt><dd>Recommended. A URL linking to your full vulnerability disclosure policy — scope, safe-harbor language, response SLA, and reward structure if you run a bug-bounty program.</dd></div>
+        <div><dt><code>Acknowledgments</code></dt><dd>Recommended. A page where you credit researchers who have disclosed past issues. Builds trust and encourages future reports.</dd></div>
+        <div><dt><code>Encryption</code></dt><dd>Optional. A URL to a PGP public key so researchers can send reports end-to-end encrypted.</dd></div>
+        <div><dt><code>Canonical</code></dt><dd>Optional. The definitive URL of this security.txt file. Useful when the file is served from a CDN or a different origin than the one being scanned.</dd></div>
+        <div><dt><code>Preferred-Languages</code></dt><dd>Optional. A comma-separated list of BCP 47 language tags indicating which languages the security team can respond in.</dd></div>
+        <div><dt><code>CSAF</code></dt><dd>Optional. A URL to a CSAF (Common Security Advisory Framework) provider-metadata.json, for organizations that publish machine-readable advisories.</dd></div>
+      </dl>
+    </div>
+  </div>
+
+  <div class="bd-card">
+    <div class="bd-card-title">The two canonical paths and redirect behavior</div>
+    <div class="bd-card-body">
+      <p class="tier-text">RFC 9116 specifies that the preferred location is <code>/.well-known/security.txt</code>. If that path is absent, tools fall back to <code>/security.txt</code> at the root. dmarcheck checks <code>/.well-known/security.txt</code> first, then the root path.</p>
+      <p class="tier-text">Unlike MTA-STS (which explicitly forbids following redirects), RFC 9116 §3 places no equivalent restriction on security.txt. Real-world deployments commonly use redirects — for example, a government domain redirecting to a central vulnerability disclosure portal. dmarcheck follows redirects (<code>redirect: "follow"</code>) to honor this convention. If the final destination is a valid security.txt, the scan passes regardless of how many hops were involved.</p>
+    </div>
+  </div>
+
+  <div class="bd-card">
+    <div class="bd-card-title">Common misconfigurations</div>
+    <div class="bd-card-body">
+      <ul class="learn-pitfalls">
+        <li><strong>No <code>Contact</code> field.</strong> <code>Contact</code> is the only field RFC 9116 marks as mandatory. A file without it is malformed and dmarcheck reports the missing field.</li>
+        <li><strong>No <code>Expires</code> field.</strong> Also required. Files without an expiry date have no freshness signal, which means researchers cannot tell if the contact is still monitored.</li>
+        <li><strong>Expired file.</strong> An <code>Expires</code> date in the past means the file has not been reviewed recently. Rotate it at least annually — a cron job or calendar reminder is the usual approach.</li>
+        <li><strong>Expiry too far in the future.</strong> RFC 9116 recommends the expiry be no more than one year out. Setting it to 2099 defeats the purpose of the freshness signal.</li>
+        <li><strong>Served over HTTP instead of HTTPS.</strong> The RFC requires HTTPS. A plain-HTTP file can be tampered with in transit and most security scanners will reject it.</li>
+        <li><strong>Wrong content type.</strong> RFC 9116 specifies <code>text/plain</code>. Serving it as <code>application/octet-stream</code> or <code>text/html</code> confuses automated parsers.</li>
+        <li><strong>File exists at <code>/security.txt</code> but not <code>/.well-known/security.txt</code>.</strong> The preferred path is the <code>.well-known</code> location. Serve the canonical copy there, and optionally redirect from the root.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="bd-card">
+    <div class="bd-card-title">What to fix first</div>
+    <div class="bd-card-body">
+      <ol class="learn-steps">
+        <li>Create the file at <code>https://yourdomain.com/.well-known/security.txt</code>. Use <a href="https://securitytxt.org/">securitytxt.org</a> to generate a signed version with a PGP key, or hand-craft the minimal two-field version to start.</li>
+        <li>Set <code>Contact</code> to an email address or HTTPS form that your security team actually monitors. A generic <code>security@</code> alias works if it goes somewhere real.</li>
+        <li>Set <code>Expires</code> to roughly 12 months from today in ISO 8601 format (e.g. <code>2027-06-01T00:00:00.000Z</code>). Add a calendar reminder to renew it.</li>
+        <li>Add a <code>Policy</code> link once you have written a disclosure policy — even a brief page clarifying scope and response expectations meaningfully lowers the friction for researchers.</li>
+        <li>Serve the file with <code>Content-Type: text/plain; charset=utf-8</code>. Verify with <code>curl -I https://yourdomain.com/.well-known/security.txt</code>.</li>
+      </ol>
+    </div>
+  </div>
+
+  ${learnCta("Enter a domain to scan for security.txt")}
+  `;
+
+  return renderLearnPage({
+    protocol: "security.txt",
+    slug: "security-txt",
+    title: "What is security.txt? Contact, Expires, and RFC 9116 — dmarcheck",
+    headline:
+      "What is security.txt? Responsible disclosure made machine-readable",
+    description:
+      "A plain-English guide to security.txt (RFC 9116): the two canonical paths, required Contact and Expires fields, redirect behavior, and the common misconfigurations that make security researchers give up.",
+    body,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// TLS-RPT
+// ---------------------------------------------------------------------------
+
+export function renderLearnTlsRpt(): string {
+  const body = `
+  <p class="rubric-intro">TLS-RPT (SMTP TLS Reporting, RFC 8460) is a DNS TXT record that tells other mail servers where to send reports about TLS negotiation failures when they try to deliver mail to you. It is the reporting companion to MTA-STS: you enforce TLS via MTA-STS, and TLS-RPT tells you when senders cannot meet that requirement.</p>
+
+  <div class="bd-card">
+    <div class="bd-card-title">How to read a TLS-RPT record</div>
+    <div class="bd-card-body">
+      <p class="tier-text">The TLS-RPT record lives at <code>_smtp._tls.yourdomain.com</code> as a TXT record:</p>
+      <pre class="learn-example"><code>v=TLSRPTv1; rua=mailto:tlsrpt@example.com</code></pre>
+      <p class="tier-text">Multiple report destinations are comma-separated:</p>
+      <pre class="learn-example"><code>v=TLSRPTv1; rua=mailto:tlsrpt@example.com,https://tlsrpt.example.com/upload</code></pre>
+      <dl class="explainer-grid">
+        <div><dt><code>v</code></dt><dd>Version. Must be <code>TLSRPTv1</code> — the only defined version. Records without this prefix or with a different version are ignored by sending MTAs.</dd></div>
+        <div><dt><code>rua</code></dt><dd>Report URI for aggregates. Accepts <code>mailto:</code> addresses and <code>https:</code> endpoints. Sending MTAs POST JSON reports to HTTPS endpoints or email them as gzip attachments to <code>mailto:</code> addresses.</dd></div>
+      </dl>
+    </div>
+  </div>
+
+  <div class="bd-card">
+    <div class="bd-card-title">What the reports contain</div>
+    <div class="bd-card-body">
+      <p class="tier-text">Each TLS-RPT report is a JSON document (gzip-compressed) covering a 24-hour period. The key fields are:</p>
+      <dl class="explainer-grid">
+        <div><dt><code>organization-name</code></dt><dd>The sending MTA's organization — tells you which mail providers are attempting delivery.</dd></div>
+        <div><dt><code>date-range</code></dt><dd>The reporting window: <code>start-datetime</code> and <code>end-datetime</code> in UTC.</dd></div>
+        <div><dt><code>policies</code></dt><dd>An array of policy objects. Each one describes a policy type (<code>sts</code> for MTA-STS, <code>tlsa</code> for DANE, <code>no-policy-found</code>) and its outcome.</dd></div>
+        <div><dt><code>summary</code></dt><dd>Inside each policy: <code>total-successful-session-count</code> and <code>total-failure-session-count</code> — the core delivery health signal.</dd></div>
+        <div><dt><code>failure-details</code></dt><dd>An array of objects with a <code>result-type</code> (e.g. <code>certificate-expired</code>, <code>certificate-not-trusted</code>, <code>starttls-not-supported</code>), the sending/receiving MX IP, and the count. This is where you learn <em>why</em> TLS failed.</dd></div>
+      </dl>
+    </div>
+  </div>
+
+  <div class="bd-card">
+    <div class="bd-card-title">Why TLS-RPT matters alongside DMARC reporting</div>
+    <div class="bd-card-body">
+      <p class="tier-text">DMARC aggregate reports (via <code>rua=</code>) tell you whether messages are passing SPF/DKIM authentication at the receiving end. TLS-RPT fills a different gap: it tells you whether the <em>transport layer</em> between sending and receiving MTAs is healthy. A message can pass DMARC and still be at risk if the SMTP connection fell back to cleartext because of a TLS negotiation failure.</p>
+      <p class="tier-text">Together, the two reporting streams give you end-to-end visibility: authentication posture (DMARC) and transport security posture (TLS-RPT). Both are worth monitoring continuously.</p>
+      <p class="tier-text">TLS-RPT is particularly important during MTA-STS rollout. While your policy is in <code>testing</code> mode, senders will report failures without dropping the message. Once you switch to <code>enforce</code>, failures start causing deferrals, so you want to see a clean TLS-RPT baseline first.</p>
+    </div>
+  </div>
+
+  <div class="bd-card">
+    <div class="bd-card-title">Common misconfigurations</div>
+    <div class="bd-card-body">
+      <ul class="learn-pitfalls">
+        <li><strong>No record.</strong> Without <code>_smtp._tls.yourdomain.com</code>, you have no visibility into TLS delivery failures to your domain. If you have MTA-STS deployed, a missing TLS-RPT record means flying blind.</li>
+        <li><strong>Record present but <code>rua</code> is missing.</strong> The <code>rua</code> tag is the only meaningful field after <code>v=TLSRPTv1</code>. A record without it is syntactically incomplete — sending MTAs will not know where to send reports.</li>
+        <li><strong>Wrong subdomain.</strong> The record must be at <code>_smtp._tls.yourdomain.com</code>, not <code>_tls.yourdomain.com</code> or any other location. The double-underscore prefix is significant.</li>
+        <li><strong>The <code>mailto:</code> address is not monitored.</strong> Reports arrive as <code>.gz</code>-compressed JSON attachments. If the alias goes to a ticket queue no one checks, failures will pile up silently. Set up an alert or use a third-party TLS-RPT processing service.</li>
+        <li><strong>Using an HTTPS endpoint that rejects the report format.</strong> If you point <code>rua</code> at an HTTPS URL, the receiving server must accept POST requests with <code>Content-Type: application/tlsrpt+gzip</code> and respond 200-299. A webhook that returns 400 on unrecognized payloads will silently drop reports.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="bd-card">
+    <div class="bd-card-title">What to fix first</div>
+    <div class="bd-card-body">
+      <ol class="learn-steps">
+        <li>Publish the TXT record at <code>_smtp._tls.yourdomain.com</code> with at minimum <code>v=TLSRPTv1; rua=mailto:tlsrpt@yourdomain.com</code>.</li>
+        <li>Make sure the address in <code>rua</code> is monitored. For low-volume domains a simple inbox alias is enough; for high-volume domains, use a third-party SMTP TLS reporting service that parses and visualizes the JSON for you.</li>
+        <li>If you also have an MTA-STS policy in <code>testing</code> mode, watch the TLS-RPT reports for a week or two before switching to <code>enforce</code>. Any <code>sts-policy-invalid</code> or <code>certificate-*</code> failure types need investigation first.</li>
+        <li>Once you switch MTA-STS to <code>enforce</code>, continue monitoring TLS-RPT. A spike in <code>starttls-not-supported</code> from a major sender signals a configuration problem on their end that may require contacting their postmaster.</li>
+        <li>Keep the TLS-RPT record even after your MTA-STS setup is stable — it provides ongoing assurance that TLS delivery is healthy and catches certificate renewals that were missed before they cause failures.</li>
+      </ol>
+    </div>
+  </div>
+
+  ${learnCta("Enter a domain to scan for TLS-RPT")}
+  `;
+
+  return renderLearnPage({
+    protocol: "TLS-RPT",
+    slug: "tls-rpt",
+    title: "What is TLS-RPT? SMTP TLS Reporting and RFC 8460 — dmarcheck",
+    headline: "What is TLS-RPT? SMTP TLS Reporting for inbound mail",
+    description:
+      "A plain-English guide to TLS-RPT (RFC 8460): the _smtp._tls DNS record, the rua= report URI, what the JSON reports contain, and how TLS-RPT complements MTA-STS and DMARC reporting.",
     body,
   });
 }
