@@ -1,0 +1,14 @@
+name: dmarcheck CodeQL config
+
+# Exclude test files from CodeQL analysis.
+#
+# Why: tests use String.includes() on warning-message strings as assertions
+# (e.g. expect(v.message.includes("example.com")).toBe(true)). The
+# js/incomplete-url-substring-sanitization rule fires on these as if they were
+# URL sanitization gates, but they have no URL flow, no fetch, and no auth
+# boundary — the .includes() runs on the asserted output, not user input.
+# Tests are not shipped to the Worker runtime, so the security blast radius
+# of excluding them is zero.
+paths-ignore:
+  - test/**
+  - "**/*.test.ts"
