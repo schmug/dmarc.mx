@@ -20,15 +20,23 @@ const MX_FOOTER = `<div class="foss-callout">
     </a>
   </div>`;
 
+// Promote markdown-style backticks to <code> tags. Input is escaped first so
+// any literal `<` or `&` in the prose is rendered as text, not as HTML.
+// Backticks themselves survive escaping unchanged, so the regex pass that
+// follows operates on already-safe text — no double-escape, no HTML injection.
+function proseToHtml(text: string): string {
+  return esc(text).replace(/`([^`]+)`/g, "<code>$1</code>");
+}
+
 function renderSectionsHtml(sections: MxProviderSection[]): string {
   return sections
     .map((section) => {
       const paragraphs = section.paragraphs
-        .map((p) => `<p class="tier-text">${p}</p>`)
+        .map((p) => `<p class="tier-text">${proseToHtml(p)}</p>`)
         .join("");
       const list = section.list
         ? `<ul class="learn-pitfalls">${section.list
-            .map((item) => `<li>${item}</li>`)
+            .map((item) => `<li>${proseToHtml(item)}</li>`)
             .join("")}</ul>`
         : "";
       return `<div class="bd-card">
@@ -145,7 +153,7 @@ export function renderMxProviderPage(slug: string): string | null {
     <span class="breadcrumb-current">${esc(provider.shortName)}</span>
   </nav>
   <h1 class="rubric-title">${esc(provider.headline)}</h1>
-  <p class="rubric-intro">${provider.intro}</p>
+  <p class="rubric-intro">${proseToHtml(provider.intro)}</p>
   <div class="bd-card">
     <div class="bd-card-title">Hostnames in the catalog</div>
     <div class="bd-card-body">
