@@ -103,6 +103,7 @@ import {
   renderReportMarkdown,
   renderScoringRubricMarkdown,
 } from "./views/markdown.js";
+import { renderMxHub, renderMxProviderPage } from "./views/mx.js";
 import { renderPricingPage } from "./views/pricing.js";
 import { JS } from "./views/scripts.js";
 import { CSS } from "./views/styles.js";
@@ -918,6 +919,15 @@ const STATIC_SITEMAP_URLS: Array<{ loc: string; priority: string }> = [
   { loc: "https://dmarc.mx/learn/dkim", priority: "0.7" },
   { loc: "https://dmarc.mx/learn/bimi", priority: "0.6" },
   { loc: "https://dmarc.mx/learn/mta-sts", priority: "0.7" },
+  { loc: "https://dmarc.mx/mx", priority: "0.7" },
+  { loc: "https://dmarc.mx/mx/outlook", priority: "0.8" },
+  { loc: "https://dmarc.mx/mx/google", priority: "0.8" },
+  { loc: "https://dmarc.mx/mx/mimecast", priority: "0.7" },
+  { loc: "https://dmarc.mx/mx/proofpoint", priority: "0.7" },
+  { loc: "https://dmarc.mx/mx/fastmail", priority: "0.6" },
+  { loc: "https://dmarc.mx/mx/zoho", priority: "0.6" },
+  { loc: "https://dmarc.mx/mx/amazon-ses", priority: "0.6" },
+  { loc: "https://dmarc.mx/mx/cloudflare", priority: "0.6" },
   { loc: "https://dmarc.mx/llms.txt", priority: "0.2" },
 ];
 const SITEMAP_LASTMOD = "2026-04-26";
@@ -968,6 +978,13 @@ app.get("/learn/spf", (c) => c.html(renderLearnSpf()));
 app.get("/learn/dkim", (c) => c.html(renderLearnDkim()));
 app.get("/learn/bimi", (c) => c.html(renderLearnBimi()));
 app.get("/learn/mta-sts", (c) => c.html(renderLearnMtaSts()));
+
+app.get("/mx", (c) => c.html(renderMxHub()));
+app.get("/mx/:slug", (c) => {
+  const html = renderMxProviderPage(c.req.param("slug"));
+  if (!html) return c.notFound();
+  return c.html(html);
+});
 
 app.get("/pricing", (c) => {
   if (wantsMarkdown(c)) return markdownResponse(c, renderPricingMarkdown());
