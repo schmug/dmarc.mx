@@ -700,6 +700,8 @@ describe("SEO routes", () => {
     expect(body).toContain("<loc>https://dmarc.mx/learn/dkim</loc>");
     expect(body).toContain("<loc>https://dmarc.mx/learn/bimi</loc>");
     expect(body).toContain("<loc>https://dmarc.mx/learn/mta-sts</loc>");
+    expect(body).toContain("<loc>https://dmarc.mx/learn/security-txt</loc>");
+    expect(body).toContain("<loc>https://dmarc.mx/learn/tls-rpt</loc>");
   });
 
   it("/robots.txt is NOT marked noindex (must stay crawlable)", async () => {
@@ -777,6 +779,8 @@ describe("Learn pages", () => {
     { slug: "dkim", label: "DKIM" },
     { slug: "bimi", label: "BIMI" },
     { slug: "mta-sts", label: "MTA-STS" },
+    { slug: "security-txt", label: "security.txt" },
+    { slug: "tls-rpt", label: "TLS-RPT" },
   ];
 
   it("serves the /learn hub with a CollectionPage + BreadcrumbList", async () => {
@@ -876,6 +880,39 @@ describe("Learn pages", () => {
     expect(html).toContain("mta-sts.txt");
     expect(html).toContain("enforce");
     expect(html).toContain("testing");
+  });
+
+  it("security.txt learn page mentions RFC 9116, Contact, and Expires fields", async () => {
+    const res = await app.request("/learn/security-txt");
+    const html = await res.text();
+    expect(res.status).toBe(200);
+    expect(html).toContain(
+      '<link rel="canonical" href="https://dmarc.mx/learn/security-txt">',
+    );
+    expect(html).toContain("RFC 9116");
+    expect(html).toContain("<code>Contact</code>");
+    expect(html).toContain("<code>Expires</code>");
+    expect(html).toContain(".well-known/security.txt");
+  });
+
+  it("TLS-RPT learn page mentions RFC 8460, _smtp._tls, and rua=", async () => {
+    const res = await app.request("/learn/tls-rpt");
+    const html = await res.text();
+    expect(res.status).toBe(200);
+    expect(html).toContain(
+      '<link rel="canonical" href="https://dmarc.mx/learn/tls-rpt">',
+    );
+    expect(html).toContain("RFC 8460");
+    expect(html).toContain("_smtp._tls");
+    expect(html).toContain("<code>rua</code>");
+    expect(html).toContain("TLSRPTv1");
+  });
+
+  it("sitemap.xml lists /learn/security-txt and /learn/tls-rpt", async () => {
+    const res = await app.request("/sitemap.xml");
+    const body = await res.text();
+    expect(body).toContain("<loc>https://dmarc.mx/learn/security-txt</loc>");
+    expect(body).toContain("<loc>https://dmarc.mx/learn/tls-rpt</loc>");
   });
 });
 
