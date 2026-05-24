@@ -28,6 +28,13 @@
 # DB migrations — the highest-blast-radius source paths.
 /src/index.ts                   @schmug
 /src/rate-limit.ts              @schmug
-/src/analyzers/mta-sts.ts       @schmug
-/src/analyzers/security-txt.ts  @schmug
 /src/db/                        @schmug
+
+# Analyzer modules, orchestration, and scoring — supply-chain / exfiltration risk.
+# A malicious new module added under src/analyzers/ (or changes to orchestrator/
+# scoring) could exfiltrate DNS data or manipulate grades without gating. Covered
+# broadly so that new files in the directory don't slip through the individual-file
+# entries that existed previously. Active once bot-identity split (#299) lands.
+/src/analyzers/                 @schmug
+/src/orchestrator.ts            @schmug
+/src/shared/scoring.ts          @schmug
