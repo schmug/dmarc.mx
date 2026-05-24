@@ -609,17 +609,20 @@ app.get("/api/check/stream", async (c) => {
       return;
     }
 
+    const protocolWrites: Promise<unknown>[] = [];
     const result = await scanStreaming(
       domain,
       selectors,
       (id: ProtocolId, protocolResult: ProtocolResult) => {
         const html = protocolRenderers[id](protocolResult);
-        stream.writeSSE({
+        const pending = stream.writeSSE({
           event: "protocol",
           data: JSON.stringify({ id, html }),
         });
+        if (pending) protocolWrites.push(pending);
       },
     );
+    await Promise.all(protocolWrites);
 
     tagScanResult(result);
     const pendingCacheWrite = setCachedScan(domain, selectors, result);

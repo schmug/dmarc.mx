@@ -8,16 +8,12 @@
  *   - "done"     — final event with grade and rendered header/footer HTML.
  *                  Data is { grade: string, headerHtml: string, footerHtml: string }.
  *
- * Implementation note — why we test via the cache-hit path:
- * Hono's streamSSE() calls run(stream, cb) without await before returning
- * the response. The non-cached scan path also calls stream.writeSSE() for
- * the `done` event without await. In the Hono test client (app.request()),
- * the TransformStream's readable side is consumed immediately, so unawaited
- * writes race with body consumption and produce an empty body. The cache-hit
- * path uses `await stream.writeSSE()` throughout, so all writes are flushed
- * before the stream closes — making it the reliable vehicle for testing the
- * SSE framing. Non-body tests (invalid domain → 400, selector forwarding via
- * mock assertions) work fine without draining the body.
+ * Implementation note — cache-hit vs live paths:
+ * Hono's streamSSE() returns the response before the stream callback finishes.
+ * The live scan path must `await` every `stream.writeSSE()` (protocol + done)
+ * before the handler returns, or the Hono test client can drain an empty body.
+ * Cache-hit replay has always awaited each write; live-path coverage lives in
+ * the "live scan path (cache miss)" describe block via a mocked scanStreaming.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { app } from "../src/index.js";
@@ -325,7 +321,38 @@ describe("GET /api/check/stream — happy path (cache-hit replay)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 2. Invalid domain — route returns 400 before starting the SSE stream
+// 2. Live scan path — cache miss; protocol writes are awaited before `done`
+// ---------------------------------------------------------------------------
+describe("GET /api/check/stream — live scan path (cache miss)", () => {
+  beforeEach(() => {
+    vi.mocked(scanStreaming).mockImplementation(
+      async (_domain, _selectors, onResult) => {
+        for (const [id, result] of Object.entries(CACHED_SCAN.protocols)) {
+          onResult(id as never, result as never);
+        }
+        return CACHED_SCAN as never;
+      },
+    );
+  });
+
+  it("emits every protocol event and a terminal done event", async () => {
+    const res = await app.request("/api/check/stream?domain=test.example.com");
+    expect(res.status).toBe(200);
+    const frames = await drainSSE(res);
+    const protocolIds = frames
+      .filter((f) => f.event === "protocol")
+      .map((f) => (JSON.parse(f.data) as { id: string }).id);
+
+    for (const id of KNOWN_PROTOCOL_IDS) {
+      expect(protocolIds, `missing protocol event for: ${id}`).toContain(id);
+    }
+    expect(frames.length).toBeGreaterThan(0);
+    expect(frames[frames.length - 1].event).toBe("done");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 3. Invalid domain — route returns 400 before starting the SSE stream
 // ---------------------------------------------------------------------------
 describe("GET /api/check/stream — invalid domain", () => {
   it("returns 400 for a domain that fails normalization", async () => {
@@ -364,12 +391,7 @@ describe("GET /api/check/stream — invalid domain", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 3. Custom DKIM selectors — forwarded to scanStreaming
-//
-// We verify selector forwarding through the mock call record rather than
-// through stream body inspection, because the non-cached live scan path
-// uses unawaited writeSSE calls that race with body consumption in the Hono
-// test client.
+// 4. Custom DKIM selectors — forwarded to scanStreaming
 // ---------------------------------------------------------------------------
 describe("GET /api/check/stream — custom selectors", () => {
   it("returns 200 for a valid domain with custom selectors", async () => {
