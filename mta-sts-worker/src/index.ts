@@ -20,6 +20,6 @@ export default {
       });
     }
 
-    return new Response("Not found", { status: 404 });
+    return Response.redirect("https://dmarc.mx/", 301);
   },
 };

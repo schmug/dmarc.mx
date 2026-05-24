@@ -4,6 +4,11 @@ import type {
   TlsRptResult,
   Validation,
 } from "../analyzers/types.js";
+import {
+  getMxProvider,
+  MX_PROVIDERS,
+  type MxProvider,
+} from "../data/mx-providers.js";
 
 // Markdown renderings for agent consumers that send `Accept: text/markdown`.
 // Output is plain markdown with no HTML fragments — agents are expected to
@@ -438,6 +443,70 @@ If I change how I handle your data in a way that affects you materially, I'll em
 ## Contact
 
 support@dmarc.mx
+`;
+}
+
+function renderMxProviderBodyMarkdown(provider: MxProvider): string {
+  // The catalog stores prose as plain text with backticks for inline code
+  // (the markdown convention), so the markdown renderer passes section
+  // content through verbatim — no HTML stripping, no entity decoding.
+  const sections = provider.sections
+    .map((section) => {
+      const paragraphs = section.paragraphs.join("\n\n");
+      const list = section.list
+        ? `\n\n${section.list.map((item) => `- ${item}`).join("\n")}`
+        : "";
+      return `## ${section.title}\n\n${paragraphs}${list}`;
+    })
+    .join("\n\n");
+  const hostnames = provider.hostnameExamples
+    .map((h) => `- \`${h}\``)
+    .join("\n");
+  const examples =
+    provider.parentExamples.length > 0
+      ? `## Scan an example tenant\n\n${provider.parentExamples
+          .map(
+            (d) =>
+              `- [Scan ${d}](${MD_SITE}/check?domain=${encodeURIComponent(d)})`,
+          )
+          .join("\n")}\n\n`
+      : "";
+  return `# ${provider.headline}
+
+${provider.intro}
+
+**Operator:** ${provider.operator}
+
+## Hostnames in the catalog
+
+${hostnames}
+
+${sections}
+
+${examples}---
+
+More MX providers: <${MD_SITE}/mx>. Scan a domain: <${MD_SITE}/check?domain=example.com>.
+`;
+}
+
+export function renderMxProviderMarkdown(slug: string): string | null {
+  const provider = getMxProvider(slug);
+  if (!provider) return null;
+  return renderMxProviderBodyMarkdown(provider);
+}
+
+export function renderMxHubMarkdown(): string {
+  const items = MX_PROVIDERS.map(
+    (p) =>
+      `- [${p.shortName}](${MD_SITE}/mx/${p.slug}) — \`${p.hostnameExamples[0] ?? ""}\``,
+  ).join("\n");
+  return `# MX provider reference — identify an MX hostname
+
+If you've spotted an MX hostname in a DNS lookup or message header and want to know what runs it, start here. Each page covers what the service is, who operates it, how the MX hostname is structured, and which kinds of organisations use it.
+
+${items}
+
+Scan a domain: <${MD_SITE}/check?domain=example.com>.
 `;
 }
 
