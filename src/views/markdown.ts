@@ -446,26 +446,15 @@ support@dmarc.mx
 `;
 }
 
-function mdStripHtml(html: string): string {
-  // Page prose stores light HTML (<code>, <a>, etc.) for the HTML renderer.
-  // For markdown we convert <code>x</code> to backticked `x`, strip remaining
-  // tags, and decode the handful of HTML entities used in the catalog.
-  return html
-    .replace(/<code>([^<]*)<\/code>/g, (_, inner) => `\`${inner}\``)
-    .replace(/<[^>]+>/g, "")
-    .replace(/&rarr;/g, "→")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"');
-}
-
 function renderMxProviderBodyMarkdown(provider: MxProvider): string {
+  // The catalog stores prose as plain text with backticks for inline code
+  // (the markdown convention), so the markdown renderer passes section
+  // content through verbatim — no HTML stripping, no entity decoding.
   const sections = provider.sections
     .map((section) => {
-      const paragraphs = section.paragraphs.map(mdStripHtml).join("\n\n");
+      const paragraphs = section.paragraphs.join("\n\n");
       const list = section.list
-        ? `\n\n${section.list.map((item) => `- ${mdStripHtml(item)}`).join("\n")}`
+        ? `\n\n${section.list.map((item) => `- ${item}`).join("\n")}`
         : "";
       return `## ${section.title}\n\n${paragraphs}${list}`;
     })
@@ -484,7 +473,7 @@ function renderMxProviderBodyMarkdown(provider: MxProvider): string {
       : "";
   return `# ${provider.headline}
 
-${mdStripHtml(provider.intro)}
+${provider.intro}
 
 **Operator:** ${provider.operator}
 
