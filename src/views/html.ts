@@ -440,11 +440,16 @@ export function renderReportFooter(result: ScanResult): string {
   </div>`;
 }
 
-function skeletonCard(name: string, expanded: boolean): string {
+function skeletonCard(
+  name: string,
+  expanded: boolean,
+  protocolId?: string,
+): string {
   const bodyHtml = expanded
     ? `<div class="skel-body"><div class="skel-bar"></div><div class="skel-bar"></div><div class="skel-bar"></div></div>`
     : "";
-  return `<div class="card-skeleton" data-protocol="${name.toLowerCase().replace("-", "_")}">
+  const id = protocolId ?? name.toLowerCase().replace(/-/g, "_");
+  return `<div class="card-skeleton" data-protocol="${id}">
   <div class="card-header">
     <div class="skel-dot"></div>
     <div class="card-title">${esc(name)}</div>
@@ -491,6 +496,8 @@ export function renderStreamingLoading(
     ${skeletonCard("DKIM", false)}
     ${skeletonCard("BIMI", false)}
     ${skeletonCard("MTA-STS", false)}
+    ${skeletonCard("security.txt", false, "security_txt")}
+    ${skeletonCard("TLS-RPT", false, "tls_rpt")}
   </div>
   <noscript><meta http-equiv="refresh" content="0;url=/check?${esc(qs)}&_direct=1"></noscript>
 </main>
