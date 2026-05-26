@@ -1675,7 +1675,7 @@ export function renderDomainPanel({
 </div>`
       : `<div class="empty-state">
   <p>No domains yet. Add your first domain to start monitoring.</p>
-  <a href="/dashboard/domain/add" class="btn">Add Domain</a>
+  <button type="button" class="btn" data-wizard-open>Add Domain</button>
 </div>`;
   } else {
     let rows = "";

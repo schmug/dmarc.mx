@@ -4,3 +4,7 @@
 ## 2024-05-19 - Actionable Empty States
 **Learning:** Generic empty states ("No X found") create dead ends for users. Providing a clear "Next Step" or CTA directly inside the empty state message drastically improves usability.
 **Action:** When creating or reviewing list/table empty states, ensure the text explicitly tells the user *how* to populate the list or *why* it's empty.
+
+## 2025-05-19 - Inline Workflows for Empty States
+**Learning:** Forcing users to navigate to a new page from an empty state can break flow and feel disjointed.
+**Action:** When empty states provide a CTA, prefer triggering inline components (like modals or wizards) over full page navigations to reduce friction.
