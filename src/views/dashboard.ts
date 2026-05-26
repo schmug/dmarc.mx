@@ -2956,7 +2956,7 @@ export function renderApiKeysPage({
           ? ""
           : `<form method="POST" action="/dashboard/settings/api-keys/revoke" style="display:inline" onsubmit="return confirm('Revoke this key? Requests using it will start failing.');">
               <input type="hidden" name="id" value="${esc(k.id)}">
-              <button type="submit" class="btn btn-secondary" style="padding:0.25rem 0.6rem;font-size:0.8125rem" aria-label="Revoke API key ${labelName}">Revoke</button>
+              <button type="submit" class="btn btn-danger" style="padding:0.25rem 0.6rem;font-size:0.8125rem" aria-label="Revoke API key ${labelName}">Revoke</button>
             </form>`;
         return `<tr>
   <td>${name}</td>
