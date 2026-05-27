@@ -261,15 +261,10 @@ export async function scanStreaming(
     onResult("spf", r);
   });
 
-  mtaStsPromise.then((r) => {
-    Sentry.addBreadcrumb({
-      category: "analyzer.complete",
-      message: `mta_sts: ${r.status}`,
-      data: { protocol: "mta_sts", status: r.status },
-      level: "info",
-    });
-    onResult("mta_sts", r);
-  });
+  // MTA-STS is emitted after buildScanResult (below), not here. The MX/MTA-STS
+  // consistency check (RFC 8461 §3.4) runs in buildScanResult and can add warn
+  // validations that change mta_sts.status — emitting early would stream a
+  // stale "pass" card while the done event carries the corrected grade.
 
   dmarcPromise.then((r) => {
     Sentry.addBreadcrumb({
@@ -341,7 +336,7 @@ export async function scanStreaming(
     tlsRptPromise,
   ]);
 
-  return await buildScanResult(domain, {
+  const result = await buildScanResult(domain, {
     mx: mxResult,
     dmarc: dmarcResult,
     spf: spfResult,
@@ -351,4 +346,14 @@ export async function scanStreaming(
     security_txt: securityTxtResult,
     tls_rpt: tlsRptResult,
   });
+
+  Sentry.addBreadcrumb({
+    category: "analyzer.complete",
+    message: `mta_sts: ${result.protocols.mta_sts.status}`,
+    data: { protocol: "mta_sts", status: result.protocols.mta_sts.status },
+    level: "info",
+  });
+  onResult("mta_sts", result.protocols.mta_sts);
+
+  return result;
 }
