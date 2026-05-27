@@ -139,18 +139,22 @@ export async function getPortfolioTrendForUser(
   // then we average across domains. We approximate "latest per domain per day"
   // by collapsing all scans in the bucket to a single mean — close enough for
   // a 0–100 trend line and avoids a second pass.
-  const buckets = new Map<number, number[]>();
+  // ⚡ Bolt Optimization: Maintain a running sum and count in the map instead
+  // of pushing into arrays and calling .reduce(). This avoids allocating
+  // thousands of intermediate arrays and reduces GC pressure on a hot path.
+  const buckets = new Map<number, { sum: number; count: number }>();
   for (const row of result.results) {
     const day = Math.floor(row.scanned_at / 86400);
-    const list = buckets.get(day) ?? [];
-    list.push(gradeToScore(row.grade));
-    buckets.set(day, list);
+    const stat = buckets.get(day) ?? { sum: 0, count: 0 };
+    stat.sum += gradeToScore(row.grade);
+    stat.count += 1;
+    buckets.set(day, stat);
   }
   const sortedDays = [...buckets.keys()].sort((a, b) => a - b);
   return sortedDays.map((day) => {
-    const scores = buckets.get(day) ?? [];
-    const sum = scores.reduce((acc, n) => acc + n, 0);
-    return scores.length ? sum / scores.length : 0;
+    const stat = buckets.get(day);
+    if (!stat || stat.count === 0) return 0;
+    return stat.sum / stat.count;
   });
 }
 
