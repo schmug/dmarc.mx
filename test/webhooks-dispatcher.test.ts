@@ -103,6 +103,63 @@ describe("webhooks/dispatcher.dispatchWebhook", () => {
     expect(deliveries).toHaveLength(0);
   });
 
+  it("refuses to fetch a webhook URL pointing at an internal host (SSRF guard)", async () => {
+    webhooksByUser.set("u1", {
+      id: 99,
+      user_id: "u1",
+      url: "https://169.254.169.254/latest/meta-data/",
+      secret: "shhh",
+      format: "raw",
+      created_at: 0,
+    });
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const db = makeDb();
+
+    const result = await dispatchWebhook(db, "u1", {
+      type: "webhook.test",
+      data: { message: "ping" },
+    });
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(result?.ok).toBe(false);
+    expect(result?.status).toBeNull();
+    expect(result?.error).toMatch(/host is not allowed/i);
+    // The blocked attempt is still recorded for the dashboard.
+    expect(deliveries).toHaveLength(1);
+    expect(deliveries[0].ok).toBe(0);
+  });
+
+  it("uses redirect: manual and treats an opaque-redirect (3xx) as a failed delivery", async () => {
+    webhooksByUser.set("u1", {
+      id: 88,
+      user_id: "u1",
+      url: "https://hook.example/receive",
+      secret: "shhh",
+      format: "raw",
+      created_at: 0,
+    });
+    // A 3xx under redirect: "manual" surfaces as an opaque-redirect Response.
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      type: "opaqueredirect",
+      ok: false,
+      status: 0,
+    } as unknown as Response);
+    const db = makeDb();
+
+    const result = await dispatchWebhook(db, "u1", {
+      type: "webhook.test",
+      data: { message: "ping" },
+    });
+
+    const [, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(init.redirect).toBe("manual");
+    expect(result?.ok).toBe(false);
+    expect(result?.status).toBeNull();
+    expect(result?.error).toMatch(/redirect not followed/i);
+    expect(deliveries).toHaveLength(1);
+    expect(deliveries[0].ok).toBe(0);
+  });
+
   it("POSTs a signed envelope and records a successful delivery", async () => {
     webhooksByUser.set("u1", {
       id: 42,
