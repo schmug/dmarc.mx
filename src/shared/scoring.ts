@@ -50,6 +50,16 @@ export interface GradeBreakdown {
   protocolSummaries: Record<string, { status: Status; summary: string }>;
 }
 
+// ⚡ Bolt Optimization: Use a simple loop instead of .reduce()
+// Avoids function creation overhead and reduces GC pressure on a hot path.
+function sumEffects(factors: ScoringFactor[]): number {
+  let sum = 0;
+  for (let i = 0; i < factors.length; i++) {
+    sum += factors[i].effect;
+  }
+  return sum;
+}
+
 // ── Single decision engine ─────────────────────────────────
 
 interface ScoringResult {
@@ -133,7 +143,7 @@ function resolveScoring(protocols: Protocols): ScoringResult {
       ...dkimFactors(dkim),
       ...dmarcFactors(dmarc),
     ];
-    const modifier = factors.reduce((sum, f) => sum + f.effect, 0);
+    const modifier = sumEffects(factors);
     const pctNote = pct < 10 ? ` (pct=${pct}% — effectively quarantine)` : "";
     return {
       grade: applyModifier("C", modifier),
@@ -162,7 +172,7 @@ function resolveScoring(protocols: Protocols): ScoringResult {
         ...dkimFactors(dkim),
         ...dmarcFactors(dmarc),
       ];
-      const modifier = factors.reduce((sum, f) => sum + f.effect, 0);
+      const modifier = sumEffects(factors);
       return {
         grade: "A+",
         tier: "A+",
@@ -182,7 +192,7 @@ function resolveScoring(protocols: Protocols): ScoringResult {
         ...dmarcFactors(dmarc),
         ...mtaStsFactors(mta_sts),
       ];
-      const modifier = factors.reduce((sum, f) => sum + f.effect, 0);
+      const modifier = sumEffects(factors);
       return {
         grade: applyModifier("A", modifier),
         tier: "A",
@@ -216,7 +226,7 @@ function resolveScoring(protocols: Protocols): ScoringResult {
         effect: +1,
       });
     }
-    const modifier = factors.reduce((sum, f) => sum + f.effect, 0);
+    const modifier = sumEffects(factors);
     return {
       grade: applyModifier("B", modifier),
       tier: "B",
@@ -233,7 +243,7 @@ function resolveScoring(protocols: Protocols): ScoringResult {
     ...dkimFactors(dkim),
     ...dmarcFactors(dmarc),
   ];
-  const modifier = factors.reduce((sum, f) => sum + f.effect, 0);
+  const modifier = sumEffects(factors);
   return {
     grade: applyModifier("C", modifier),
     tier: "C",
