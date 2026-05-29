@@ -36,6 +36,15 @@ commit_parsers = [
     { message = "^Pause", group = "Changed" },
     { message = "^Merge pull request", skip = true },
     { message = "^Merge branch", skip = true },
+    # Strip dependency bumps and routine chores from release-note *bodies* so the
+    # changelog lists real changes only. This filters note CONTENT, not release
+    # count — every push to main still cuts a CalVer release, so a deps-only push
+    # produces a release with a header but no bullets (harmless: git-cliff exits 0
+    # and notes stay non-empty, so `gh release create` does not break). The win is
+    # mixed releases (the norm here): the real change shows, the bumps drop out.
+    # Covers conventional `chore(deps)` / `chore:` and dependabot's raw "Bump X".
+    { message = "^chore", skip = true },
+    { message = "^[Bb]ump ", skip = true },
     { body = ".*", group = "Other" },
 ]
 filter_commits = false
