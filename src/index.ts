@@ -981,7 +981,10 @@ app.get("/", (c) => {
 
 app.get("/scoring", (c) => {
   if (wantsMarkdown(c))
-    return markdownResponse(c, renderScoringRubricMarkdown());
+    return markdownResponse(
+      c,
+      renderScoringRubricMarkdown(parseScoringConfig(c.env?.SCORING_CONFIG)),
+    );
   return c.html(renderScoringRubric(parseScoringConfig(c.env?.SCORING_CONFIG)));
 });
 

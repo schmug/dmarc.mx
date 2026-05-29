@@ -9,6 +9,10 @@ import {
   MX_PROVIDERS,
   type MxProvider,
 } from "../data/mx-providers.js";
+import {
+  DEFAULT_SCORING_CONFIG,
+  type ScoringConfig,
+} from "../shared/scoring.js";
 
 // Markdown renderings for agent consumers that send `Accept: text/markdown`.
 // Output is plain markdown with no HTML fragments — agents are expected to
@@ -291,7 +295,18 @@ See \`ScanResult\` in <${MD_SITE}/openapi.json>. Summary:
 `;
 }
 
-export function renderScoringRubricMarkdown(): string {
+export function renderScoringRubricMarkdown(
+  config: Partial<ScoringConfig> = {},
+): string {
+  const cfg = { ...DEFAULT_SCORING_CONFIG, ...config };
+  const aplusExtras =
+    cfg.requireBimiForAPlus && cfg.requireMtaStsForAPlus
+      ? "both BIMI and enforcing MTA-STS"
+      : cfg.requireBimiForAPlus
+        ? "BIMI"
+        : cfg.requireMtaStsForAPlus
+          ? "enforcing MTA-STS"
+          : "no additional extras";
   return `# dmarcheck scoring rubric
 
 The grade (S, A+, A, B, C, D, F) is computed from a tier + modifier model. Full logic: <https://github.com/schmug/dmarcheck/blob/main/src/shared/scoring.ts>.
@@ -301,6 +316,16 @@ The grade (S, A+, A, B, C, D, F) is computed from a tier + modifier model. Full 
 - **B** — DMARC enforced (quarantine/reject) with SPF + DKIM aligned.
 - **A / A+** — Full DMARC enforcement, SPF + DKIM correct, MTA-STS enforced.
 - **S** — All of the above plus BIMI with a valid VMC.
+
+## Active scoring thresholds
+
+These reflect this deployment's \`SCORING_CONFIG\` (the values below are dmarc.mx's defaults):
+
+- DKIM keys below **${cfg.dkimKeyMinBits} bits** lose a modifier point.
+- **${cfg.dkimRotationSelectorCount} or more** DKIM selectors earn a modifier point.
+- SPF using **≤ ${cfg.spfEfficientLookupThreshold} DNS lookups** earns a modifier point.
+- DMARC \`pct\` below **${cfg.lowPctDowngradeThreshold}%** downgrades the effective policy one tier.
+- A+ requires ${aplusExtras} (in addition to the A-tier requirements).
 
 Run a scan: \`${MD_SITE}/check?domain=example.com\` (add \`Accept: text/markdown\` for this format).
 `;
