@@ -38,6 +38,57 @@ binding, and a sibling `mta-sts.dmarc.mx` helper worker.
 
 ## 3. Entry points & trust boundaries
 
+The diagram shows where untrusted input crosses into the Worker's trusted
+execution context. Each labelled edge maps to an entry point (E1–E11) in the
+table below.
+
+```mermaid
+flowchart LR
+    subgraph internet["Untrusted internet"]
+        unauth["Unauthenticated client<br/>?domain, /mcp, /badge"]
+        prouser["Authenticated Pro user<br/>session / API key"]
+        stripe_in["Stripe webhook sender"]
+        evildomain["Attacker-named scan target"]
+    end
+
+    subgraph worker["dmarcheck Worker — trust boundary (Cloudflare edge)"]
+        rl["Rate limiter / cache (E9)"]
+        scan["Scan API + orchestrator (E1, E2)"]
+        auth["Auth & session (E5)"]
+        dash["Dashboard / history CRUD (E6)"]
+        whverify["Stripe webhook verify (E7)"]
+        render["HTML report render (E8)"]
+        fetchout["Analyzer outbound fetch (E3)"]
+        whout["Outbound webhook dispatch (E4)"]
+    end
+
+    subgraph backends["Backends &amp; secrets"]
+        dns["DNS resolvers"]
+        upstream["Attacker-named upstream HTTPS"]
+        d1[("D1: users, keys, history, billing")]
+        email["Email binding (alerts@)"]
+        stripeapi["Stripe API"]
+    end
+
+    subgraph supply["CI/CD — supply chain"]
+        gha["GitHub Actions (E10)"]
+        routine["Autonomous routine merge (E11)"]
+        prod["Cloudflare prod deploy / D1"]
+    end
+
+    unauth --> rl --> scan
+    prouser --> auth --> dash --> d1
+    scan --> render
+    scan --> fetchout --> dns
+    fetchout --> upstream
+    dash --> whout --> upstream
+    evildomain -. controls target name .-> fetchout
+    stripe_in --> whverify --> d1
+    whverify --> stripeapi
+    dash --> email
+    routine --> gha --> prod
+```
+
 | entry_point | description | trust_boundary | reachable_assets |
 |---|---|---|---|
 | E1 — Public scan API (`/check`, `/api/check`, `/api/check/stream`, `/badge`, `/mx/:slug`) | Attacker controls `?domain`, `?selectors`, `?format`, `Accept`; drives DNS lookups + HTML/JSON/CSV/SSE rendering | unauth HTTP → app logic; Worker → upstream DNS | grade integrity, service availability |
