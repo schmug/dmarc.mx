@@ -589,6 +589,7 @@ app.get("/api/check/stream", async (c) => {
         "bimi",
         "mta_sts",
         "security_txt",
+        "tls_rpt",
       ];
       for (const id of protocolIds) {
         const protocolResult = cached.protocols[id];

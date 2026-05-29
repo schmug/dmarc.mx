@@ -127,6 +127,12 @@ const CACHED_SCAN = {
       fields: null,
       validations: [],
     },
+    tls_rpt: {
+      status: "info" as const,
+      record: null,
+      tags: null,
+      validations: [],
+    },
   },
 };
 
@@ -141,6 +147,7 @@ const KNOWN_PROTOCOL_IDS = new Set<string>([
   "bimi",
   "mta_sts",
   "security_txt",
+  "tls_rpt",
 ]);
 
 // ---------------------------------------------------------------------------
