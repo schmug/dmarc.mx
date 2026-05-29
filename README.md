@@ -157,6 +157,7 @@ polyfill in production) is used.
 | Rate limit | `src/rate-limit.ts` → `LIMIT` | 10 req/IP/min |
 | Rate limit window | `src/rate-limit.ts` → `WINDOW_SECONDS` | 60s |
 | DKIM selectors | `src/analyzers/dkim.ts` → `COMMON_SELECTORS` | ~30 common selectors |
+| Scoring rubric | `wrangler.toml` → `[vars].SCORING_CONFIG` (JSON) | shipped rubric — see [`src/shared/scoring-config.ts`](src/shared/scoring-config.ts) for the knobs |
 
 ### Database migrations
 

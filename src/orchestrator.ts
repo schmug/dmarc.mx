@@ -20,7 +20,7 @@ import type {
   TlsRptResult,
 } from "./analyzers/types.js";
 import { queryTxt } from "./dns/client.js";
-import { computeGradeBreakdown } from "./shared/scoring.js";
+import { computeGradeBreakdown, type ScoringConfig } from "./shared/scoring.js";
 
 export type ProtocolId =
   | "mx"
@@ -44,6 +44,7 @@ export type ProtocolResult =
 async function buildScanResult(
   domain: string,
   protocols: ScanResult["protocols"],
+  config: Partial<ScoringConfig>,
 ): Promise<ScanResult> {
   // Cross-check MX hosts against MTA-STS policy patterns (RFC 8461 §3.4)
   const consistencyValidations = checkMxMtaStsConsistency(
@@ -62,7 +63,7 @@ async function buildScanResult(
     protocols.mta_sts.status = hasFailure ? "fail" : hasWarn ? "warn" : "pass";
   }
 
-  const breakdown = computeGradeBreakdown(protocols);
+  const breakdown = computeGradeBreakdown(protocols, config);
 
   // Easter egg: S grade for A+ domains advertising dmarc.mx
   if (breakdown.grade === "A+") {
@@ -102,7 +103,8 @@ async function buildScanResult(
 
 export async function scan(
   domain: string,
-  customSelectors: string[] = [],
+  customSelectors: string[],
+  config: Partial<ScoringConfig>,
 ): Promise<ScanResult> {
   // Fire all independent DNS queries immediately
   const dmarcPromise = analyzeDmarc(domain);
@@ -196,22 +198,27 @@ export async function scan(
     level: "info",
   });
 
-  return await buildScanResult(domain, {
-    mx: mxResult,
-    dmarc: dmarcResult,
-    spf: spfResult,
-    dkim: dkimResult,
-    bimi: bimiResult,
-    mta_sts: mtaStsResult,
-    security_txt: securityTxtResult,
-    tls_rpt: tlsRptResult,
-  });
+  return await buildScanResult(
+    domain,
+    {
+      mx: mxResult,
+      dmarc: dmarcResult,
+      spf: spfResult,
+      dkim: dkimResult,
+      bimi: bimiResult,
+      mta_sts: mtaStsResult,
+      security_txt: securityTxtResult,
+      tls_rpt: tlsRptResult,
+    },
+    config,
+  );
 }
 
 export async function scanStreaming(
   domain: string,
   customSelectors: string[],
   onResult: (id: ProtocolId, result: ProtocolResult) => void,
+  config: Partial<ScoringConfig>,
 ): Promise<ScanResult> {
   // ⚡ Bolt Optimization: Start all independent DNS queries immediately.
   // Previously, the streaming sequence awaited MX resolution before dispatching
@@ -341,14 +348,18 @@ export async function scanStreaming(
     tlsRptPromise,
   ]);
 
-  return await buildScanResult(domain, {
-    mx: mxResult,
-    dmarc: dmarcResult,
-    spf: spfResult,
-    dkim: dkimResult,
-    bimi: bimiResult,
-    mta_sts: mtaStsResult,
-    security_txt: securityTxtResult,
-    tls_rpt: tlsRptResult,
-  });
+  return await buildScanResult(
+    domain,
+    {
+      mx: mxResult,
+      dmarc: dmarcResult,
+      spf: spfResult,
+      dkim: dkimResult,
+      bimi: bimiResult,
+      mta_sts: mtaStsResult,
+      security_txt: securityTxtResult,
+      tls_rpt: tlsRptResult,
+    },
+    config,
+  );
 }

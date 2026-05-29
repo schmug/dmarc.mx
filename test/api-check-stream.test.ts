@@ -411,6 +411,7 @@ describe("GET /api/check/stream — custom selectors", () => {
       "test.example.com",
       ["google", "microsoft"],
       expect.any(Function),
+      {},
     );
   });
 

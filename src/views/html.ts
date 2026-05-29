@@ -10,6 +10,10 @@ import type {
   TlsRptResult,
 } from "../analyzers/types.js";
 import { isIndexableScanDomain } from "../shared/indexable-domains.js";
+import {
+  DEFAULT_SCORING_CONFIG,
+  type ScoringConfig,
+} from "../shared/scoring.js";
 import { CSS_PATH, JS_PATH } from "./assets.js";
 import {
   dkimSelectorGrid,
@@ -642,7 +646,19 @@ const SCORING_JSON_LD = JSON.stringify({
   ],
 });
 
-export function renderScoringRubric(): string {
+export function renderScoringRubric(
+  config: Partial<ScoringConfig> = {},
+): string {
+  const cfg = { ...DEFAULT_SCORING_CONFIG, ...config };
+  // A+ extras prose reflects the active requireBimi/requireMtaSts knobs.
+  const aplusReq =
+    cfg.requireBimiForAPlus && cfg.requireMtaStsForAPlus
+      ? "<em>both</em> BIMI and MTA-STS (enforcing)"
+      : cfg.requireBimiForAPlus
+        ? "BIMI"
+        : cfg.requireMtaStsForAPlus
+          ? "MTA-STS (enforcing)"
+          : "no additional extras";
   const body = `<main class="breakdown">
   <div class="report-nav">
     <a href="/">${generateCreature("sm")} Home</a>
@@ -665,7 +681,7 @@ export function renderScoringRubric(): string {
         <tbody>
           <tr class="rubric-row-a">
             <td><span class="rubric-grade grade-a">A+</span></td>
-            <td>DMARC p=reject + SPF within lookup limit + DKIM + <em>both</em> BIMI and MTA-STS (enforcing)</td>
+            <td>DMARC p=reject + SPF within lookup limit + DKIM + ${aplusReq}</td>
           </tr>
           <tr class="rubric-row-a">
             <td><span class="rubric-grade grade-a">A</span></td>
@@ -677,7 +693,7 @@ export function renderScoringRubric(): string {
           </tr>
           <tr class="rubric-row-c">
             <td><span class="rubric-grade grade-c">C</span></td>
-            <td>DMARC p=quarantine + SPF + DKIM passing (or p=reject with pct &lt; 10%)</td>
+            <td>DMARC p=quarantine + SPF + DKIM passing (or p=reject with pct &lt; ${cfg.lowPctDowngradeThreshold}%)</td>
           </tr>
           <tr class="rubric-row-d">
             <td><span class="rubric-grade grade-c">D</span></td>
@@ -702,9 +718,9 @@ export function renderScoringRubric(): string {
           <tr><td>DMARC aggregate reporting (rua) configured</td><td class="effect-plus">+1</td></tr>
           <tr><td>No DMARC reporting (rua/ruf) configured</td><td class="effect-minus">&minus;1</td></tr>
           <tr><td>DMARC pct &lt; 100% (partial enforcement)</td><td class="effect-minus">&minus;1</td></tr>
-          <tr><td>SPF uses &le;5 DNS lookups</td><td class="effect-plus">+1</td></tr>
-          <tr><td>Any DKIM key under 2048 bits</td><td class="effect-minus">&minus;1</td></tr>
-          <tr><td>2 or more DKIM selectors found</td><td class="effect-plus">+1</td></tr>
+          <tr><td>SPF uses &le;${cfg.spfEfficientLookupThreshold} DNS lookups</td><td class="effect-plus">+1</td></tr>
+          <tr><td>Any DKIM key under ${cfg.dkimKeyMinBits} bits</td><td class="effect-minus">&minus;1</td></tr>
+          <tr><td>${cfg.dkimRotationSelectorCount} or more DKIM selectors found</td><td class="effect-plus">+1</td></tr>
           <tr><td>BIMI configured (B tier)</td><td class="effect-plus">+1</td></tr>
           <tr><td>MTA-STS configured (B tier)</td><td class="effect-plus">+1</td></tr>
           <tr><td>MTA-STS in testing mode</td><td class="effect-minus">&minus;1</td></tr>

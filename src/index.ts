@@ -55,6 +55,7 @@ import {
 import { normalizeDomain } from "./shared/domain.js";
 import { listIndexableScanDomains } from "./shared/indexable-domains.js";
 import { watchlistCapForPlan } from "./shared/limits.js";
+import { parseScoringConfig } from "./shared/scoring-config.js";
 import { CSS_PATH, JS_PATH } from "./views/assets.js";
 import {
   APPLE_TOUCH_ICON_BASE64,
@@ -623,6 +624,7 @@ app.get("/api/check/stream", async (c) => {
         });
         if (pending) protocolWrites.push(pending);
       },
+      parseScoringConfig(c.env?.SCORING_CONFIG),
     );
     await Promise.all(protocolWrites);
 
@@ -722,7 +724,9 @@ app.get("/badge", async (c) => {
 
   try {
     const cached = await getCachedScan(domain, []);
-    const result = cached ?? (await scan(domain, []));
+    const result =
+      cached ??
+      (await scan(domain, [], parseScoringConfig(c.env?.SCORING_CONFIG)));
     if (!cached) {
       const pendingCacheWrite = setCachedScan(domain, [], result);
       if (pendingCacheWrite) {
@@ -864,7 +868,10 @@ app.post("/mcp", async (c) => {
       400,
     );
   }
-  return handleMcpRequest(body, { executionCtx: c.executionCtx });
+  return handleMcpRequest(body, {
+    executionCtx: c.executionCtx,
+    scoringConfig: parseScoringConfig(c.env?.SCORING_CONFIG),
+  });
 });
 
 // SEP-1649 MCP server card — minimal shape, served before the RFC finalises.
@@ -975,7 +982,7 @@ app.get("/", (c) => {
 app.get("/scoring", (c) => {
   if (wantsMarkdown(c))
     return markdownResponse(c, renderScoringRubricMarkdown());
-  return c.html(renderScoringRubric());
+  return c.html(renderScoringRubric(parseScoringConfig(c.env?.SCORING_CONFIG)));
 });
 
 app.get("/learn", (c) => {
@@ -1039,7 +1046,13 @@ app.get("/api/check", async (c) => {
       data: { domain },
       level: "info",
     });
-    const result = cached ?? (await scan(domain, selectors));
+    const result =
+      cached ??
+      (await scan(
+        domain,
+        selectors,
+        parseScoringConfig(c.env?.SCORING_CONFIG),
+      ));
     tagScanResult(result);
     if (!cached) {
       const pendingCacheWrite = setCachedScan(domain, selectors, result);
@@ -1123,6 +1136,7 @@ app.post("/api/bulk-scan", async (c) => {
     userId: bearer.userId,
     rawDomains,
     watchlistCap: watchlistCapForPlan(plan),
+    scoringConfig: parseScoringConfig(c.env?.SCORING_CONFIG),
   });
   if (isCapExceeded(outcome)) {
     return c.json(
@@ -1229,7 +1243,11 @@ app.get("/check/score", async (c) => {
       data: { domain, selectors },
       level: "info",
     });
-    const result = await scan(domain, selectors);
+    const result = await scan(
+      domain,
+      selectors,
+      parseScoringConfig(c.env?.SCORING_CONFIG),
+    );
     tagScanResult(result);
     return c.html(renderScoreBreakdown(result));
   } catch (err) {
@@ -1280,7 +1298,13 @@ app.get("/check", async (c) => {
         level: "info",
       });
       const cached = await getCachedScan(domain, selectors);
-      const result = cached ?? (await scan(domain, selectors));
+      const result =
+        cached ??
+        (await scan(
+          domain,
+          selectors,
+          parseScoringConfig(c.env?.SCORING_CONFIG),
+        ));
       tagScanResult(result);
       if (!cached) {
         const pendingCacheWrite = setCachedScan(domain, selectors, result);
@@ -1304,7 +1328,11 @@ app.get("/check", async (c) => {
         data: { domain, selectors },
         level: "info",
       });
-      const result = await scan(domain, selectors);
+      const result = await scan(
+        domain,
+        selectors,
+        parseScoringConfig(c.env?.SCORING_CONFIG),
+      );
       tagScanResult(result);
       return c.json(result);
     } catch (err) {
@@ -1322,7 +1350,11 @@ app.get("/check", async (c) => {
         data: { domain, selectors },
         level: "info",
       });
-      const result = await scan(domain, selectors);
+      const result = await scan(
+        domain,
+        selectors,
+        parseScoringConfig(c.env?.SCORING_CONFIG),
+      );
       tagScanResult(result);
       return c.body(generateCsv(result), 200, {
         "Content-Type": "text/csv; charset=utf-8",
@@ -1351,7 +1383,13 @@ app.get("/check", async (c) => {
         data: { domain },
         level: "info",
       });
-      const result = cached ?? (await scan(domain, selectors));
+      const result =
+        cached ??
+        (await scan(
+          domain,
+          selectors,
+          parseScoringConfig(c.env?.SCORING_CONFIG),
+        ));
       tagScanResult(result);
       if (!cached) {
         const pendingCacheWrite = setCachedScan(domain, selectors, result);
@@ -1405,6 +1443,7 @@ async function scheduled(
     const rescanResult = await runDueRescans({
       db: env.DB,
       now: Math.floor(Date.now() / 1000),
+      scoringConfig: parseScoringConfig(env.SCORING_CONFIG),
     });
     const scope = Sentry.getCurrentScope();
     scope.setTag("cron.scanned", String(rescanResult.scanned));

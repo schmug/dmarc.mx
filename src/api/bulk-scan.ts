@@ -6,9 +6,10 @@ import {
   getDomainByUserAndName,
 } from "../db/domains.js";
 import { recordScan } from "../db/scans.js";
-import { scan as defaultScan } from "../orchestrator.js";
+import { scan } from "../orchestrator.js";
 import { normalizeDomain } from "../shared/domain.js";
 import { PRO_WATCHLIST_CAP } from "../shared/limits.js";
+import type { ScoringConfig } from "../shared/scoring.js";
 
 // Phase 4c — bulk scan core. Two callers (POST /api/bulk-scan with bearer
 // auth, POST /dashboard/bulk with session auth) share this logic; both must
@@ -49,6 +50,8 @@ export interface ProcessBulkScanInput {
   rawDomains: string[];
   // Injectable for tests — defaults to the orchestrator's `scan`.
   scanFn?: (domain: string) => Promise<ScanLike>;
+  // Self-host scoring rubric override, forwarded to scan() (issue #25).
+  scoringConfig?: Partial<ScoringConfig>;
   now?: number;
   // Knobs for tests; defaults match the production caps above.
   inBandCap?: number;
@@ -82,7 +85,9 @@ export function isCapExceeded(
 export async function processBulkScan(
   input: ProcessBulkScanInput,
 ): Promise<ProcessBulkScanOutcome> {
-  const scanFn = input.scanFn ?? defaultScan;
+  const scanFn =
+    input.scanFn ??
+    ((domain: string) => scan(domain, [], input.scoringConfig ?? {}));
   const inBandCap = input.inBandCap ?? BULK_IN_BAND_CAP;
   const batchSize = input.batchSize ?? BULK_BATCH_SIZE;
 

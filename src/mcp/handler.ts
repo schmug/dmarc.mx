@@ -6,6 +6,7 @@
 import { getCachedScan, setCachedScan } from "../cache.js";
 import { scan } from "../orchestrator.js";
 import { normalizeDomain } from "../shared/domain.js";
+import type { ScoringConfig } from "../shared/scoring.js";
 
 // DKIM selector charset per RFC 6376 §3.1 — mirrors VALID_SELECTOR in index.ts.
 const VALID_SELECTOR = /^[A-Za-z0-9._-]+$/;
@@ -90,6 +91,8 @@ function rpcError(
 
 export interface McpEnv {
   executionCtx: ExecutionContext;
+  // Self-host scoring rubric override, forwarded to scan() (issue #25).
+  scoringConfig: Partial<ScoringConfig>;
 }
 
 export async function handleMcpRequest(
@@ -167,7 +170,7 @@ async function handleToolCall(
 
   try {
     const cached = await getCachedScan(domain, selectors);
-    const result = cached ?? (await scan(domain, selectors));
+    const result = cached ?? (await scan(domain, selectors, env.scoringConfig));
     if (!cached) {
       const pendingWrite = setCachedScan(domain, selectors, result);
       if (pendingWrite) {

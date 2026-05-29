@@ -60,6 +60,37 @@ function sumEffects(factors: ScoringFactor[]): number {
   return sum;
 }
 
+// ── Configurable rubric ────────────────────────────────────
+
+// Self-hosters can tune these knobs via the SCORING_CONFIG wrangler var
+// (see src/shared/scoring-config.ts). Every field defaults to dmarc.mx's
+// shipped behavior, so an unset/absent config produces identical grades.
+// Config holds only numbers/booleans — never user-supplied strings — so it
+// introduces no new HTML-output surface.
+export interface ScoringConfig {
+  // Whether the A+ tier requires a BIMI record.
+  requireBimiForAPlus: boolean;
+  // Whether the A+ tier requires enforcing (non-testing) MTA-STS.
+  requireMtaStsForAPlus: boolean;
+  // SPF DNS lookups at or below this earn the efficiency bonus.
+  spfEfficientLookupThreshold: number;
+  // DKIM keys below this many bits incur the weak-key penalty.
+  dkimKeyMinBits: number;
+  // DMARC pct below this downgrades the effective enforcement tier.
+  lowPctDowngradeThreshold: number;
+  // This many found DKIM selectors (or more) earns the rotation bonus.
+  dkimRotationSelectorCount: number;
+}
+
+export const DEFAULT_SCORING_CONFIG: ScoringConfig = {
+  requireBimiForAPlus: true,
+  requireMtaStsForAPlus: true,
+  spfEfficientLookupThreshold: 5,
+  dkimKeyMinBits: 2048,
+  lowPctDowngradeThreshold: 10,
+  dkimRotationSelectorCount: 2,
+};
+
 // ── Single decision engine ─────────────────────────────────
 
 interface ScoringResult {
@@ -71,7 +102,10 @@ interface ScoringResult {
   factors: ScoringFactor[];
 }
 
-function resolveScoring(protocols: Protocols): ScoringResult {
+function resolveScoring(
+  protocols: Protocols,
+  config: ScoringConfig,
+): ScoringResult {
   const { dmarc, spf, dkim, bimi, mta_sts } = protocols;
   const dmarcPolicy = dmarc.tags?.p?.toLowerCase() ?? null;
 
@@ -112,11 +146,11 @@ function resolveScoring(protocols: Protocols): ScoringResult {
   const hasBimi = bimi.record !== null;
   const hasMtaSts = mta_sts.status === "pass";
 
-  // pct < 10 effectively downgrades the policy one tier
-  // reject with pct < 10 → treated as quarantine-equivalent
-  // quarantine with pct < 10 → treated as near-none (C-tier max)
+  // pct below the downgrade threshold effectively drops the policy one tier
+  // reject with low pct → treated as quarantine-equivalent
+  // quarantine with low pct → treated as near-none (C-tier max)
   const effectivePolicy =
-    pct < 10
+    pct < config.lowPctDowngradeThreshold
       ? dmarcPolicy === "reject"
         ? "quarantine"
         : "quarantine"
@@ -139,12 +173,15 @@ function resolveScoring(protocols: Protocols): ScoringResult {
   // C tier: quarantine (or reject downgraded by low pct) with SPF + DKIM
   if (effectivePolicy === "quarantine") {
     const factors = [
-      ...spfFactors(spf),
-      ...dkimFactors(dkim),
-      ...dmarcFactors(dmarc),
+      ...spfFactors(spf, config),
+      ...dkimFactors(dkim, config),
+      ...dmarcFactors(dmarc, config),
     ];
     const modifier = sumEffects(factors);
-    const pctNote = pct < 10 ? ` (pct=${pct}% — effectively quarantine)` : "";
+    const pctNote =
+      pct < config.lowPctDowngradeThreshold
+        ? ` (pct=${pct}% — effectively quarantine)`
+        : "";
     return {
       grade: applyModifier("C", modifier),
       tier: "C",
@@ -163,14 +200,14 @@ function resolveScoring(protocols: Protocols): ScoringResult {
     // A+ tier: strong SPF + both BIMI and MTA-STS (enforcing)
     if (
       spfStrong &&
-      hasBimi &&
-      hasMtaSts &&
-      mta_sts.policy?.mode !== "testing"
+      (!config.requireBimiForAPlus || hasBimi) &&
+      (!config.requireMtaStsForAPlus ||
+        (hasMtaSts && mta_sts.policy?.mode !== "testing"))
     ) {
       const factors = [
-        ...spfFactors(spf),
-        ...dkimFactors(dkim),
-        ...dmarcFactors(dmarc),
+        ...spfFactors(spf, config),
+        ...dkimFactors(dkim, config),
+        ...dmarcFactors(dmarc, config),
       ];
       const modifier = sumEffects(factors);
       return {
@@ -187,9 +224,9 @@ function resolveScoring(protocols: Protocols): ScoringResult {
     // A tier: strong SPF + at least one extra
     if (spfStrong && hasExtras) {
       const factors = [
-        ...spfFactors(spf),
-        ...dkimFactors(dkim),
-        ...dmarcFactors(dmarc),
+        ...spfFactors(spf, config),
+        ...dkimFactors(dkim, config),
+        ...dmarcFactors(dmarc, config),
         ...mtaStsFactors(mta_sts),
       ];
       const modifier = sumEffects(factors);
@@ -207,9 +244,9 @@ function resolveScoring(protocols: Protocols): ScoringResult {
 
     // B tier
     const factors = [
-      ...spfFactors(spf),
-      ...dkimFactors(dkim),
-      ...dmarcFactors(dmarc),
+      ...spfFactors(spf, config),
+      ...dkimFactors(dkim, config),
+      ...dmarcFactors(dmarc, config),
       ...mtaStsFactors(mta_sts),
     ];
     if (hasBimi) {
@@ -239,9 +276,9 @@ function resolveScoring(protocols: Protocols): ScoringResult {
 
   // Fallback (shouldn't normally reach here)
   const factors = [
-    ...spfFactors(spf),
-    ...dkimFactors(dkim),
-    ...dmarcFactors(dmarc),
+    ...spfFactors(spf, config),
+    ...dkimFactors(dkim, config),
+    ...dmarcFactors(dmarc, config),
   ];
   const modifier = sumEffects(factors);
   return {
@@ -256,13 +293,25 @@ function resolveScoring(protocols: Protocols): ScoringResult {
 
 // ── Public API (thin wrappers) ────────────────────────
 
-export function computeGrade(protocols: Protocols): string {
-  return resolveScoring(protocols).grade;
+export function computeGrade(
+  protocols: Protocols,
+  config: Partial<ScoringConfig> = {},
+): string {
+  return resolveScoring(protocols, { ...DEFAULT_SCORING_CONFIG, ...config })
+    .grade;
 }
 
-export function computeGradeBreakdown(protocols: Protocols): GradeBreakdown {
-  const scoring = resolveScoring(protocols);
-  const recommendations = generateRecommendations(scoring.tier, protocols);
+export function computeGradeBreakdown(
+  protocols: Protocols,
+  config: Partial<ScoringConfig> = {},
+): GradeBreakdown {
+  const merged = { ...DEFAULT_SCORING_CONFIG, ...config };
+  const scoring = resolveScoring(protocols, merged);
+  const recommendations = generateRecommendations(
+    scoring.tier,
+    protocols,
+    merged,
+  );
   const protocolSummaries = buildProtocolSummaries(protocols);
 
   return {
@@ -290,22 +339,25 @@ function modifierToLabel(modifier: number): string {
 
 // ── Factor helpers ────────────────────────────────
 
-function spfFactors(spf: SpfResult): ScoringFactor[] {
+function spfFactors(spf: SpfResult, config: ScoringConfig): ScoringFactor[] {
   const factors: ScoringFactor[] = [];
-  if (spf.lookups_used <= 5) {
+  if (spf.lookups_used <= config.spfEfficientLookupThreshold) {
     factors.push({
       protocol: "spf",
-      label: `${spf.lookups_used} DNS lookups (≤5, efficient)`,
+      label: `${spf.lookups_used} DNS lookups (≤${config.spfEfficientLookupThreshold}, efficient)`,
       effect: +1,
     });
   }
   return factors;
 }
 
-function dmarcFactors(dmarc: DmarcResult): ScoringFactor[] {
+function dmarcFactors(
+  dmarc: DmarcResult,
+  config: ScoringConfig,
+): ScoringFactor[] {
   const factors: ScoringFactor[] = [];
   const pct = dmarc.tags?.pct ? Number.parseInt(dmarc.tags.pct, 10) : 100;
-  if (pct >= 10 && pct < 100) {
+  if (pct >= config.lowPctDowngradeThreshold && pct < 100) {
     factors.push({
       protocol: "dmarc",
       label: `Policy applied to only ${pct}% of messages (pct=${pct})`,
@@ -340,7 +392,7 @@ function mtaStsFactors(mta_sts: MtaStsResult): ScoringFactor[] {
   return factors;
 }
 
-function dkimFactors(dkim: DkimResult): ScoringFactor[] {
+function dkimFactors(dkim: DkimResult, config: ScoringConfig): ScoringFactor[] {
   const factors: ScoringFactor[] = [];
 
   // ⚡ Bolt Optimization: Use for...in instead of Object.entries().filter()
@@ -352,7 +404,7 @@ function dkimFactors(dkim: DkimResult): ScoringFactor[] {
     const s = dkim.selectors[name];
     if (s.found) {
       foundCount++;
-      if (s.key_bits && s.key_bits < 2048) {
+      if (s.key_bits && s.key_bits < config.dkimKeyMinBits) {
         weakKeyNames.push(name);
       }
     }
@@ -361,11 +413,11 @@ function dkimFactors(dkim: DkimResult): ScoringFactor[] {
   if (weakKeyNames.length > 0) {
     factors.push({
       protocol: "dkim",
-      label: `Key under 2048 bits (${weakKeyNames.join(", ")})`,
+      label: `Key under ${config.dkimKeyMinBits} bits (${weakKeyNames.join(", ")})`,
       effect: -1,
     });
   }
-  if (foundCount >= 2) {
+  if (foundCount >= config.dkimRotationSelectorCount) {
     factors.push({
       protocol: "dkim",
       label: `${foundCount} selectors found (rotation ready)`,
@@ -445,6 +497,7 @@ function buildProtocolSummaries(
 function generateRecommendations(
   tier: string,
   protocols: Protocols,
+  config: ScoringConfig,
 ): Recommendation[] {
   const { dmarc, spf, dkim, bimi, mta_sts } = protocols;
   const recs: Recommendation[] = [];
@@ -510,15 +563,15 @@ function generateRecommendations(
   // DMARC improvements
   const pct = dmarc.tags?.pct ? Number.parseInt(dmarc.tags.pct, 10) : 100;
   if (pct < 100) {
+    const lowPct = pct < config.lowPctDowngradeThreshold;
     recs.push({
-      priority: pct < 10 ? 1 : 2,
+      priority: lowPct ? 1 : 2,
       protocol: "dmarc",
       title: "Increase DMARC pct to 100%",
       description: `Only ${pct}% of failing messages are subject to your policy. Gradually increase pct to 100 for full enforcement.`,
-      impact:
-        pct < 10
-          ? "Would raise effective enforcement tier"
-          : "Removes a scoring penalty",
+      impact: lowPct
+        ? "Would raise effective enforcement tier"
+        : "Removes a scoring penalty",
     });
   }
   if (!dmarc.tags?.rua) {
@@ -533,12 +586,12 @@ function generateRecommendations(
   }
 
   // SPF improvements
-  if (hasSpf && spf.lookups_used > 5) {
+  if (hasSpf && spf.lookups_used > config.spfEfficientLookupThreshold) {
     recs.push({
       priority: 3,
       protocol: "spf",
       title: "Reduce SPF DNS lookups",
-      description: `Your SPF record uses ${spf.lookups_used} DNS lookups. Flatten includes or remove unused entries to get to ≤5 for a scoring bonus.`,
+      description: `Your SPF record uses ${spf.lookups_used} DNS lookups. Flatten includes or remove unused entries to get to ≤${config.spfEfficientLookupThreshold} for a scoring bonus.`,
       impact: "Adds a scoring bonus",
     });
   }
@@ -552,7 +605,7 @@ function generateRecommendations(
     const s = dkim.selectors[name];
     if (s.found) {
       foundSelectorCount++;
-      if (s.key_bits && s.key_bits < 2048) {
+      if (s.key_bits && s.key_bits < config.dkimKeyMinBits) {
         weakKeyNames.push(name);
       }
     }
@@ -563,8 +616,8 @@ function generateRecommendations(
     recs.push({
       priority: 2,
       protocol: "dkim",
-      title: `Upgrade DKIM key${weakKeyNames.length > 1 ? "s" : ""} to 2048 bits`,
-      description: `The ${names} selector${weakKeyNames.length > 1 ? "s use" : " uses"} a key under 2048 bits. Rotate to a 2048-bit or larger key.`,
+      title: `Upgrade DKIM key${weakKeyNames.length > 1 ? "s" : ""} to ${config.dkimKeyMinBits} bits`,
+      description: `The ${names} selector${weakKeyNames.length > 1 ? "s use" : " uses"} a key under ${config.dkimKeyMinBits} bits. Rotate to a ${config.dkimKeyMinBits}-bit or larger key.`,
       impact: "Removes a scoring penalty",
     });
   }
@@ -622,7 +675,7 @@ function generateRecommendations(
   }
 
   // DKIM rotation
-  if (hasDkim && foundSelectorCount < 2) {
+  if (hasDkim && foundSelectorCount < config.dkimRotationSelectorCount) {
     recs.push({
       priority: 3,
       protocol: "dkim",

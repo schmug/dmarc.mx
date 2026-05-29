@@ -9,7 +9,8 @@ import { recordAlerts } from "../db/alerts.js";
 import { type Domain, getDueDomains } from "../db/domains.js";
 import { recordScan } from "../db/scans.js";
 import { getUserById } from "../db/users.js";
-import { scan as defaultScan } from "../orchestrator.js";
+import { scan } from "../orchestrator.js";
+import type { ScoringConfig } from "../shared/scoring.js";
 import { fireScanCompletedWebhook } from "../webhooks/triggers.js";
 
 export interface RescanResult {
@@ -34,6 +35,8 @@ interface RescanDeps {
   now: number;
   batchSize?: number;
   scanFn?: (domain: string) => Promise<ScanResult>;
+  // Self-host scoring rubric override, forwarded to scan() (issue #25).
+  scoringConfig?: Partial<ScoringConfig>;
   fireWebhookFn?: WebhookFireFn;
 }
 
@@ -107,7 +110,9 @@ async function rescanOne(
   deps: RescanDeps,
   domain: Domain,
 ): Promise<{ alerts: number; error?: unknown }> {
-  const scanFn = deps.scanFn ?? defaultScan;
+  const scanFn =
+    deps.scanFn ??
+    ((domain: string) => scan(domain, [], deps.scoringConfig ?? {}));
   const prevStatuses = await getPreviousProtocolStatuses(deps.db, domain.id);
 
   let result: ScanResult;
