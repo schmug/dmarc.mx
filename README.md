@@ -199,6 +199,20 @@ Cloudflare Web Analytics dashboard.
 - Rate limited via Cloudflare Cache API (no extra bindings needed)
 - Pro features (auth, billing, history, cron) use Cloudflare D1 + WorkOS + Stripe. The hosted tier at `dmarc.mx` runs on the same code and same stack — no private fork.
 
+## Contributing & reporting
+
+- **Found a bug or want a feature?** Open an issue in the
+  [issue tracker](https://github.com/schmug/dmarcheck/issues) — search first to
+  avoid duplicates.
+- **Found a security vulnerability?** Please **don't** open a public issue.
+  Report it privately via the process in [SECURITY.md](SECURITY.md).
+- **Want to contribute code?** See [CONTRIBUTING.md](CONTRIBUTING.md) for setup,
+  the test/lint/typecheck gate, and commit conventions. Maintainers and the
+  review policy are listed in [MAINTAINERS.md](MAINTAINERS.md).
+
+Security posture is documented in [SECURITY.md](SECURITY.md) and the
+[threat model](THREAT_MODEL.md).
+
 ## License
 
 MIT

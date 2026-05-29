@@ -20,10 +20,25 @@ Please include:
 - The impact you believe the issue has
 - Any suggested remediation, if you have one in mind
 
-You can expect an initial acknowledgement within a few days. dmarcheck is
-maintained by a single person in their spare time, so fix timelines depend on
-severity and complexity — critical issues affecting the live service at
-[dmarc.mx](https://dmarc.mx) are prioritised.
+### Disclosure timeline
+
+dmarcheck is maintained by a single person in their spare time, so these are
+best-effort targets rather than contractual SLAs — but they are concrete so you
+know what to expect:
+
+| Stage | Target |
+|-------|--------|
+| **Acknowledgement** — we confirm we received your report | within **3 business days** |
+| **Triage** — we validate the issue and assign a severity | within **7 business days** of acknowledgement |
+| **Fix** — a remediation ships to the live service | **critical/high:** target **30 days**; **medium/low:** next convenient release |
+| **Public disclosure** — the advisory is published as a [GitHub Security Advisory](https://github.com/schmug/dmarcheck/security/advisories) under `schmug/dmarcheck` | when the fix is deployed, or **90 days** after the report, whichever comes first |
+
+Because dmarcheck is a rolling release deployed continuously from `main` (see
+[Supported versions](#supported-versions)), a fix reaches all users as soon as
+it merges — there is no back-porting. Critical issues affecting the live service
+at [dmarc.mx](https://dmarc.mx) are prioritised over everything else. We'll keep
+you updated through the advisory and credit you in the published advisory unless
+you ask us not to.
 
 ## Scope
 
@@ -49,6 +64,46 @@ Out of scope:
 dmarcheck is a rolling release deployed continuously from `main`. There are
 no long-lived branches or LTS versions. The only supported version is the
 current contents of `main` / the deployed Worker.
+
+## Vulnerability management
+
+We run automated software-composition analysis (SCA) and static analysis (SAST)
+on every change, with the following remediation thresholds:
+
+**Dependencies (SCA).**
+
+- CI runs `npm audit --audit-level=high --omit=dev` as a required `check` step.
+  A **HIGH or CRITICAL** CVE in a **runtime** dependency **blocks the merge** and
+  must be fixed (upgrade, patch, or remove the dependency) before the PR can land.
+- **Moderate/low** runtime CVEs and **dev-only** dependency CVEs (biome, vitest,
+  wrangler, sharp — none of which ship to the Worker runtime) do not block
+  merges. They are surfaced as Dependabot alerts in the **Security** tab and
+  batched into routine dependency-bump PRs.
+- [Dependabot](.github/dependabot.yml) opens dependency and GitHub-Actions
+  update PRs weekly.
+- **Exception process:** if a HIGH/CRITICAL runtime CVE genuinely cannot be
+  remediated (no patch is available yet, or the advisory does not apply to how
+  the dependency is actually used), the maintainer may accept the risk by
+  recording the justification in the PR and overriding the gate — the same
+  dismiss-with-justification discipline applied to CodeQL alerts below. The
+  override and its rationale stay visible in the PR history, and the CVE is
+  re-checked when Dependabot's next bump lands a fix.
+
+**Code (SAST).**
+
+- [CodeQL](.github/workflows/codeql.yml) runs on every pull request and on a
+  weekly schedule (`Analyze (actions)` and `Analyze (javascript-typescript)`).
+- **Error-severity** CodeQL alerts are triaged and remediated before the
+  associated change merges; warning/note-level alerts are reviewed in the
+  Security tab and fixed or dismissed-with-justification.
+
+These thresholds intentionally match CI's gate so the "what blocks a merge"
+answer is the same whether you read the policy or the workflow. They tighten if
+the [threat model](THREAT_MODEL.md) expands to cover developer machines.
+
+See [docs/OSPS-DEVIATIONS.md](docs/OSPS-DEVIATIONS.md) for where dmarcheck
+intentionally deviates from the OSPS Baseline, and [THREAT_MODEL.md](THREAT_MODEL.md)
+for the system's assets, entry points, and threats.
 
 ## Safe harbour
 
