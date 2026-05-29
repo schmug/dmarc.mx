@@ -27,7 +27,7 @@ Live at dmarc.mx | Repo: github.com/schmug/dmarcheck
 - `src/index.ts` — Hono routes, content negotiation, rate limiting middleware
 - `src/dns/client.ts` — DNS abstraction over node:dns (NXDOMAIN returns null)
 - `src/analyzers/` — One module per protocol (dmarc, spf, dkim, bimi, mta-sts, mx, security-txt)
-- `src/orchestrator.ts` — Runs all analyzers in parallel via Promise.allSettled
+- `src/orchestrator.ts` — Runs all analyzers in parallel and isolates each one: a single analyzer rejection surfaces as a synthetic `status: "fail"` result (with an `analyzer_error` validation; `lookup_error.code` on the types that carry it) instead of aborting the whole scan. Implemented via a per-analyzer `settle` wrapper so one failure never takes down its siblings, for both `scan` and `scanStreaming` (#378).
 - `src/shared/scoring.ts` — Grade computation (F if no DMARC or p=none). Knobs are configurable per-deploy via the `SCORING_CONFIG` env var (`src/shared/scoring-config.ts` parses/validates it; absent/invalid → shipped defaults, so hosted dmarc.mx is unaffected). `computeGrade`/`computeGradeBreakdown` take an optional `Partial<ScoringConfig>`; `scan`/`scanStreaming` require it (compile-time enforcement that every call site threads the active config)
 - `src/cache.ts` — SSE result caching
 - `src/csv.ts` — CSV export for scan results

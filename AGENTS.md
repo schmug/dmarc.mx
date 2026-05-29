@@ -27,7 +27,7 @@ Live at dmarc.mx | Repo: github.com/schmug/dmarcheck
 - `src/index.ts` — Hono routes, content negotiation, rate limiting middleware
 - `src/dns/client.ts` — DNS abstraction over node:dns (NXDOMAIN returns null)
 - `src/analyzers/` — One module per protocol (dmarc, spf, dkim, bimi, mta-sts)
-- `src/orchestrator.ts` — Runs all analyzers in parallel via Promise.allSettled
+- `src/orchestrator.ts` — Runs all analyzers in parallel and isolates each one: a single analyzer rejection surfaces as a synthetic `status: "fail"` result instead of aborting the whole scan (per-analyzer `settle` wrapper, for both `scan` and `scanStreaming` — #378)
 - `src/shared/scoring.ts` — Grade computation (F if no DMARC or p=none)
 - `src/cache.ts` — SSE result caching
 - `src/csv.ts` — CSV export for scan results
