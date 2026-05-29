@@ -49,6 +49,7 @@ import { scan } from "../orchestrator.js";
 import { normalizeDomain } from "../shared/domain.js";
 import { PRO_WATCHLIST_CAP, watchlistCapForPlan } from "../shared/limits.js";
 import { computeGradeBreakdown } from "../shared/scoring.js";
+import { isAllowedWebhookUrl } from "../shared/ssrf.js";
 import {
   renderAddDomainPage,
   renderApiKeysPage,
@@ -1177,13 +1178,11 @@ dashboardRoutes.post("/settings/webhook", async (c) => {
   const body = await c.req.parseBody();
   const url = body.webhookUrl as string;
 
-  // Validate URL
-  try {
-    const parsed = new URL(url);
-    if (parsed.protocol !== "https:") {
-      return c.redirect("/dashboard/settings");
-    }
-  } catch {
+  // Validate URL: must be a public https host. The host guard blocks SSRF to
+  // internal/reserved addresses (loopback, link-local/metadata, RFC1918, ULA)
+  // and internal-only names. The dispatcher re-checks at fetch time and uses
+  // redirect: "manual" so a 3xx can't pivot past this.
+  if (!isAllowedWebhookUrl(url)) {
     return c.redirect("/dashboard/settings");
   }
 

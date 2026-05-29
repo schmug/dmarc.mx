@@ -1,6 +1,7 @@
 import { insertWebhookDelivery } from "../db/webhook-deliveries.js";
 import { getWebhookForUser } from "../db/webhooks.js";
 import { hmacSha256Hex } from "../shared/hmac.js";
+import { isAllowedWebhookUrl } from "../shared/ssrf.js";
 import {
   getFormatAdapter,
   type ScanCompletedData,
@@ -67,6 +68,29 @@ export async function dispatchWebhook(
   const { body } = adapter(envelope);
   const bodySha = await sha256Hex(body);
 
+  // SSRF guard at the sink (defense in depth alongside save-time validation in
+  // dashboard routes): refuse to fetch a stored URL whose host is internal /
+  // reserved. Catches rows saved before this check existed.
+  if (!isAllowedWebhookUrl(webhook.url)) {
+    const result: DispatchResult = {
+      ok: false,
+      status: null,
+      error: "webhook URL host is not allowed (must be a public https host)",
+      attempted_at: now,
+      event_id: eventId,
+    };
+    await recordDelivery(
+      db,
+      userId,
+      webhook.id,
+      webhook.url,
+      event.type,
+      bodySha,
+      result,
+    );
+    return result;
+  }
+
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     "User-Agent": "dmarcheck-webhook/1",
@@ -100,12 +124,39 @@ export async function dispatchWebhook(
     headers["Dmarcheck-Signature"] = `t=${now},v1=${signature}`;
   }
 
+  // Map a fetch Response to a DispatchResult. With `redirect: "manual"` a 3xx
+  // yields an opaque-redirect Response (type === "opaqueredirect", ok === false,
+  // status === 0); treat it as a failure instead of following the hop, so an
+  // attacker-controlled receiver cannot 30x-pivot the Worker past the SSRF
+  // guard to a new host. Same posture as the MTA-STS fetch in
+  // src/analyzers/mta-sts.ts.
+  const toResult = (response: Response): DispatchResult => {
+    if ((response.type as string) === "opaqueredirect") {
+      return {
+        ok: false,
+        status: null,
+        error:
+          "redirect not followed (3xx) — receiver must accept the POST directly",
+        attempted_at: now,
+        event_id: eventId,
+      };
+    }
+    return {
+      ok: response.ok,
+      status: response.status,
+      error: response.ok ? null : `HTTP ${response.status}`,
+      attempted_at: now,
+      event_id: eventId,
+    };
+  };
+
   let result: DispatchResult;
   try {
     const response = await fetch(webhook.url, {
       method: "POST",
       headers,
       body,
+      redirect: "manual",
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
 
@@ -119,23 +170,12 @@ export async function dispatchWebhook(
         method: "POST",
         headers,
         body,
+        redirect: "manual",
         signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       });
-      result = {
-        ok: retry.ok,
-        status: retry.status,
-        error: retry.ok ? null : `HTTP ${retry.status}`,
-        attempted_at: now,
-        event_id: eventId,
-      };
+      result = toResult(retry);
     } else {
-      result = {
-        ok: response.ok,
-        status: response.status,
-        error: response.ok ? null : `HTTP ${response.status}`,
-        attempted_at: now,
-        event_id: eventId,
-      };
+      result = toResult(response);
     }
   } catch (err) {
     result = {

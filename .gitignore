@@ -9,3 +9,14 @@ docs/internal/
 pnpm-lock.yaml
 .jules/
 .claude/
+
+# Security-scan artifacts (vuln-scan / vuln-triage). Point-in-time findings —
+# never commit on a public repo: a list of live unpatched bugs is an attacker
+# roadmap. Report in-session and commit only the patches. THREAT_MODEL.md (a
+# map of threats, not bugs) is intentionally NOT ignored.
+VULN-FINDINGS.json
+VULN-FINDINGS.md
+TRIAGE.json
+TRIAGE.md
+.triage-state/
+.threat-model-state/
