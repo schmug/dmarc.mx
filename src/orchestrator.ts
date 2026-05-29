@@ -379,6 +379,12 @@ export async function scanStreaming(
   // streamSettled promises never reject, this Promise.all always resolves with
   // the full set of results. Handlers attach synchronously here, before the
   // await, so fast protocols still stream the moment they complete.
+  //
+  // MTA-STS is the exception: it uses bare `settle` (still isolated, no early
+  // emit) and is streamed after buildScanResult, because the MX/MTA-STS
+  // consistency check (RFC 8461 §3.4) can add warn validations that downgrade
+  // mta_sts.status (pass→warn). Emitting it here would stream a stale "pass"
+  // card while the done event carries the corrected grade.
   const [
     dmarcResult,
     spfResult,
@@ -392,7 +398,7 @@ export async function scanStreaming(
     streamSettled("dmarc", dmarcPromise, ERROR_RESULTS.dmarc, onResult),
     streamSettled("spf", spfPromise, ERROR_RESULTS.spf, onResult),
     streamSettled("dkim", dkimPromise, ERROR_RESULTS.dkim, onResult),
-    streamSettled("mta_sts", mtaStsPromise, ERROR_RESULTS.mta_sts, onResult),
+    settle("mta_sts", mtaStsPromise, ERROR_RESULTS.mta_sts),
     streamSettled("bimi", bimiPromise, ERROR_RESULTS.bimi, onResult),
     streamSettled("mx", mxPromise, ERROR_RESULTS.mx, onResult),
     streamSettled(
@@ -404,7 +410,7 @@ export async function scanStreaming(
     streamSettled("tls_rpt", tlsRptPromise, ERROR_RESULTS.tls_rpt, onResult),
   ]);
 
-  return await buildScanResult(
+  const result = await buildScanResult(
     domain,
     {
       mx: mxResult,
@@ -418,4 +424,14 @@ export async function scanStreaming(
     },
     config,
   );
+
+  Sentry.addBreadcrumb({
+    category: "analyzer.complete",
+    message: `mta_sts: ${result.protocols.mta_sts.status}`,
+    data: { protocol: "mta_sts", status: result.protocols.mta_sts.status },
+    level: "info",
+  });
+  onResult("mta_sts", result.protocols.mta_sts);
+
+  return result;
 }
