@@ -90,6 +90,7 @@ vi.mock("../src/dns/client.js", () => ({
 
 import { analyzeDmarc } from "../src/analyzers/dmarc.js";
 import { analyzeMtaSts } from "../src/analyzers/mta-sts.js";
+import { analyzeMx } from "../src/analyzers/mx.js";
 import { analyzeSpf } from "../src/analyzers/spf.js";
 import { scan, scanStreaming } from "../src/orchestrator.js";
 
@@ -128,6 +129,24 @@ describe("scan() isolates a single analyzer failure (#378)", () => {
     // not a false F, and an independent sibling is unaffected.
     expect(result.grade).toBe("D");
     expect(result.protocols.spf.status).toBe("pass");
+  });
+
+  it("cascades an MX crash to its dependent DKIM without aborting siblings", async () => {
+    // DKIM is chained off MX (dkimPromise = mxPromise.then(...)), so when MX
+    // rejects, dkimPromise rejects too. Both must be isolated independently —
+    // each surfaces a synthetic fail — while unrelated analyzers stay intact.
+    vi.mocked(analyzeMx).mockRejectedValueOnce(
+      new Error("MX analyzer crashed"),
+    );
+
+    const result = await scan("example.com", [], {});
+
+    expect(result.protocols.mx.status).toBe("fail");
+    expect(result.protocols.dkim.status).toBe("fail");
+    // Independent siblings are untouched by the MX→DKIM cascade.
+    expect(result.protocols.dmarc.status).toBe("pass");
+    expect(result.protocols.spf.status).toBe("pass");
+    expect(result.grade).toBeTruthy();
   });
 });
 
