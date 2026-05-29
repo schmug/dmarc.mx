@@ -591,60 +591,69 @@ export function renderScoreBreakdown(result: ScanResult): string {
   });
 }
 
-const SCORING_JSON_LD = JSON.stringify({
-  "@context": "https://schema.org",
-  "@type": "FAQPage",
-  mainEntity: [
-    {
-      "@type": "Question",
-      name: "What is DMARC?",
-      acceptedAnswer: {
-        "@type": "Answer",
-        text: "Domain-based Message Authentication, Reporting & Conformance. The policy layer that ties SPF and DKIM together and tells receivers what to do with unauthenticated mail. This is the most important factor in your grade.",
+// The /scoring FAQ JSON-LD reflects the active scoring rubric. When
+// SCORING_CONFIG is unset (the hosted dmarc.mx default), the output is
+// byte-identical to the shipped constant because DEFAULT_SCORING_CONFIG's
+// dkimKeyMinBits is 2048 — guarded by a test.
+export function buildScoringJsonLd(
+  config: Partial<ScoringConfig> = {},
+): string {
+  const cfg = { ...DEFAULT_SCORING_CONFIG, ...config };
+  return JSON.stringify({
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    mainEntity: [
+      {
+        "@type": "Question",
+        name: "What is DMARC?",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "Domain-based Message Authentication, Reporting & Conformance. The policy layer that ties SPF and DKIM together and tells receivers what to do with unauthenticated mail. This is the most important factor in your grade.",
+        },
       },
-    },
-    {
-      "@type": "Question",
-      name: "What is SPF?",
-      acceptedAnswer: {
-        "@type": "Answer",
-        text: "Sender Policy Framework. A DNS record listing which IP addresses are authorized to send mail for your domain. Receivers check the sending server's IP against this list.",
+      {
+        "@type": "Question",
+        name: "What is SPF?",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "Sender Policy Framework. A DNS record listing which IP addresses are authorized to send mail for your domain. Receivers check the sending server's IP against this list.",
+        },
       },
-    },
-    {
-      "@type": "Question",
-      name: "What is DKIM?",
-      acceptedAnswer: {
-        "@type": "Answer",
-        text: "DomainKeys Identified Mail. Adds a cryptographic signature to outgoing messages, proving they haven't been tampered with in transit. Key strength of 2048 bits or more and multiple selectors improve your score.",
+      {
+        "@type": "Question",
+        name: "What is DKIM?",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: `DomainKeys Identified Mail. Adds a cryptographic signature to outgoing messages, proving they haven't been tampered with in transit. Key strength of ${cfg.dkimKeyMinBits} bits or more and multiple selectors improve your score.`,
+        },
       },
-    },
-    {
-      "@type": "Question",
-      name: "What is BIMI?",
-      acceptedAnswer: {
-        "@type": "Answer",
-        text: "Brand Indicators for Message Identification. Displays your brand logo next to authenticated messages in supporting email clients. Requires DMARC p=reject.",
+      {
+        "@type": "Question",
+        name: "What is BIMI?",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "Brand Indicators for Message Identification. Displays your brand logo next to authenticated messages in supporting email clients. Requires DMARC p=reject.",
+        },
       },
-    },
-    {
-      "@type": "Question",
-      name: "What is MTA-STS?",
-      acceptedAnswer: {
-        "@type": "Answer",
-        text: "Mail Transfer Agent Strict Transport Security. Forces TLS encryption for inbound mail delivery, preventing downgrade attacks. Modes: testing (report only) and enforce (reject unencrypted).",
+      {
+        "@type": "Question",
+        name: "What is MTA-STS?",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "Mail Transfer Agent Strict Transport Security. Forces TLS encryption for inbound mail delivery, preventing downgrade attacks. Modes: testing (report only) and enforce (reject unencrypted).",
+        },
       },
-    },
-    {
-      "@type": "Question",
-      name: "How is the dmarcheck grade calculated?",
-      acceptedAnswer: {
-        "@type": "Answer",
-        text: "The grade has two parts: a base tier determined by your DMARC policy and authentication setup (F through A+), and modifiers that adjust the grade up (+) or down (-) based on reporting, SPF lookup budget, DKIM key length, BIMI, and MTA-STS.",
+      {
+        "@type": "Question",
+        name: "How is the dmarcheck grade calculated?",
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: "The grade has two parts: a base tier determined by your DMARC policy and authentication setup (F through A+), and modifiers that adjust the grade up (+) or down (-) based on reporting, SPF lookup budget, DKIM key length, BIMI, and MTA-STS.",
+        },
       },
-    },
-  ],
-});
+    ],
+  });
+}
 
 export function renderScoringRubric(
   config: Partial<ScoringConfig> = {},
@@ -743,7 +752,7 @@ export function renderScoringRubric(
       </div>
       <div class="rubric-protocol">
         <h3><a href="/learn/dkim">DKIM</a></h3>
-        <p>DomainKeys Identified Mail. Adds a cryptographic signature to outgoing messages, proving they haven't been tampered with in transit. Key strength (2048+ bits) and multiple selectors improve your score.</p>
+        <p>DomainKeys Identified Mail. Adds a cryptographic signature to outgoing messages, proving they haven't been tampered with in transit. Key strength (${cfg.dkimKeyMinBits}+ bits) and multiple selectors improve your score.</p>
       </div>
       <div class="rubric-protocol">
         <h3><a href="/learn/bimi">BIMI</a></h3>
@@ -775,7 +784,7 @@ export function renderScoringRubric(
     path: "/scoring",
     description:
       "How dmarcheck grades email security: DMARC policy tiers, SPF/DKIM requirements, and the modifiers that push grades up or down.",
-    jsonLd: SCORING_JSON_LD,
+    jsonLd: buildScoringJsonLd(config),
     body,
   });
 }
