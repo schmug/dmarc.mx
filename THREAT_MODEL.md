@@ -6,7 +6,8 @@ dmarcheck is a DNS email-security analyzer (DMARC, SPF, DKIM, BIMI, MTA-STS,
 MX, security.txt, TLS-RPT) implemented as a single TypeScript Cloudflare Worker
 on the Hono framework. It performs DNS lookups via `node:dns` (`nodejs_compat`),
 runs one analyzer module per protocol in parallel through an orchestrator
-(`Promise.allSettled`), computes a letter grade, and serves dual output: a JSON
+(each analyzer isolated, so one failure surfaces as a synthetic result rather
+than aborting the scan), computes a letter grade, and serves dual output: a JSON
 API and a server-rendered interactive HTML report. It is live at dmarc.mx,
 deployed continuously from `main` via Cloudflare Git integration. Dependencies
 are lean (`hono`, `jose`, `@sentry/cloudflare`).
@@ -117,7 +118,7 @@ flowchart LR
 | T8 | Supply-chain / CI compromise escalating to prod D1 write or deploy | supply_chain | E10 | prod D1, infra tokens, releases | high | rare | partially_mitigated | SHA-pinned actions, ubuntu-latest only, explicit `permissions:` blocks, secrets only on `main`-gated jobs | |
 | T9 | Rate-limit bypass → DNS amplification / scan abuse via unauthenticated, unmetered `/mcp` and non-`/check` scan routes | remote_unauth | E2, E9 | service availability, upstream DNS | medium | likely | partially_mitigated | `CF-Connecting-IP` keying on `/check`; XFF no longer trusted | #71, #123, #59 |
 | T10 | Stored/reflected XSS via unescaped scan data rendered into the HTML report | remote_unauth | E8, E1 | viewer session, grade integrity | medium | possible | partially_mitigated | `esc()` on interpolated values; per-request CSP nonce + `strict-dynamic`; `default-src 'none'` | #59, #281, 0fc81e2 |
-| T11 | Denial of service via DNS resource exhaustion or scan-abort on attacker-controlled domains | remote_unauth | E1, E3 | service availability | medium | possible | partially_mitigated | SPF lookup-limit early-exit; `Promise.allSettled` orchestration; `DnsLookupError` catch on external lookups | #90, #354 |
+| T11 | Denial of service via DNS resource exhaustion or scan-abort on attacker-controlled domains | remote_unauth | E1, E3 | service availability | medium | possible | partially_mitigated | SPF lookup-limit early-exit; per-analyzer failure isolation (one analyzer error can't abort the scan); `DnsLookupError` catch on external lookups | #90, #354 |
 | T12 | Login CSRF / OAuth-flow tampering | remote_unauth | E5 | user session | medium | rare | mitigated | OAuth `state` cookie (HttpOnly/Secure/SameSite=Lax) + strict callback match | #150 |
 
 ## 5. Deprioritized
