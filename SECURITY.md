@@ -31,7 +31,7 @@ know what to expect:
 | **Acknowledgement** — we confirm we received your report | within **3 business days** |
 | **Triage** — we validate the issue and assign a severity | within **7 business days** of acknowledgement |
 | **Fix** — a remediation ships to the live service | **critical/high:** target **30 days**; **medium/low:** next convenient release |
-| **Public disclosure** — the advisory is published | when the fix is deployed, or **90 days** after the report, whichever comes first |
+| **Public disclosure** — the advisory is published as a [GitHub Security Advisory](https://github.com/schmug/dmarcheck/security/advisories) under `schmug/dmarcheck` | when the fix is deployed, or **90 days** after the report, whichever comes first |
 
 Because dmarcheck is a rolling release deployed continuously from `main` (see
 [Supported versions](#supported-versions)), a fix reaches all users as soon as
@@ -81,6 +81,13 @@ on every change, with the following remediation thresholds:
   batched into routine dependency-bump PRs.
 - [Dependabot](.github/dependabot.yml) opens dependency and GitHub-Actions
   update PRs weekly.
+- **Exception process:** if a HIGH/CRITICAL runtime CVE genuinely cannot be
+  remediated (no patch is available yet, or the advisory does not apply to how
+  the dependency is actually used), the maintainer may accept the risk by
+  recording the justification in the PR and overriding the gate — the same
+  dismiss-with-justification discipline applied to CodeQL alerts below. The
+  override and its rationale stay visible in the PR history, and the CVE is
+  re-checked when Dependabot's next bump lands a fix.
 
 **Code (SAST).**
 

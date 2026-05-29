@@ -63,6 +63,20 @@ tracked as the bot-identity split,
 (control 2) and required CI (control 3) apply regardless of identity and are the
 active controls until #299 lands.
 
+## Related OSPS controls (passing)
+
+QA-07.01 is a deviation, not a posture. Several adjacent OSPS controls are met,
+which is part of why the path-scoped review model above is acceptable:
+
+- **BR-01.01 (input sanitization)** — user-supplied domains are constrained to
+  `[a-z0-9.-]` (`normalizeDomain`) and DKIM selectors to `[A-Za-z0-9._-]`; HTML
+  output never interpolates raw user input into inline `<script>` (see the
+  Input-validation notes in `CLAUDE.md` and [THREAT_MODEL.md](../THREAT_MODEL.md)).
+- **AC-04.01 (least-privilege CI)** — every GitHub Actions workflow declares an
+  explicit top-level `permissions:` block defaulting to `contents: read`, with
+  elevation only at the job level where required, and all actions are pinned by
+  full commit SHA.
+
 ## Adding a new deviation
 
 When a future change knowingly deviates from an OSPS criterion, add a section
