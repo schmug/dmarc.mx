@@ -18,6 +18,7 @@ import type {
   SecurityTxtResult,
   SpfResult,
   TlsRptResult,
+  Validation,
 } from "./analyzers/types.js";
 import { queryTxt } from "./dns/client.js";
 import { computeGradeBreakdown, type ScoringConfig } from "./shared/scoring.js";
@@ -40,6 +41,128 @@ export type ProtocolResult =
   | MtaStsResult
   | SecurityTxtResult
   | TlsRptResult;
+
+const PROTOCOL_LABEL: Record<ProtocolId, string> = {
+  mx: "MX",
+  dmarc: "DMARC",
+  spf: "SPF",
+  dkim: "DKIM",
+  bimi: "BIMI",
+  mta_sts: "MTA-STS",
+  security_txt: "security.txt",
+  tls_rpt: "TLS-RPT",
+};
+
+function analyzerErrorValidation(id: ProtocolId, message: string): Validation {
+  return {
+    status: "fail",
+    message: `${PROTOCOL_LABEL[id]} analysis could not be completed (analyzer_error): ${message}`,
+  };
+}
+
+// Synthetic "this analyzer threw" results. A single analyzer rejecting must not
+// abort the whole scan (#378) — instead each protocol's outcome is isolated and
+// a thrown error surfaces as a `status: "fail"` result with an explanatory
+// validation. Types that carry `lookup_error` also tag it `analyzer_error` so
+// scoring treats DMARC/SPF/MX/TLS-RPT as "could not verify" rather than "absent".
+const ERROR_RESULTS = {
+  dmarc: (m: string): DmarcResult => ({
+    status: "fail",
+    record: null,
+    tags: null,
+    validations: [analyzerErrorValidation("dmarc", m)],
+    lookup_error: { code: "analyzer_error", message: m },
+  }),
+  spf: (m: string): SpfResult => ({
+    status: "fail",
+    record: null,
+    lookups_used: 0,
+    lookup_limit: 10,
+    include_tree: null,
+    validations: [analyzerErrorValidation("spf", m)],
+    lookup_error: { code: "analyzer_error", message: m },
+  }),
+  dkim: (m: string): DkimResult => ({
+    status: "fail",
+    selectors: {},
+    validations: [analyzerErrorValidation("dkim", m)],
+  }),
+  bimi: (m: string): BimiResult => ({
+    status: "fail",
+    record: null,
+    tags: null,
+    validations: [analyzerErrorValidation("bimi", m)],
+  }),
+  mta_sts: (m: string): MtaStsResult => ({
+    status: "fail",
+    dns_record: null,
+    policy: null,
+    validations: [analyzerErrorValidation("mta_sts", m)],
+  }),
+  mx: (m: string): MxResult => ({
+    status: "fail",
+    records: [],
+    providers: [],
+    validations: [analyzerErrorValidation("mx", m)],
+    lookup_error: { code: "analyzer_error", message: m },
+  }),
+  security_txt: (m: string): SecurityTxtResult => ({
+    status: "fail",
+    source_url: null,
+    signed: false,
+    fields: null,
+    validations: [analyzerErrorValidation("security_txt", m)],
+  }),
+  tls_rpt: (m: string): TlsRptResult => ({
+    status: "fail",
+    record: null,
+    tags: null,
+    validations: [analyzerErrorValidation("tls_rpt", m)],
+    lookup_error: { code: "analyzer_error", message: m },
+  }),
+} as const;
+
+// Turn a possibly-rejecting analyzer promise into one that always resolves —
+// to its real result, or to a synthetic fail result if it threw. Logs a Sentry
+// breadcrumb so the failure is observable even though the scan continues.
+function settle<T extends ProtocolResult>(
+  id: ProtocolId,
+  promise: Promise<T>,
+  fallback: (message: string) => T,
+): Promise<T> {
+  return promise.catch((err) => {
+    const message = err instanceof Error ? err.message : String(err);
+    Sentry.addBreadcrumb({
+      category: "analyzer.error",
+      message: `${id}: ${message}`,
+      data: { protocol: id, error: message },
+      level: "error",
+    });
+    return fallback(message);
+  });
+}
+
+// Streaming variant: settle the analyzer, then emit a completion breadcrumb and
+// stream the result (real or synthetic) exactly once. Because it builds on the
+// never-rejecting `settle`, a thrown analyzer streams a fail card instead of
+// leaking an unhandled rejection from a bare `.then(onResult)` handler.
+function streamSettled<T extends ProtocolResult>(
+  id: ProtocolId,
+  promise: Promise<T>,
+  fallback: (message: string) => T,
+  onResult: (id: ProtocolId, result: ProtocolResult) => void,
+): Promise<T> {
+  return settle(id, promise, fallback).then((r) => {
+    Sentry.addBreadcrumb({
+      category: "analyzer.complete",
+      message: `${id}: ${r.status}`,
+      data: { protocol: id, status: r.status },
+      level: "info",
+    });
+    onResult(id, r);
+    return r;
+  });
+}
 
 async function buildScanResult(
   domain: string,
@@ -135,6 +258,9 @@ export async function scan(
     },
   );
 
+  // Isolate each analyzer: one rejection surfaces as a synthetic fail result
+  // instead of aborting the whole scan (#378). This is the contract the docs
+  // describe ("partial results, never abort on a single analyzer error").
   const [
     dmarcResult,
     spfResult,
@@ -145,14 +271,14 @@ export async function scan(
     securityTxtResult,
     tlsRptResult,
   ] = await Promise.all([
-    dmarcPromise,
-    spfPromise,
-    dkimPromise,
-    mtaStsPromise,
-    bimiPromise,
-    mxPromise,
-    securityTxtPromise,
-    tlsRptPromise,
+    settle("dmarc", dmarcPromise, ERROR_RESULTS.dmarc),
+    settle("spf", spfPromise, ERROR_RESULTS.spf),
+    settle("dkim", dkimPromise, ERROR_RESULTS.dkim),
+    settle("mta_sts", mtaStsPromise, ERROR_RESULTS.mta_sts),
+    settle("bimi", bimiPromise, ERROR_RESULTS.bimi),
+    settle("mx", mxPromise, ERROR_RESULTS.mx),
+    settle("security_txt", securityTxtPromise, ERROR_RESULTS.security_txt),
+    settle("tls_rpt", tlsRptPromise, ERROR_RESULTS.tls_rpt),
   ]);
 
   Sentry.addBreadcrumb({
@@ -247,87 +373,12 @@ export async function scanStreaming(
     },
   );
 
-  // Attach streaming handlers immediately
-  mxPromise.then((r) => {
-    Sentry.addBreadcrumb({
-      category: "analyzer.complete",
-      message: `mx: ${r.status}`,
-      data: { protocol: "mx", status: r.status },
-      level: "info",
-    });
-    onResult("mx", r);
-  });
-
-  spfPromise.then((r) => {
-    Sentry.addBreadcrumb({
-      category: "analyzer.complete",
-      message: `spf: ${r.status}`,
-      data: { protocol: "spf", status: r.status },
-      level: "info",
-    });
-    onResult("spf", r);
-  });
-
-  mtaStsPromise.then((r) => {
-    Sentry.addBreadcrumb({
-      category: "analyzer.complete",
-      message: `mta_sts: ${r.status}`,
-      data: { protocol: "mta_sts", status: r.status },
-      level: "info",
-    });
-    onResult("mta_sts", r);
-  });
-
-  dmarcPromise.then((r) => {
-    Sentry.addBreadcrumb({
-      category: "analyzer.complete",
-      message: `dmarc: ${r.status}`,
-      data: { protocol: "dmarc", status: r.status },
-      level: "info",
-    });
-    onResult("dmarc", r);
-  });
-
-  dkimPromise.then((r) => {
-    Sentry.addBreadcrumb({
-      category: "analyzer.complete",
-      message: `dkim: ${r.status}`,
-      data: { protocol: "dkim", status: r.status },
-      level: "info",
-    });
-    onResult("dkim", r);
-  });
-
-  bimiPromise.then((r) => {
-    Sentry.addBreadcrumb({
-      category: "analyzer.complete",
-      message: `bimi: ${r.status}`,
-      data: { protocol: "bimi", status: r.status },
-      level: "info",
-    });
-    onResult("bimi", r);
-  });
-
-  securityTxtPromise.then((r) => {
-    Sentry.addBreadcrumb({
-      category: "analyzer.complete",
-      message: `security_txt: ${r.status}`,
-      data: { protocol: "security_txt", status: r.status },
-      level: "info",
-    });
-    onResult("security_txt", r);
-  });
-
-  tlsRptPromise.then((r) => {
-    Sentry.addBreadcrumb({
-      category: "analyzer.complete",
-      message: `tls_rpt: ${r.status}`,
-      data: { protocol: "tls_rpt", status: r.status },
-      level: "info",
-    });
-    onResult("tls_rpt", r);
-  });
-
+  // Stream each protocol as it settles. Each analyzer is isolated: a rejection
+  // streams a synthetic fail card (via streamSettled) instead of leaking an
+  // unhandled rejection, and never aborts the others (#378). Because the
+  // streamSettled promises never reject, this Promise.all always resolves with
+  // the full set of results. Handlers attach synchronously here, before the
+  // await, so fast protocols still stream the moment they complete.
   const [
     dmarcResult,
     spfResult,
@@ -338,14 +389,19 @@ export async function scanStreaming(
     securityTxtResult,
     tlsRptResult,
   ] = await Promise.all([
-    dmarcPromise,
-    spfPromise,
-    dkimPromise,
-    mtaStsPromise,
-    bimiPromise,
-    mxPromise,
-    securityTxtPromise,
-    tlsRptPromise,
+    streamSettled("dmarc", dmarcPromise, ERROR_RESULTS.dmarc, onResult),
+    streamSettled("spf", spfPromise, ERROR_RESULTS.spf, onResult),
+    streamSettled("dkim", dkimPromise, ERROR_RESULTS.dkim, onResult),
+    streamSettled("mta_sts", mtaStsPromise, ERROR_RESULTS.mta_sts, onResult),
+    streamSettled("bimi", bimiPromise, ERROR_RESULTS.bimi, onResult),
+    streamSettled("mx", mxPromise, ERROR_RESULTS.mx, onResult),
+    streamSettled(
+      "security_txt",
+      securityTxtPromise,
+      ERROR_RESULTS.security_txt,
+      onResult,
+    ),
+    streamSettled("tls_rpt", tlsRptPromise, ERROR_RESULTS.tls_rpt, onResult),
   ]);
 
   return await buildScanResult(
