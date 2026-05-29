@@ -20,3 +20,7 @@ TRIAGE.json
 TRIAGE.md
 .triage-state/
 .threat-model-state/
+
+# CycloneDX SBOM is generated in CI per release and attached as a release
+# asset — never committed (release.yml builds it from the lockfile).
+sbom.cdx.json
