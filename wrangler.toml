@@ -21,6 +21,18 @@ port = 8790
 ACCESS_AUD = "7b283d5d9b56f6fffa342280310a4ae68f13cbb05dc27f3c1d2faec2deae507a"
 ACCESS_TEAM_DOMAIN = "coryrankin.cloudflareaccess.com"
 
+# Self-host scoring rubric override (issue #25). A single JSON string of
+# ScoringConfig knobs; absent or invalid → the shipped default rubric, so
+# hosted dmarc.mx leaves this UNSET. Recognized keys (with defaults):
+#   requireBimiForAPlus         (bool, true)  — A+ requires a BIMI record
+#   requireMtaStsForAPlus       (bool, true)  — A+ requires enforcing MTA-STS
+#   spfEfficientLookupThreshold (num,  5)     — SPF lookups ≤ this earn +1
+#   dkimKeyMinBits              (num,  2048)  — keys below this incur −1
+#   lowPctDowngradeThreshold    (num,  10)    — pct below this downgrades a tier
+#   dkimRotationSelectorCount   (num,  2)     — this many selectors earn +1
+# Example (self-hosters uncomment and edit):
+# SCORING_CONFIG = '{"requireBimiForAPlus":false,"dkimKeyMinBits":4096}'
+
 [triggers]
 crons = ["17 6 * * *"]
 

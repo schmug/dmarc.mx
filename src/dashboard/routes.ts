@@ -48,7 +48,11 @@ import { getRecentDeliveriesForUser } from "../db/webhook-deliveries.js";
 import { scan } from "../orchestrator.js";
 import { normalizeDomain } from "../shared/domain.js";
 import { PRO_WATCHLIST_CAP, watchlistCapForPlan } from "../shared/limits.js";
-import { computeGradeBreakdown } from "../shared/scoring.js";
+import {
+  computeGradeBreakdown,
+  type ScoringConfig,
+} from "../shared/scoring.js";
+import { parseScoringConfig } from "../shared/scoring-config.js";
 import { isAllowedWebhookUrl } from "../shared/ssrf.js";
 import {
   renderAddDomainPage,
@@ -148,6 +152,7 @@ function asProtocolStatus(
 
 function buildDrawerDetail(
   rawScanRows: import("../db/scans.js").ScanHistoryRow[],
+  config: Partial<ScoringConfig>,
 ): DrawerDetail {
   const empty: DrawerDetail = {
     protocols: {
@@ -261,6 +266,7 @@ function buildDrawerDetail(
   try {
     const breakdown = computeGradeBreakdown(
       parsed as Parameters<typeof computeGradeBreakdown>[0],
+      config,
     );
     recommendations = breakdown.recommendations;
   } catch {
@@ -827,6 +833,9 @@ dashboardRoutes.post("/bulk", async (c) => {
     userId: session.sub,
     rawDomains: lines,
     watchlistCap: watchlistCapForPlan(plan),
+    scoringConfig: parseScoringConfig(
+      (c.env as { SCORING_CONFIG?: string }).SCORING_CONFIG,
+    ),
   });
   if (isCapExceeded(outcome)) {
     return c.html(
@@ -878,7 +887,10 @@ dashboardRoutes.get("/domain/:domain{.+\\.json}", async (c) => {
     getScanHistoryWithProtocols(db, domain.id, limit),
     getScanHistory(db, domain.id, 2),
   ]);
-  const detail = buildDrawerDetail(rawRows);
+  const detail = buildDrawerDetail(
+    rawRows,
+    parseScoringConfig((c.env as { SCORING_CONFIG?: string }).SCORING_CONFIG),
+  );
   return c.json({
     domain: domain.domain,
     grade: domain.last_grade ?? "—",
@@ -973,7 +985,11 @@ dashboardRoutes.post("/domain/:domain/scan", async (c) => {
     return c.text("Domain not found", 404);
   }
 
-  const result = await scan(owned.domain);
+  const result = await scan(
+    owned.domain,
+    [],
+    parseScoringConfig((c.env as { SCORING_CONFIG?: string }).SCORING_CONFIG),
+  );
   await recordScan(db, {
     domainId: owned.id,
     grade: result.grade,

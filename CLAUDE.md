@@ -28,7 +28,7 @@ Live at dmarc.mx | Repo: github.com/schmug/dmarcheck
 - `src/dns/client.ts` — DNS abstraction over node:dns (NXDOMAIN returns null)
 - `src/analyzers/` — One module per protocol (dmarc, spf, dkim, bimi, mta-sts, mx, security-txt)
 - `src/orchestrator.ts` — Runs all analyzers in parallel via Promise.allSettled
-- `src/shared/scoring.ts` — Grade computation (F if no DMARC or p=none)
+- `src/shared/scoring.ts` — Grade computation (F if no DMARC or p=none). Knobs are configurable per-deploy via the `SCORING_CONFIG` env var (`src/shared/scoring-config.ts` parses/validates it; absent/invalid → shipped defaults, so hosted dmarc.mx is unaffected). `computeGrade`/`computeGradeBreakdown` take an optional `Partial<ScoringConfig>`; `scan`/`scanStreaming` require it (compile-time enforcement that every call site threads the active config)
 - `src/cache.ts` — SSE result caching
 - `src/csv.ts` — CSV export for scan results
 - `src/api/catalog.ts` + `src/api/openapi.ts` — Agent discovery (RFC 9727 linkset at `/.well-known/api-catalog`, OpenAPI 3.1 at `/openapi.json`)

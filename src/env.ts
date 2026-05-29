@@ -21,6 +21,11 @@ export interface Env {
   // but lives here so self-host forks don't accidentally ship data to the
   // hosted tier's dashboard.
   CF_ANALYTICS_TOKEN?: string;
+  // Self-host scoring rubric override (issue #25). A single JSON string of
+  // ScoringConfig knobs (see src/shared/scoring-config.ts). Absent/invalid →
+  // the shipped default rubric, so hosted dmarc.mx and config-less self-hosts
+  // are unaffected. Parsed per request via parseScoringConfig().
+  SCORING_CONFIG?: string;
   // Cloudflare Access enforcement on `*.workers.dev` preview-branch deploys.
   // Both must be set together — the middleware fail-CLOSEDs (503) on a
   // workers.dev hostname when either is missing. The production custom
