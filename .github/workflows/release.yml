@@ -15,6 +15,7 @@ jobs:
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     permissions:
       contents: write
+      id-token: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -69,3 +70,37 @@ jobs:
           git tag "$VERSION"
           git push origin "$VERSION"
           gh release create "$VERSION" --title "$VERSION" --notes "$NOTES" sbom.cdx.json
+
+      - name: Generate SHA256SUMS
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          SLUG="schmug/dmarcheck"
+          # Download the auto-generated source archives GitHub creates for each release tag.
+          # These may take a few seconds to appear; retry once if the first attempt fails.
+          gh release download "$VERSION" --repo "$SLUG" --archive=tar.gz \
+            --output "dmarcheck-${VERSION}.tar.gz" || \
+          gh release download "$VERSION" --repo "$SLUG" --archive=tar.gz \
+            --output "dmarcheck-${VERSION}.tar.gz"
+          gh release download "$VERSION" --repo "$SLUG" --archive=zip \
+            --output "dmarcheck-${VERSION}.zip" || \
+          gh release download "$VERSION" --repo "$SLUG" --archive=zip \
+            --output "dmarcheck-${VERSION}.zip"
+          sha256sum sbom.cdx.json \
+            "dmarcheck-${VERSION}.tar.gz" \
+            "dmarcheck-${VERSION}.zip" > SHA256SUMS
+
+      - name: Install cosign (Sigstore)
+        uses: sigstore/cosign-installer@11606fdb78ecbf8504a2bf72df938fc4c43bfedd # v3.8.1
+
+      - name: Sign SHA256SUMS with Sigstore keyless signing
+        run: |
+          cosign sign-blob --yes SHA256SUMS --bundle SHA256SUMS.bundle
+
+      - name: Upload SHA256SUMS and signature bundle
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          gh release upload "$VERSION" SHA256SUMS SHA256SUMS.bundle
