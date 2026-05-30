@@ -87,7 +87,6 @@ export async function analyzeDkim(
   const ed25519Names: string[] = [];
   const revokedNames: string[] = [];
   const testingNames: string[] = [];
-  const ed25519Names: string[] = [];
 
   for (const name in selectors) {
     const v = selectors[name];
@@ -100,9 +99,6 @@ export async function analyzeDkim(
       }
       if (v.revoked) revokedNames.push(name);
       if (v.testing) testingNames.push(name);
-      // Ed25519 keys (RFC 8463) are fixed-size and have no RSA bit length, so
-      // they bypass the weak-key check; recognize them explicitly as modern.
-      if (!v.revoked && v.key_type === "ed25519") ed25519Names.push(name);
     }
   }
 
@@ -150,14 +146,6 @@ export async function analyzeDkim(
     validations.push({
       status: "warn",
       message: `${testingNames.join(", ")} — in testing mode (t=y)`,
-    });
-  }
-
-  // Recognize modern Ed25519 keys (RFC 8463)
-  if (ed25519Names.length > 0) {
-    validations.push({
-      status: "pass",
-      message: `${ed25519Names.join(", ")} — Ed25519 key (modern, compact signing algorithm per RFC 8463)`,
     });
   }
 
