@@ -1,4 +1,5 @@
 import type {
+  DnssecResult,
   ScanResult,
   SecurityTxtResult,
   TlsRptResult,
@@ -74,6 +75,19 @@ ${t.record}
 ${ruaLine}
 
 ${validationLines(t.validations)}`;
+}
+
+function renderDnssecMarkdown(d: DnssecResult): string {
+  const subtitle = d.signed
+    ? d.validated
+      ? "Signed and validated"
+      : "Signed (not validated)"
+    : "Not configured";
+  return `## DNSSEC — ${d.status}
+
+${subtitle}
+
+${validationLines(d.validations)}`;
 }
 
 export function renderLandingMarkdown(): string {
@@ -191,6 +205,8 @@ ${validationLines(protocols.mx.validations)}
 ${protocols.security_txt ? renderSecurityTxtMarkdown(protocols.security_txt) : ""}
 
 ${protocols.tls_rpt ? renderTlsRptMarkdown(protocols.tls_rpt) : ""}
+
+${protocols.dnssec ? renderDnssecMarkdown(protocols.dnssec) : ""}
 
 ---
 

@@ -2,6 +2,7 @@ import * as Sentry from "@sentry/cloudflare";
 import { analyzeBimi, prefetchBimiDns } from "./analyzers/bimi.js";
 import { analyzeDkim } from "./analyzers/dkim.js";
 import { analyzeDmarc } from "./analyzers/dmarc.js";
+import { analyzeDnssec } from "./analyzers/dnssec.js";
 import { analyzeMtaSts } from "./analyzers/mta-sts.js";
 import { analyzeMx } from "./analyzers/mx.js";
 import { checkMxMtaStsConsistency } from "./analyzers/mx-mta-sts-consistency.js";
@@ -12,6 +13,7 @@ import type {
   BimiResult,
   DkimResult,
   DmarcResult,
+  DnssecResult,
   MtaStsResult,
   MxResult,
   ScanResult,
@@ -31,7 +33,8 @@ export type ProtocolId =
   | "bimi"
   | "mta_sts"
   | "security_txt"
-  | "tls_rpt";
+  | "tls_rpt"
+  | "dnssec";
 export type ProtocolResult =
   | MxResult
   | DmarcResult
@@ -40,7 +43,8 @@ export type ProtocolResult =
   | BimiResult
   | MtaStsResult
   | SecurityTxtResult
-  | TlsRptResult;
+  | TlsRptResult
+  | DnssecResult;
 
 const PROTOCOL_LABEL: Record<ProtocolId, string> = {
   mx: "MX",
@@ -51,6 +55,7 @@ const PROTOCOL_LABEL: Record<ProtocolId, string> = {
   mta_sts: "MTA-STS",
   security_txt: "security.txt",
   tls_rpt: "TLS-RPT",
+  dnssec: "DNSSEC",
 };
 
 function analyzerErrorValidation(id: ProtocolId, message: string): Validation {
@@ -118,6 +123,13 @@ const ERROR_RESULTS = {
     record: null,
     tags: null,
     validations: [analyzerErrorValidation("tls_rpt", m)],
+    lookup_error: { code: "analyzer_error", message: m },
+  }),
+  dnssec: (m: string): DnssecResult => ({
+    status: "fail",
+    signed: false,
+    validated: false,
+    validations: [analyzerErrorValidation("dnssec", m)],
     lookup_error: { code: "analyzer_error", message: m },
   }),
 } as const;
@@ -237,6 +249,7 @@ export async function scan(
   const mxPromise = analyzeMx(domain);
   const securityTxtPromise = analyzeSecurityTxt(domain);
   const tlsRptPromise = analyzeTlsRpt(domain);
+  const dnssecPromise = analyzeDnssec(domain);
 
   // Chain DKIM off MX so it starts as soon as MX resolves
   // without blocking on unrelated queries
@@ -270,6 +283,7 @@ export async function scan(
     mxResult,
     securityTxtResult,
     tlsRptResult,
+    dnssecResult,
   ] = await Promise.all([
     settle("dmarc", dmarcPromise, ERROR_RESULTS.dmarc),
     settle("spf", spfPromise, ERROR_RESULTS.spf),
@@ -279,6 +293,7 @@ export async function scan(
     settle("mx", mxPromise, ERROR_RESULTS.mx),
     settle("security_txt", securityTxtPromise, ERROR_RESULTS.security_txt),
     settle("tls_rpt", tlsRptPromise, ERROR_RESULTS.tls_rpt),
+    settle("dnssec", dnssecPromise, ERROR_RESULTS.dnssec),
   ]);
 
   Sentry.addBreadcrumb({
@@ -323,6 +338,12 @@ export async function scan(
     data: { protocol: "tls_rpt", status: tlsRptResult.status },
     level: "info",
   });
+  Sentry.addBreadcrumb({
+    category: "analyzer.complete",
+    message: `dnssec: ${dnssecResult.status}`,
+    data: { protocol: "dnssec", status: dnssecResult.status },
+    level: "info",
+  });
 
   return await buildScanResult(
     domain,
@@ -335,6 +356,7 @@ export async function scan(
       mta_sts: mtaStsResult,
       security_txt: securityTxtResult,
       tls_rpt: tlsRptResult,
+      dnssec: dnssecResult,
     },
     config,
   );
@@ -358,6 +380,7 @@ export async function scanStreaming(
   const mxPromise = analyzeMx(domain);
   const securityTxtPromise = analyzeSecurityTxt(domain);
   const tlsRptPromise = analyzeTlsRpt(domain);
+  const dnssecPromise = analyzeDnssec(domain);
 
   // Chain DKIM off MX so it starts as soon as MX resolves
   const dkimPromise = mxPromise.then((mxResult) => {
@@ -394,6 +417,7 @@ export async function scanStreaming(
     mxResult,
     securityTxtResult,
     tlsRptResult,
+    dnssecResult,
   ] = await Promise.all([
     streamSettled("dmarc", dmarcPromise, ERROR_RESULTS.dmarc, onResult),
     streamSettled("spf", spfPromise, ERROR_RESULTS.spf, onResult),
@@ -408,6 +432,7 @@ export async function scanStreaming(
       onResult,
     ),
     streamSettled("tls_rpt", tlsRptPromise, ERROR_RESULTS.tls_rpt, onResult),
+    streamSettled("dnssec", dnssecPromise, ERROR_RESULTS.dnssec, onResult),
   ]);
 
   const result = await buildScanResult(
@@ -421,6 +446,7 @@ export async function scanStreaming(
       mta_sts: mtaStsResult,
       security_txt: securityTxtResult,
       tls_rpt: tlsRptResult,
+      dnssec: dnssecResult,
     },
     config,
   );
