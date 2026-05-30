@@ -20,12 +20,48 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Detect whether all commits since the last tag are deps-only / chores.
+      # Skip patterns mirror cliff.toml commit_parsers with skip=true:
+      #   ^chore        covers chore:, chore(deps):, chore(deps-dev):, …
+      #   ^[Bb]ump      dependabot-style "Bump X from Y to Z"
+      #   ^Merge pull request / ^Merge branch  — merge commits
+      # If every commit since the last tag matches one of those patterns (or
+      # there are no new commits at all), set skip=true so the remaining steps
+      # are skipped and the job exits success without creating a tag or Release.
+      # Serial-number note: skipping a run leaves a gap in vYYYY.M.serial —
+      # that is acceptable; the counter always counts existing tags.
+      - name: Check for releasable commits
+        id: check
+        run: |
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [ -z "$LAST_TAG" ]; then
+            # No prior tag — this is the first release, never skip.
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          else
+            COMMITS=$(git log "${LAST_TAG}..HEAD" --format='%s')
+            if [ -z "$COMMITS" ]; then
+              # No new commits since last tag — nothing to release.
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+            else
+              NON_SKIP=$(echo "$COMMITS" | grep -vE '^(chore|[Bb]ump |Merge pull request|Merge branch)' || true)
+              if [ -z "$NON_SKIP" ]; then
+                echo "skip=true" >> "$GITHUB_OUTPUT"
+                echo "Skipping release — all commits since ${LAST_TAG} are deps/chore only:"
+                git log "${LAST_TAG}..HEAD" --format='  %s'
+              else
+                echo "skip=false" >> "$GITHUB_OUTPUT"
+              fi
+            fi
+          fi
+
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        if: steps.check.outputs.skip != 'true'
         with:
           node-version: "22"
 
       - name: Calculate CalVer
         id: version
+        if: steps.check.outputs.skip != 'true'
         run: |
           YEAR=$(date -u +%Y)
           MONTH=$(date -u +%-m)
@@ -35,12 +71,14 @@ jobs:
           echo "version=${PREFIX}${SERIAL}" >> "$GITHUB_OUTPUT"
 
       - name: Install git-cliff
+        if: steps.check.outputs.skip != 'true'
         uses: taiki-e/install-action@6ed6112eb9893c58dd600eebccdf6e77ab7bfa9c # v2.79.12
         with:
           tool: git-cliff
 
       - name: Generate changelog
         id: changelog
+        if: steps.check.outputs.skip != 'true'
         run: |
           NOTES=$(git-cliff --config cliff.toml --latest --strip header 2>/dev/null || echo "No notable changes.")
           {
@@ -53,6 +91,7 @@ jobs:
       # the lockfile only (no `npm ci` needed) and pinned to a specific tool
       # version. The SBOM is attached as a release asset, never committed.
       - name: Generate CycloneDX SBOM
+        if: steps.check.outputs.skip != 'true'
         run: |
           npx --yes @cyclonedx/cyclonedx-npm@4.2.1 \
             --package-lock-only \
@@ -61,6 +100,7 @@ jobs:
             --output-file sbom.cdx.json
 
       - name: Create GitHub Release
+        if: steps.check.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ steps.version.outputs.version }}
