@@ -434,7 +434,12 @@ function buildProtocolSummaries(
 ): GradeBreakdown["protocolSummaries"] {
   const { dmarc, spf, dkim, bimi, mta_sts, security_txt, tls_rpt } = protocols;
   const dmarcPolicy = dmarc.tags?.p ?? null;
-  const dkimFound = Object.values(dkim.selectors).filter((s) => s.found);
+  // ⚡ Bolt Optimization: Use a simple loop instead of Object.values().filter()
+  // Reduces GC pressure on hot paths by avoiding array allocations
+  let dkimFoundCount = 0;
+  for (const name in dkim.selectors) {
+    if (dkim.selectors[name].found) dkimFoundCount++;
+  }
 
   const summaries: GradeBreakdown["protocolSummaries"] = {
     dmarc: {
@@ -453,7 +458,7 @@ function buildProtocolSummaries(
       summary:
         dkim.status === "fail"
           ? "Not configured"
-          : `${dkimFound.length} selector${dkimFound.length !== 1 ? "s" : ""}`,
+          : `${dkimFoundCount} selector${dkimFoundCount !== 1 ? "s" : ""}`,
     },
     bimi: {
       status: bimi.status,

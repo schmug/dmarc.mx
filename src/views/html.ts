@@ -229,7 +229,11 @@ export function renderSpfCard(spf: SpfResult): string {
 }
 
 export function renderDkimCard(dkim: DkimResult): string {
-  const found = Object.values(dkim.selectors).filter((s) => s.found).length;
+  // ⚡ Bolt Optimization: Use a simple loop instead of Object.values().filter().length
+  let found = 0;
+  for (const name in dkim.selectors) {
+    if (dkim.selectors[name].found) found++;
+  }
   const subtitle =
     found > 0
       ? `${found} selector${found > 1 ? "s" : ""} found`

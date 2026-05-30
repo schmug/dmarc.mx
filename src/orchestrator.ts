@@ -200,9 +200,14 @@ async function buildScanResult(
     }
   }
 
-  const dkimFound = Object.values(protocols.dkim.selectors).filter(
-    (s) => s.found,
-  ).length;
+  // ⚡ Bolt Optimization: Use a simple loop instead of Object.values().filter()
+  // Reduces intermediate array allocations on the hot path
+  let dkimFound = 0;
+  for (const name in protocols.dkim.selectors) {
+    if (protocols.dkim.selectors[name].found) {
+      dkimFound++;
+    }
+  }
   const dmarcPolicy = protocols.dmarc.tags?.p?.toLowerCase() ?? null;
 
   return {
