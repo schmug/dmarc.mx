@@ -83,6 +83,21 @@ describe("analyzeMx", () => {
     expect(result.validations[0].message).toContain("No MX records");
   });
 
+  it("recognizes a Null MX (RFC 7505) as an intentional no-mail posture", async () => {
+    mockQueryMx.mockResolvedValue([{ priority: 0, exchange: "." }]);
+    const result = await analyzeMx("example.com");
+    expect(result.status).toBe("info");
+    expect(
+      result.validations.some(
+        (v) => v.status === "info" && v.message.includes("Null MX"),
+      ),
+    ).toBe(true);
+    // The empty root exchange must not surface as a host named "."
+    expect(
+      result.records.some((r) => r.exchange === "" || r.exchange === "."),
+    ).toBe(false);
+  });
+
   it("sorts records by priority ascending", async () => {
     mockQueryMx.mockResolvedValue([
       { priority: 30, exchange: "backup.example.com" },
