@@ -468,6 +468,8 @@ const PROTO_LABELS: Record<string, string> = {
   bimi: "BIMI",
   mta_sts: "MTA-STS",
   security_txt: "security.txt",
+  tls_rpt: "TLS-RPT",
+  dnssec: "DNSSEC",
 };
 
 export function scoreSnippet(result: ScanResult): string {

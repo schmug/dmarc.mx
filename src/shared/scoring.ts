@@ -2,6 +2,7 @@ import type {
   BimiResult,
   DkimResult,
   DmarcResult,
+  DnssecResult,
   MtaStsResult,
   SecurityTxtResult,
   SpfResult,
@@ -22,6 +23,9 @@ interface Protocols {
   security_txt?: SecurityTxtResult;
   // Optional for same reason — older fixtures don't include tls_rpt.
   tls_rpt?: TlsRptResult;
+  // Optional — informational only; does not affect grades unless
+  // DNSSEC scoring is explicitly enabled in SCORING_CONFIG.
+  dnssec?: DnssecResult;
   [key: string]: unknown;
 }
 
@@ -432,7 +436,8 @@ function dkimFactors(dkim: DkimResult, config: ScoringConfig): ScoringFactor[] {
 function buildProtocolSummaries(
   protocols: Protocols,
 ): GradeBreakdown["protocolSummaries"] {
-  const { dmarc, spf, dkim, bimi, mta_sts, security_txt, tls_rpt } = protocols;
+  const { dmarc, spf, dkim, bimi, mta_sts, security_txt, tls_rpt, dnssec } =
+    protocols;
   const dmarcPolicy = dmarc.tags?.p ?? null;
   // ⚡ Bolt Optimization: Use a simple loop instead of Object.values().filter()
   // Reduces GC pressure on hot paths by avoiding array allocations
@@ -491,6 +496,16 @@ function buildProtocolSummaries(
         ? tls_rpt.tags?.rua
           ? tls_rpt.tags.rua.split(",")[0].trim()
           : "Record found (no rua)"
+        : "Not configured",
+    };
+  }
+  if (dnssec) {
+    summaries.dnssec = {
+      status: dnssec.status,
+      summary: dnssec.signed
+        ? dnssec.validated
+          ? "Signed and validated"
+          : "Signed (not validated)"
         : "Not configured",
     };
   }

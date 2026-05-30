@@ -122,6 +122,67 @@ export async function queryTxt(name: string): Promise<TxtRecord | null> {
   }
 }
 
+// Shape of the Cloudflare 1.1.1.1 DoH JSON API response.
+// Status 0 = NOERROR, 3 = NXDOMAIN. AD = Authenticated Data flag (DNSSEC).
+export interface DohResponse {
+  Status: number;
+  AD: boolean;
+  Answer?: Array<{ name: string; type: number; TTL: number; data: string }>;
+}
+
+// DNS-over-HTTPS query via the Cloudflare 1.1.1.1 DoH JSON API.
+// Returns null for NXDOMAIN / no answer; throws DnsLookupError for SERVFAIL
+// or timeout — matching the semantics of queryTxt and queryMx.
+// The URL is hardcoded (not user-supplied), so this is not an SSRF risk.
+export async function queryDoh(
+  name: string,
+  type: string,
+): Promise<DohResponse | null> {
+  Sentry.addBreadcrumb({
+    category: "dns.query",
+    message: `DoH ${type} ${name}`,
+    data: { type, hostname: name },
+    level: "info",
+  });
+  const url = `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(name)}&type=${encodeURIComponent(type)}`;
+  try {
+    const resp = await withTimeout(
+      fetch(url, {
+        headers: { Accept: "application/dns-json" },
+        redirect: "follow",
+      }),
+      DNS_TIMEOUT_MS,
+    );
+    if (!resp.ok) {
+      throw new DnsLookupError(
+        "ESERVFAIL",
+        `DoH query returned HTTP ${resp.status}`,
+      );
+    }
+    const data = (await resp.json()) as DohResponse;
+    // NXDOMAIN or NOERROR with no answers → record absent
+    if (data.Status === 3 || !data.Answer || data.Answer.length === 0) {
+      Sentry.addBreadcrumb({
+        category: "dns.nxdomain",
+        message: `DoH ${type} ${name} not found (Status ${data.Status})`,
+        data: { type, hostname: name, status: data.Status },
+        level: "info",
+      });
+      return null;
+    }
+    return data;
+  } catch (err: unknown) {
+    if (err instanceof DnsLookupError) throw err;
+    if (err instanceof Error && err.message === "DNS timeout") {
+      throw new DnsLookupError("DNS_TIMEOUT", "DoH query timed out");
+    }
+    throw new DnsLookupError(
+      "ESERVFAIL",
+      `DoH query failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+}
+
 export async function queryMx(name: string): Promise<MxRecord[] | null> {
   Sentry.addBreadcrumb({
     category: "dns.query",

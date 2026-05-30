@@ -2,6 +2,7 @@ import type {
   BimiResult,
   DkimResult,
   DmarcResult,
+  DnssecResult,
   MtaStsResult,
   MxResult,
   ScanResult,
@@ -367,8 +368,18 @@ export function renderMxCard(mx: MxResult): string {
   return protocolCard("MX", mx.status, subtitle, body);
 }
 
+export function renderDnssecCard(d: DnssecResult): string {
+  const subtitle = d.signed
+    ? d.validated
+      ? "Signed and validated"
+      : "Signed (not validated)"
+    : "Not configured";
+  const body = validationList(d.validations);
+  return protocolCard("DNSSEC", d.status, subtitle, body, false, "dnssec");
+}
+
 function reportBody(result: ScanResult): string {
-  const { mx, dmarc, spf, dkim, bimi, mta_sts, security_txt, tls_rpt } =
+  const { mx, dmarc, spf, dkim, bimi, mta_sts, security_txt, tls_rpt, dnssec } =
     result.protocols;
 
   return `<main class="report">
@@ -398,6 +409,7 @@ function reportBody(result: ScanResult): string {
   ${renderMtaStsCard(mta_sts)}
   ${security_txt ? renderSecurityTxtCard(security_txt) : ""}
   ${tls_rpt ? renderTlsRptCard(tls_rpt) : ""}
+  ${dnssec ? renderDnssecCard(dnssec) : ""}
   ${monitorSnapshotCard(result)}
   <div class="learn-link" style="margin-top:2.5rem">Analyze message headers: <a href="https://toolbox.googleapps.com/apps/messageheader/" target="_blank" rel="noopener">Google &#8599;</a> &middot; <a href="https://mha.azurewebsites.net/" target="_blank" rel="noopener">Microsoft &#8599;</a></div>
   <div class="learn-link" style="margin-top:0.4rem;margin-bottom:1rem"><a href="/scoring">How is my score calculated?</a> &middot; <a href="https://www.cloudflare.com/learning/email-security/dmarc-dkim-spf/" target="_blank" rel="noopener">What is email security? &#8599;</a> &middot; <a href="https://github.com/schmug/dmarcheck/releases" target="_blank" rel="noopener">Changelog &#8599;</a></div>
