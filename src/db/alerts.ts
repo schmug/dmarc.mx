@@ -47,8 +47,12 @@ export async function recordAlerts(
     "INSERT INTO alerts (domain_id, alert_type, previous_value, new_value, created_at) VALUES (?, ?, ?, ?, ?)",
   );
   const now = Math.floor(Date.now() / 1000);
-  await db.batch(
-    inputs.map((input) =>
+  // ⚡ Bolt Optimization: Use a simple loop instead of .map()
+  // Avoids intermediate function allocations and reduces GC pressure on the hot cron path
+  const stmts: D1PreparedStatement[] = [];
+  for (let i = 0; i < inputs.length; i++) {
+    const input = inputs[i];
+    stmts.push(
       stmt.bind(
         input.domainId,
         input.type,
@@ -56,8 +60,9 @@ export async function recordAlerts(
         input.newValue,
         input.createdAt ?? now,
       ),
-    ),
-  );
+    );
+  }
+  await db.batch(stmts);
 }
 
 // Returns alerts that haven't been delivered yet (notified_via IS NULL).
