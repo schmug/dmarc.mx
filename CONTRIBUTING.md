@@ -76,3 +76,32 @@ compensating controls are documented in
 
 Be respectful and constructive. A formal `CODE_OF_CONDUCT.md` may be added
 later; until then, the maintainer moderates participation at their discretion.
+
+## Sign your commits (DCO)
+
+Every commit must carry a `Signed-off-by:` trailer asserting that you have
+legal authorization to contribute the code (Developer Certificate of Origin,
+[OSPS LE-01.01](https://baseline.openssf.org/versions/2025-02-25#le-0101)).
+
+```bash
+git commit -s -m "feat: your message here"
+```
+
+`-s` appends the trailer automatically using your `user.name` and `user.email`
+from git config:
+
+```
+Signed-off-by: Your Name <you@example.com>
+```
+
+If you forget the flag on an existing commit:
+
+```bash
+git commit --amend -s   # for the most recent commit
+# or
+git rebase --signoff HEAD~N   # for the last N commits, then force-push
+```
+
+**Squash-merge note:** GitHub copies the PR description into the squash commit
+message. Make sure your PR description includes the `Signed-off-by:` line so
+the merged commit is also signed off.
