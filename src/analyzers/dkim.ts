@@ -84,6 +84,7 @@ export async function analyzeDkim(
   // which reduces GC pressure on this hot path.
   let foundCount = 0;
   const weakKeyNames: string[] = [];
+  const ed25519Names: string[] = [];
   const revokedNames: string[] = [];
   const testingNames: string[] = [];
 
@@ -91,7 +92,11 @@ export async function analyzeDkim(
     const v = selectors[name];
     if (v.found) {
       foundCount++;
-      if (v.key_bits && v.key_bits < 2048) weakKeyNames.push(name);
+      if (v.key_type === "ed25519") {
+        ed25519Names.push(name);
+      } else if (v.key_bits && v.key_bits < 2048) {
+        weakKeyNames.push(name);
+      }
       if (v.revoked) revokedNames.push(name);
       if (v.testing) testingNames.push(name);
     }
@@ -109,6 +114,14 @@ export async function analyzeDkim(
       status: "fail",
       message:
         "No DKIM selectors found among common selectors — try specifying a custom selector",
+    });
+  }
+
+  // Explicitly acknowledge Ed25519 keys as modern and strong
+  if (ed25519Names.length > 0) {
+    validations.push({
+      status: "pass",
+      message: `${ed25519Names.join(", ")} — Ed25519 key — modern curve, strong by construction`,
     });
   }
 
