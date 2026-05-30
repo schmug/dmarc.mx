@@ -124,6 +124,14 @@ export interface ScanSummary {
   mta_sts_mode: string | null;
 }
 
+export interface DnssecResult {
+  status: Status;
+  signed: boolean;
+  validated: boolean;
+  validations: Validation[];
+  lookup_error?: { code: string; message: string };
+}
+
 export interface ScanResult {
   domain: string;
   timestamp: string;
@@ -139,5 +147,6 @@ export interface ScanResult {
     mta_sts: MtaStsResult;
     security_txt: SecurityTxtResult;
     tls_rpt?: TlsRptResult;
+    dnssec?: DnssecResult;
   };
 }

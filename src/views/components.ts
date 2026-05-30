@@ -79,9 +79,11 @@ export function monitorSnapshotCard(result: ScanResult): string {
   const policy = protocols.dmarc.tags?.p;
   const dmarcOk = policy === "reject" || policy === "quarantine";
   const spfOk = protocols.spf.status === "pass";
-  const dkimCount = Object.values(protocols.dkim.selectors).filter(
-    (s) => s.found,
-  ).length;
+  // ⚡ Bolt Optimization: Use a simple loop instead of Object.values().filter().length
+  let dkimCount = 0;
+  for (const name in protocols.dkim.selectors) {
+    if (protocols.dkim.selectors[name].found) dkimCount++;
+  }
   const bimiOk = !!protocols.bimi.tags;
   const nextUrl = `/auth/login?next=/dashboard&prompt=monitor:${encodeURIComponent(domain)}`;
   const stamp = new Date(timestamp).toLocaleTimeString("en-US", {
@@ -466,6 +468,8 @@ const PROTO_LABELS: Record<string, string> = {
   bimi: "BIMI",
   mta_sts: "MTA-STS",
   security_txt: "security.txt",
+  tls_rpt: "TLS-RPT",
+  dnssec: "DNSSEC",
 };
 
 export function scoreSnippet(result: ScanResult): string {

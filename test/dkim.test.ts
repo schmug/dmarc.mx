@@ -146,6 +146,38 @@ describe("analyzeDkim", () => {
     ).toBe(true);
   });
 
+  it("accepts Ed25519 key as valid modern key with no weak-key warning", async () => {
+    mockQueryTxt.mockImplementation(async (name: string) => {
+      if (name === "google._domainkey.example.com") {
+        const fakeKey = btoa("x".repeat(32));
+        return {
+          entries: [`v=DKIM1; k=ed25519; p=${fakeKey}`],
+          raw: `v=DKIM1; k=ed25519; p=${fakeKey}`,
+        };
+      }
+      return null;
+    });
+
+    const result = await analyzeDkim("example.com");
+    expect(result.status).toBe("pass");
+    expect(result.selectors.google.found).toBe(true);
+    expect(result.selectors.google.key_type).toBe("ed25519");
+    expect(result.selectors.google.key_bits).toBeUndefined();
+    expect(
+      result.validations.some(
+        (v) => v.status === "warn" && v.message.includes("weak"),
+      ),
+    ).toBe(false);
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "pass" &&
+          v.message.includes("Ed25519 key") &&
+          v.message.includes("modern curve"),
+      ),
+    ).toBe(true);
+  });
+
   it("merges custom selectors with common selectors (deduplication)", async () => {
     mockQueryTxt.mockImplementation(async (name: string) => {
       if (name === "myselector._domainkey.example.com") {

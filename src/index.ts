@@ -9,6 +9,7 @@ import type {
   BimiResult,
   DkimResult,
   DmarcResult,
+  DnssecResult,
   MtaStsResult,
   MxResult,
   ScanResult,
@@ -71,6 +72,7 @@ import {
   renderBimiCard,
   renderDkimCard,
   renderDmarcCard,
+  renderDnssecCard,
   renderError,
   renderLandingPage,
   renderMtaStsCard,
@@ -537,6 +539,7 @@ const protocolRenderers: Record<
   mta_sts: (r) => renderMtaStsCard(r as MtaStsResult),
   security_txt: (r) => renderSecurityTxtCard(r as SecurityTxtResult),
   tls_rpt: (r) => renderTlsRptCard(r as TlsRptResult),
+  dnssec: (r) => renderDnssecCard(r as DnssecResult),
 };
 
 function tagScanResult(result: ScanResult): void {
