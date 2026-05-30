@@ -2290,7 +2290,12 @@ export function renderDomainDetailPage({
   const historySection =
     scanHistory.length > 0
       ? `<ul class="history-list">${historyItems}</ul>`
-      : `<p style="color:var(--clr-text-muted);font-size:0.875rem;padding:0.75rem 0">No scan history yet. Use 'Scan Now' above to generate your first grade.</p>`;
+      : `<div class="empty-state" style="padding: 1.5rem 0; text-align: left;">
+  <p style="margin-bottom: 0.75rem;">No scan history yet. Generate your first grade to see history and trends.</p>
+  <form method="POST" action="/dashboard/domain/${encodeURIComponent(domain)}/scan" style="display:inline">
+    <button type="submit" class="btn btn-secondary">Scan Now</button>
+  </form>
+</div>`;
 
   const body = `<div class="domain-detail-header">
   <span class="grade-badge ${gradeClass(grade)}">${esc(grade)}</span>
@@ -2940,7 +2945,10 @@ export function renderApiKeysPage({
 
   let table: string;
   if (keys.length === 0) {
-    table = `<p style="color:var(--clr-text-muted);font-size:0.875rem">No API keys yet. Generate your first one above to authenticate API requests.</p>`;
+    table = `<div class="empty-state" style="padding: 2rem 0;">
+  <p>No API keys yet. Bearer tokens are required to authenticate API requests.</p>
+  <button type="button" class="btn btn-secondary" onclick="document.getElementById('api-key-name')?.focus()">Create your first key</button>
+</div>`;
   } else {
     const rows = keys
       .map((k) => {

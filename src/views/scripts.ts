@@ -1163,7 +1163,14 @@ if (typeof navigator !== 'undefined' && navigator.modelContext && typeof navigat
     children.push(sectionTitle('Recent scans'));
     var hist = data.history || [];
     if (hist.length === 0) {
-      children.push(el('p', { class: 'drawer-history-empty', text: 'No scan history yet. Use Scan Now below to generate your first grade.' }));
+      var emptyContainer = el('div', { class: 'empty-state', style: 'padding: 1.5rem 0; text-align: left;' });
+      var emptyText = el('p', { text: 'No scan history yet. Generate your first grade to see history and trends.', style: 'margin-bottom: 0.75rem;' });
+      var scanFormEmpty = el('form', { method: 'POST', action: '/dashboard/domain/' + encodeURIComponent(data.domain) + '/scan', style: 'display: inline;' });
+      var scanBtnEmpty = el('button', { type: 'submit', class: 'btn btn-secondary', text: 'Scan Now' });
+      scanFormEmpty.appendChild(scanBtnEmpty);
+      emptyContainer.appendChild(emptyText);
+      emptyContainer.appendChild(scanFormEmpty);
+      children.push(emptyContainer);
     } else {
       var histList = el('div', { class: 'drawer-history-list' });
       hist.slice(0, 8).forEach(function(h) { histList.appendChild(historyRowEl(h)); });
