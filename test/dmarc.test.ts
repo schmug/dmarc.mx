@@ -267,3 +267,91 @@ describe("analyzeDmarc — sp=none weakness", () => {
     ).toBe(false);
   });
 });
+
+describe("analyzeDmarc — multiple records", () => {
+  it("fails with permerror when more than one DMARC record is published (RFC 7489 §6.6.3)", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=reject", "v=DMARC1; p=none"],
+      raw: "v=DMARC1; p=reject",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(result.status).toBe("fail");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "fail" && v.message.includes("Multiple DMARC records"),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not flag multiple-record permerror for a single record", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=reject; rua=mailto:r@mydomain.com"],
+      raw: "v=DMARC1; p=reject; rua=mailto:r@mydomain.com",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(
+      result.validations.some((v) =>
+        v.message.includes("Multiple DMARC records"),
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("analyzeDmarc — alignment and failure-reporting tags", () => {
+  it("explains strict alignment when adkim=s and aspf=s", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: [
+        "v=DMARC1; p=reject; adkim=s; aspf=s; rua=mailto:r@mydomain.com",
+      ],
+      raw: "v=DMARC1; p=reject; adkim=s; aspf=s; rua=mailto:r@mydomain.com",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.message.includes("DKIM alignment") && v.message.includes("strict"),
+      ),
+    ).toBe(true);
+    expect(
+      result.validations.some(
+        (v) =>
+          v.message.includes("SPF alignment") && v.message.includes("strict"),
+      ),
+    ).toBe(true);
+  });
+
+  it("explains the relaxed default alignment when adkim/aspf are absent", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=reject; rua=mailto:r@mydomain.com"],
+      raw: "v=DMARC1; p=reject; rua=mailto:r@mydomain.com",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.message.includes("DKIM alignment") &&
+          v.message.includes("relaxed") &&
+          v.message.includes("default"),
+      ),
+    ).toBe(true);
+  });
+
+  it("explains the fo failure-reporting options when present", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: [
+        "v=DMARC1; p=reject; fo=1; ruf=mailto:f@mydomain.com; rua=mailto:r@mydomain.com",
+      ],
+      raw: "v=DMARC1; p=reject; fo=1; ruf=mailto:f@mydomain.com; rua=mailto:r@mydomain.com",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(result.validations.some((v) => v.message.includes("fo=1"))).toBe(
+      true,
+    );
+  });
+});

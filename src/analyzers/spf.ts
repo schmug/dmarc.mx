@@ -8,6 +8,8 @@ export async function analyzeSpf(domain: string): Promise<SpfResult> {
     lookups: 0,
     visited: new Set(),
     hasCycle: false,
+    voidLookups: 0,
+    multipleRootRecords: false,
   };
 
   let tree: SpfIncludeNode | null;
@@ -66,6 +68,23 @@ export async function analyzeSpf(domain: string): Promise<SpfResult> {
       status: "fail",
       message:
         "Circular include detected — SPF will permerror (RFC 7208 §4.6.4)",
+    });
+  }
+
+  // Multiple SPF records check
+  if (ctx.multipleRootRecords) {
+    validations.push({
+      status: "fail",
+      message:
+        "Multiple SPF records published — SPF will permerror (RFC 7208 §4.5)",
+    });
+  }
+
+  // Void-lookup limit check
+  if (ctx.voidLookups > MAX_VOID_LOOKUPS) {
+    validations.push({
+      status: "fail",
+      message: `Exceeds 2 void DNS lookups (${ctx.voidLookups}) — SPF will permerror (RFC 7208 §4.6.4)`,
     });
   }
 
@@ -129,7 +148,18 @@ interface ResolutionContext {
   lookups: number;
   visited: Set<string>;
   hasCycle: boolean;
+  // RFC 7208 §4.6.4: lookups that return NXDOMAIN/NODATA ("void lookups") are
+  // capped at 2. We can only observe voids for include:/redirect= targets,
+  // which actually issue a queryTxt. a/mx/exists are counted toward the
+  // 10-lookup limit but never resolved here, so their voids are not yet
+  // detected — tracked for future SPF work (see #435).
+  voidLookups: number;
+  // RFC 7208 §4.5: more than one v=spf1 record at the queried name is a
+  // permerror. We only flag this for the published (root) domain.
+  multipleRootRecords: boolean;
 }
+
+const MAX_VOID_LOOKUPS = 2;
 
 async function resolveSpfTree(
   domain: string,
@@ -147,12 +177,24 @@ async function resolveSpfTree(
   ctx.visited.add(normalizedDomain);
 
   const txt = await queryTxt(domain);
-  if (!txt) return null;
+  if (!txt) {
+    // NXDOMAIN/NODATA. For include:/redirect= targets (depth > 0) this is a
+    // void lookup under RFC 7208 §4.6.4; the root domain returning null just
+    // means "no SPF record" and is handled by the caller.
+    if (depth > 0) ctx.voidLookups++;
+    return null;
+  }
 
-  const spfRecord = txt.entries.find(
+  const spfRecords = txt.entries.filter(
     (e) => e.trimStart().startsWith("v=spf1 ") || e.trim() === "v=spf1",
   );
-  if (!spfRecord) return null;
+  if (spfRecords.length === 0) return null;
+  // RFC 7208 §4.5: more than one SPF record at the published domain is a
+  // permerror. Flag it at the root; evaluation still proceeds on the first.
+  if (depth === 0 && spfRecords.length > 1) {
+    ctx.multipleRootRecords = true;
+  }
+  const spfRecord = spfRecords[0];
 
   const mechanisms = parseSpfMechanisms(spfRecord);
   const includes: SpfIncludeNode[] = [];

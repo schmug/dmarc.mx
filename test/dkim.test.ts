@@ -53,6 +53,34 @@ describe("analyzeDkim", () => {
     ).toBe(true);
   });
 
+  it("recognizes an Ed25519 key as a valid modern key (not weak)", async () => {
+    mockQueryTxt.mockImplementation(async (name: string) => {
+      if (name === "google._domainkey.example.com") {
+        // RFC 8463 §3.6.1 test vector: a 32-byte Ed25519 public key.
+        const key = "11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=";
+        return {
+          entries: [`v=DKIM1; k=ed25519; p=${key}`],
+          raw: `v=DKIM1; k=ed25519; p=${key}`,
+        };
+      }
+      return null;
+    });
+
+    const result = await analyzeDkim("example.com");
+    expect(result.selectors.google.found).toBe(true);
+    expect(result.selectors.google.key_type).toBe("ed25519");
+    // An Ed25519 key must not be measured against the RSA bit threshold.
+    expect(
+      result.validations.some((v) => v.message.includes("under 2048 bits")),
+    ).toBe(false);
+    // Positive recognition of the modern algorithm.
+    expect(
+      result.validations.some(
+        (v) => v.status === "pass" && v.message.includes("Ed25519"),
+      ),
+    ).toBe(true);
+  });
+
   it("detects weak key under 2048 bits", async () => {
     mockQueryTxt.mockImplementation(async (name: string) => {
       if (name === "google._domainkey.example.com") {

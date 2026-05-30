@@ -143,6 +143,27 @@ export async function analyzeMx(domain: string): Promise<MxResult> {
     };
   }
 
+  // Null MX (RFC 7505): a single record whose exchange is the root (".") means
+  // the domain explicitly sends and receives no mail. Detect it before the
+  // trailing-dot strip below, which would otherwise render it as a blank host.
+  if (rawRecords.length === 1) {
+    const exchange = rawRecords[0].exchange.replace(/\.$/, "");
+    if (exchange === "") {
+      return {
+        status: "info",
+        records: [],
+        providers: [],
+        validations: [
+          {
+            status: "info",
+            message:
+              "Null MX (RFC 7505) — domain explicitly accepts no mail (no mail server configured by design)",
+          },
+        ],
+      };
+    }
+  }
+
   const records: MxRecord[] = [...rawRecords]
     .sort((a, b) => a.priority - b.priority)
     .map((r) => {

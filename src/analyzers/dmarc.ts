@@ -99,9 +99,10 @@ export async function analyzeDmarc(domain: string): Promise<DmarcResult> {
     };
   }
 
-  const dmarcRecord = txt.entries.find((e) =>
+  const dmarcRecords = txt.entries.filter((e) =>
     e.trimStart().startsWith("v=DMARC1"),
   );
+  const dmarcRecord = dmarcRecords[0];
   if (!dmarcRecord) {
     return {
       status: "fail",
@@ -124,6 +125,15 @@ export async function analyzeDmarc(domain: string): Promise<DmarcResult> {
     validations.push({ status: "pass", message: "DMARC record found" });
   } else {
     validations.push({ status: "fail", message: "Invalid version tag" });
+  }
+
+  // Multiple-record check: more than one DMARC record means receivers ignore
+  // the policy entirely (RFC 7489 §6.6.3).
+  if (dmarcRecords.length > 1) {
+    validations.push({
+      status: "fail",
+      message: `Multiple DMARC records published (${dmarcRecords.length}) — receivers will ignore the policy (RFC 7489 §6.6.3)`,
+    });
   }
 
   // p= check
@@ -205,6 +215,35 @@ export async function analyzeDmarc(domain: string): Promise<DmarcResult> {
         message: `pct=${tags.pct} means only ${tags.pct}% of messages are subjected to DMARC policy (less than full enforcement)`,
       });
     }
+  }
+
+  // Alignment mode (adkim / aspf). Default is relaxed ("r"); strict ("s")
+  // requires an exact domain match for the passing identifier.
+  const adkim = tags.adkim?.toLowerCase();
+  validations.push({
+    status: "info",
+    message:
+      adkim === "s"
+        ? "DKIM alignment is strict (adkim=s) — signing domain must match exactly"
+        : "DKIM alignment is relaxed (adkim=r, the default) — organizational-domain match is sufficient",
+  });
+  const aspf = tags.aspf?.toLowerCase();
+  validations.push({
+    status: "info",
+    message:
+      aspf === "s"
+        ? "SPF alignment is strict (aspf=s) — envelope-from domain must match exactly"
+        : "SPF alignment is relaxed (aspf=r, the default) — organizational-domain match is sufficient",
+  });
+
+  // Failure-reporting options (fo). Only meaningful when ruf is configured.
+  if (tags.fo) {
+    validations.push({
+      status: "info",
+      message: `Failure-reporting options fo=${tags.fo} configured${
+        tags.ruf ? "" : " (no effect without a ruf address)"
+      }`,
+    });
   }
 
   const hasFailure = validations.some((v) => v.status === "fail");

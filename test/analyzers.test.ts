@@ -379,4 +379,77 @@ describe("analyzeSpf", () => {
     // a includes b(1), b includes a(1) but cycle stops = 2
     expect(result.lookups_used).toBe(2);
   });
+
+  it("fails with permerror when multiple SPF records are published (RFC 7208 §4.5)", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: [
+        "v=spf1 ip4:192.0.2.0/24 -all",
+        "v=spf1 ip4:198.51.100.0/24 ~all",
+      ],
+      raw: "v=spf1 ip4:192.0.2.0/24 -all",
+    });
+
+    const result = await analyzeSpf("example.com");
+    expect(result.status).toBe("fail");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "fail" && v.message.includes("Multiple SPF records"),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not flag multiple-record permerror for a single record", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=spf1 ip4:192.0.2.0/24 -all"],
+      raw: "v=spf1 ip4:192.0.2.0/24 -all",
+    });
+
+    const result = await analyzeSpf("example.com");
+    expect(
+      result.validations.some((v) =>
+        v.message.includes("Multiple SPF records"),
+      ),
+    ).toBe(false);
+  });
+
+  it("fails with permerror when more than 2 void lookups occur (RFC 7208 §4.6.4)", async () => {
+    mockQueryTxt.mockImplementation(async (name: string) => {
+      if (name === "example.com") {
+        return {
+          entries: [
+            "v=spf1 include:a.void.test include:b.void.test include:c.void.test -all",
+          ],
+          raw: "v=spf1 include:a.void.test include:b.void.test include:c.void.test -all",
+        };
+      }
+      // Every include target resolves to NXDOMAIN/NODATA → void lookup.
+      return null;
+    });
+
+    const result = await analyzeSpf("example.com");
+    expect(result.status).toBe("fail");
+    expect(
+      result.validations.some(
+        (v) => v.status === "fail" && v.message.includes("void"),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not flag a void-lookup permerror at or below 2 void lookups", async () => {
+    mockQueryTxt.mockImplementation(async (name: string) => {
+      if (name === "example.com") {
+        return {
+          entries: ["v=spf1 include:a.void.test include:b.void.test -all"],
+          raw: "v=spf1 include:a.void.test include:b.void.test -all",
+        };
+      }
+      return null;
+    });
+
+    const result = await analyzeSpf("example.com");
+    expect(result.validations.some((v) => v.message.includes("void"))).toBe(
+      false,
+    );
+  });
 });
