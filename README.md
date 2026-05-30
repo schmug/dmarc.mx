@@ -213,6 +213,48 @@ Cloudflare Web Analytics dashboard.
 Security posture is documented in [SECURITY.md](SECURITY.md) and the
 [threat model](THREAT_MODEL.md).
 
+## Verifying a release
+
+Every release ships a `SHA256SUMS` manifest (covering the SBOM and the
+GitHub-generated source archives) and a Sigstore keyless signature bundle
+(`SHA256SUMS.bundle`). The signing identity is the GitHub Actions workflow
+itself — no long-lived private key is involved.
+
+### Prerequisites
+
+Install [cosign](https://docs.sigstore.dev/cosign/system_config/installation/):
+
+```bash
+# macOS / Linux with Homebrew
+brew install cosign
+
+# or via Go
+go install github.com/sigstore/cosign/v2/cmd/cosign@latest
+```
+
+### Verify a release
+
+Replace `vYYYY.M.N` with the tag you want to verify (e.g. `v2026.5.1`).
+
+```bash
+# 1. Download the manifest and signature bundle
+gh release download vYYYY.M.N -R schmug/dmarcheck --pattern 'SHA256SUMS*'
+
+# 2. Verify the Sigstore signature — confirms the bundle was signed by
+#    the release workflow running on the schmug/dmarcheck repository
+cosign verify-blob \
+  --bundle SHA256SUMS.bundle \
+  --certificate-identity-regexp "https://github.com/schmug/dmarcheck/.github/workflows/release.yml" \
+  --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+  SHA256SUMS
+
+# 3. Check file integrity
+sha256sum -c SHA256SUMS
+```
+
+A successful run of step 2 prints `Verified OK`. Step 3 confirms that the
+downloaded archives match the checksums signed in step 2.
+
 ## License
 
 MIT
