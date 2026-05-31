@@ -236,13 +236,33 @@ export async function analyzeDmarc(domain: string): Promise<DmarcResult> {
         : "SPF alignment is relaxed (aspf=r, the default) — organizational-domain match is sufficient",
   });
 
-  // Failure-reporting options (fo). Only meaningful when ruf is configured.
-  if (tags.fo) {
+  // Failure-reporting options (fo). Default is "0" when absent.
+  // Only meaningful when ruf is configured.
+  const foSuffix = tags.ruf ? "" : " (no effect without a ruf address)";
+  if (!tags.fo || tags.fo === "0") {
     validations.push({
       status: "info",
-      message: `Failure-reporting options fo=${tags.fo} configured${
-        tags.ruf ? "" : " (no effect without a ruf address)"
-      }`,
+      message: `Failure-reporting option fo=0 (the default) — a forensic report is generated only when all authentication mechanisms fail${foSuffix}`,
+    });
+  } else if (tags.fo === "1") {
+    validations.push({
+      status: "info",
+      message: `Failure-reporting option fo=1 — a forensic report is generated when any authentication mechanism fails (SPF or DKIM)${foSuffix}`,
+    });
+  } else if (tags.fo === "d") {
+    validations.push({
+      status: "info",
+      message: `Failure-reporting option fo=d — a forensic report is generated when DKIM evaluation fails, regardless of SPF${foSuffix}`,
+    });
+  } else if (tags.fo === "s") {
+    validations.push({
+      status: "info",
+      message: `Failure-reporting option fo=s — a forensic report is generated when SPF evaluation fails, regardless of DKIM${foSuffix}`,
+    });
+  } else {
+    validations.push({
+      status: "info",
+      message: `Failure-reporting options fo=${tags.fo} configured${foSuffix}`,
     });
   }
 
