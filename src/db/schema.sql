@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS users (
   email_alerts_enabled INTEGER NOT NULL DEFAULT 1,
   notify_on_change_only INTEGER NOT NULL DEFAULT 0,
   api_key_retirement_acknowledged_at INTEGER,
+  max_domains_override INTEGER,
   created_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
 

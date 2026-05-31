@@ -41,6 +41,7 @@ import {
 import { getPlanForUser } from "../db/subscriptions.js";
 import {
   acknowledgeApiKeyRetirement,
+  getMaxDomainsOverrideForUser,
   getUserById,
   setEmailAlertsEnabled,
   setNotifyOnChangeOnly,
@@ -48,7 +49,7 @@ import {
 import { getRecentDeliveriesForUser } from "../db/webhook-deliveries.js";
 import { scan } from "../orchestrator.js";
 import { normalizeDomain } from "../shared/domain.js";
-import { PRO_WATCHLIST_CAP, watchlistCapForPlan } from "../shared/limits.js";
+import { PRO_WATCHLIST_CAP, watchlistCapFor } from "../shared/limits.js";
 import {
   computeGradeBreakdown,
   type ScoringConfig,
@@ -425,7 +426,7 @@ dashboardRoutes.get("/", async (c) => {
         usage: {
           plan,
           current: domains.length,
-          cap: watchlistCapForPlan(plan),
+          cap: watchlistCapFor(plan, user?.max_domains_override),
         },
       }),
     );
@@ -486,7 +487,7 @@ dashboardRoutes.get("/", async (c) => {
       usage: {
         plan,
         current: totalForUser,
-        cap: watchlistCapForPlan(plan),
+        cap: watchlistCapFor(plan, user?.max_domains_override),
       },
     }),
   );
@@ -726,15 +727,16 @@ dashboardRoutes.post("/alerts/:id/acknowledge", async (c) => {
 dashboardRoutes.get("/domain/add", async (c) => {
   const session = c.get("user" as never) as SessionPayload;
   const db = (c.env as { DB: D1Database }).DB;
-  const [plan, current] = await Promise.all([
+  const [plan, current, override] = await Promise.all([
     getPlanForUser(db, session.sub),
     countDomainsByUser(db, session.sub),
+    getMaxDomainsOverrideForUser(db, session.sub),
   ]);
   return c.html(
     renderAddDomainPage({
       email: session.email,
       error: null,
-      usage: { plan, current, cap: watchlistCapForPlan(plan) },
+      usage: { plan, current, cap: watchlistCapFor(plan, override) },
     }),
   );
 });
@@ -744,11 +746,12 @@ dashboardRoutes.post("/domain/add", async (c) => {
   const db = (c.env as { DB: D1Database }).DB;
   const body = await c.req.parseBody();
   const normalized = normalizeDomain(body.domain as string | undefined);
-  const [plan, currentCount] = await Promise.all([
+  const [plan, currentCount, override] = await Promise.all([
     getPlanForUser(db, session.sub),
     countDomainsByUser(db, session.sub),
+    getMaxDomainsOverrideForUser(db, session.sub),
   ]);
-  const cap = watchlistCapForPlan(plan);
+  const cap = watchlistCapFor(plan, override);
   const usage = { plan, current: currentCount, cap };
   if (!normalized) {
     return c.html(
@@ -775,11 +778,15 @@ dashboardRoutes.post("/domain/add", async (c) => {
   if (currentCount >= cap) {
     const overCap = currentCount > cap;
     const error =
-      plan === "pro"
+      override != null
         ? overCap
-          ? `Pro plan includes ${cap} domains and you already have ${currentCount} (grandfathered). Email support@dmarc.mx to add more.`
-          : `You've reached the Pro plan limit of ${cap} domains. Email support@dmarc.mx if you need more.`
-        : `Free plan limit reached (${cap} domains). Upgrade to Pro for up to ${PRO_WATCHLIST_CAP}.`;
+          ? `Domain limit is ${cap} and you already have ${currentCount} (grandfathered). Email support@dmarc.mx to add more.`
+          : `You've reached your domain limit of ${cap}. Email support@dmarc.mx to add more.`
+        : plan === "pro"
+          ? overCap
+            ? `Pro plan includes ${cap} domains and you already have ${currentCount} (grandfathered). Email support@dmarc.mx to add more.`
+            : `You've reached the Pro plan limit of ${cap} domains. Email support@dmarc.mx if you need more.`
+          : `Free plan limit reached (${cap} domains). Upgrade to Pro for up to ${PRO_WATCHLIST_CAP}.`;
     return c.html(
       renderAddDomainPage({ email: session.email, error, usage }),
       400,
@@ -817,7 +824,10 @@ dashboardRoutes.get("/bulk", async (c) => {
 dashboardRoutes.post("/bulk", async (c) => {
   const session = c.get("user" as never) as SessionPayload;
   const db = (c.env as { DB: D1Database }).DB;
-  const plan = await getPlanForUser(db, session.sub);
+  const [plan, override] = await Promise.all([
+    getPlanForUser(db, session.sub),
+    getMaxDomainsOverrideForUser(db, session.sub),
+  ]);
   if (plan !== "pro") {
     return c.html(
       renderBulkScanPage({
@@ -842,7 +852,7 @@ dashboardRoutes.post("/bulk", async (c) => {
     db,
     userId: session.sub,
     rawDomains: lines,
-    watchlistCap: watchlistCapForPlan(plan),
+    watchlistCap: watchlistCapFor(plan, override),
     scoringConfig: parseScoringConfig(
       (c.env as { SCORING_CONFIG?: string }).SCORING_CONFIG,
     ),
