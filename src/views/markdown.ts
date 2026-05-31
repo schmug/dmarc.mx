@@ -1,4 +1,5 @@
 import type {
+  DaneResult,
   DnssecResult,
   ScanResult,
   SecurityTxtResult,
@@ -86,6 +87,24 @@ function renderDnssecMarkdown(d: DnssecResult): string {
   return `## DNSSEC — ${d.status}
 
 ${subtitle}
+
+${validationLines(d.validations)}`;
+}
+
+function renderDaneMarkdown(d: DaneResult): string {
+  const hostsWithTlsa = d.hosts.filter((h) => h.tlsaRecords.length > 0);
+  const hostLines =
+    hostsWithTlsa.length > 0
+      ? hostsWithTlsa
+          .map(
+            (h) =>
+              `- ${h.exchange}: ${h.tlsaRecords.length} TLSA record${h.tlsaRecords.length !== 1 ? "s" : ""}${h.dnssecValidated ? " (DNSSEC validated)" : " (DNSSEC not validated)"}`,
+          )
+          .join("\n")
+      : "_No TLSA records found._";
+  return `## DANE/TLSA — ${d.status}
+
+${hostLines}
 
 ${validationLines(d.validations)}`;
 }
@@ -207,6 +226,8 @@ ${protocols.security_txt ? renderSecurityTxtMarkdown(protocols.security_txt) : "
 ${protocols.tls_rpt ? renderTlsRptMarkdown(protocols.tls_rpt) : ""}
 
 ${protocols.dnssec ? renderDnssecMarkdown(protocols.dnssec) : ""}
+
+${protocols.dane ? renderDaneMarkdown(protocols.dane) : ""}
 
 ---
 

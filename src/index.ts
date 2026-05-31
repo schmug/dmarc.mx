@@ -7,6 +7,7 @@ import { dispatchPendingAlerts } from "./alerts/dispatcher.js";
 import { validateUnsubscribeToken } from "./alerts/unsubscribe.js";
 import type {
   BimiResult,
+  DaneResult,
   DkimResult,
   DmarcResult,
   DnssecResult,
@@ -70,6 +71,7 @@ import {
 import {
   renderApiDocs,
   renderBimiCard,
+  renderDaneCard,
   renderDkimCard,
   renderDmarcCard,
   renderDnssecCard,
@@ -540,6 +542,7 @@ const protocolRenderers: Record<
   security_txt: (r) => renderSecurityTxtCard(r as SecurityTxtResult),
   tls_rpt: (r) => renderTlsRptCard(r as TlsRptResult),
   dnssec: (r) => renderDnssecCard(r as DnssecResult),
+  dane: (r) => renderDaneCard(r as DaneResult),
 };
 
 function tagScanResult(result: ScanResult): void {
@@ -593,6 +596,8 @@ app.get("/api/check/stream", async (c) => {
         "mta_sts",
         "security_txt",
         "tls_rpt",
+        "dnssec",
+        "dane",
       ];
       for (const id of protocolIds) {
         const protocolResult = cached.protocols[id];

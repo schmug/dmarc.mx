@@ -1,5 +1,6 @@
 import * as Sentry from "@sentry/cloudflare";
 import { analyzeBimi, prefetchBimiDns } from "./analyzers/bimi.js";
+import { analyzeDane } from "./analyzers/dane.js";
 import { analyzeDkim } from "./analyzers/dkim.js";
 import { analyzeDmarc } from "./analyzers/dmarc.js";
 import { analyzeDnssec } from "./analyzers/dnssec.js";
@@ -11,6 +12,7 @@ import { analyzeSpf } from "./analyzers/spf.js";
 import { analyzeTlsRpt } from "./analyzers/tls-rpt.js";
 import type {
   BimiResult,
+  DaneResult,
   DkimResult,
   DmarcResult,
   DnssecResult,
@@ -34,7 +36,8 @@ export type ProtocolId =
   | "mta_sts"
   | "security_txt"
   | "tls_rpt"
-  | "dnssec";
+  | "dnssec"
+  | "dane";
 export type ProtocolResult =
   | MxResult
   | DmarcResult
@@ -44,7 +47,8 @@ export type ProtocolResult =
   | MtaStsResult
   | SecurityTxtResult
   | TlsRptResult
-  | DnssecResult;
+  | DnssecResult
+  | DaneResult;
 
 const PROTOCOL_LABEL: Record<ProtocolId, string> = {
   mx: "MX",
@@ -56,6 +60,7 @@ const PROTOCOL_LABEL: Record<ProtocolId, string> = {
   security_txt: "security.txt",
   tls_rpt: "TLS-RPT",
   dnssec: "DNSSEC",
+  dane: "DANE/TLSA",
 };
 
 function analyzerErrorValidation(id: ProtocolId, message: string): Validation {
@@ -130,6 +135,12 @@ const ERROR_RESULTS = {
     signed: false,
     validated: false,
     validations: [analyzerErrorValidation("dnssec", m)],
+    lookup_error: { code: "analyzer_error", message: m },
+  }),
+  dane: (m: string): DaneResult => ({
+    status: "fail",
+    hosts: [],
+    validations: [analyzerErrorValidation("dane", m)],
     lookup_error: { code: "analyzer_error", message: m },
   }),
 } as const;
@@ -269,6 +280,14 @@ export async function scan(
     return analyzeDkim(domain, customSelectors, providerNames);
   });
 
+  // Chain DANE off MX — TLSA records are queried per MX exchange
+  const danePromise = mxPromise.then((mxResult) =>
+    analyzeDane(
+      domain,
+      mxResult.records.map((r) => r.exchange),
+    ),
+  );
+
   const bimiPromise = Promise.all([dmarcPromise, bimiDnsPromise]).then(
     ([dmarcResult, bimiDns]) => {
       const dmarcPolicy = dmarcResult.tags?.p?.toLowerCase() ?? null;
@@ -289,6 +308,7 @@ export async function scan(
     securityTxtResult,
     tlsRptResult,
     dnssecResult,
+    daneResult,
   ] = await Promise.all([
     settle("dmarc", dmarcPromise, ERROR_RESULTS.dmarc),
     settle("spf", spfPromise, ERROR_RESULTS.spf),
@@ -299,6 +319,7 @@ export async function scan(
     settle("security_txt", securityTxtPromise, ERROR_RESULTS.security_txt),
     settle("tls_rpt", tlsRptPromise, ERROR_RESULTS.tls_rpt),
     settle("dnssec", dnssecPromise, ERROR_RESULTS.dnssec),
+    settle("dane", danePromise, ERROR_RESULTS.dane),
   ]);
 
   Sentry.addBreadcrumb({
@@ -349,6 +370,12 @@ export async function scan(
     data: { protocol: "dnssec", status: dnssecResult.status },
     level: "info",
   });
+  Sentry.addBreadcrumb({
+    category: "analyzer.complete",
+    message: `dane: ${daneResult.status}`,
+    data: { protocol: "dane", status: daneResult.status },
+    level: "info",
+  });
 
   return await buildScanResult(
     domain,
@@ -362,6 +389,7 @@ export async function scan(
       security_txt: securityTxtResult,
       tls_rpt: tlsRptResult,
       dnssec: dnssecResult,
+      dane: daneResult,
     },
     config,
   );
@@ -393,6 +421,14 @@ export async function scanStreaming(
     return analyzeDkim(domain, customSelectors, providerNames);
   });
 
+  // Chain DANE off MX — TLSA records are queried per MX exchange
+  const danePromise = mxPromise.then((mxResult) =>
+    analyzeDane(
+      domain,
+      mxResult.records.map((r) => r.exchange),
+    ),
+  );
+
   // Chain BIMI off DMARC and BIMI DNS
   const bimiPromise = Promise.all([dmarcPromise, bimiDnsPromise]).then(
     ([dmarcResult, bimiDns]) => {
@@ -423,6 +459,7 @@ export async function scanStreaming(
     securityTxtResult,
     tlsRptResult,
     dnssecResult,
+    daneResult,
   ] = await Promise.all([
     streamSettled("dmarc", dmarcPromise, ERROR_RESULTS.dmarc, onResult),
     streamSettled("spf", spfPromise, ERROR_RESULTS.spf, onResult),
@@ -438,6 +475,7 @@ export async function scanStreaming(
     ),
     streamSettled("tls_rpt", tlsRptPromise, ERROR_RESULTS.tls_rpt, onResult),
     streamSettled("dnssec", dnssecPromise, ERROR_RESULTS.dnssec, onResult),
+    streamSettled("dane", danePromise, ERROR_RESULTS.dane, onResult),
   ]);
 
   const result = await buildScanResult(
@@ -452,6 +490,7 @@ export async function scanStreaming(
       security_txt: securityTxtResult,
       tls_rpt: tlsRptResult,
       dnssec: dnssecResult,
+      dane: daneResult,
     },
     config,
   );
