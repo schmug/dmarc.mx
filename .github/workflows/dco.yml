@@ -27,6 +27,16 @@ jobs:
             -H "X-GitHub-Api-Version: 2022-11-28" \
             "$API_URL/repos/$REPO/pulls/$PR_NUMBER/commits?per_page=100")
 
+          # Fail closed if the commit list may be truncated. This endpoint
+          # returns at most 100 commits per page and we do not paginate, so a PR
+          # with 100+ commits could otherwise smuggle an unsigned commit past the
+          # check — OSPS-LE-01.01 requires asserting on *every* commit.
+          if [ "$(echo "$commits" | jq 'length')" -ge 100 ]; then
+            echo "ERROR: PR has 100+ commits; this check only reads the first 100."
+            echo "Split the PR so every commit can be verified for sign-off."
+            exit 1
+          fi
+
           failed=0
 
           while IFS= read -r row; do
@@ -35,16 +45,17 @@ jobs:
             author_name=$(echo "$row" | jq -r '.commit.author.name')
             author_email=$(echo "$row" | jq -r '.commit.author.email')
 
-            # Skip bot accounts that cannot sign off.
-            # Use python3 to parse the email host safely (avoids .includes()/.startsWith() on URL strings).
-            email_host=$(python3 -c "
-          import sys
-          email = sys.argv[1]
-          host = email.split('@', 1)[1] if '@' in email else ''
-          print(host)
-          " "$author_email")
+            # Skip automated commits that cannot run `git commit -s`.
+            #
+            # NOTE: matching the @users.noreply.github.com host also skips humans
+            # who use GitHub's private-email default — this is intentionally broad
+            # for now so existing unsigned autonomous-routine PRs (authored by the
+            # admin account via a noreply address) keep passing. Narrow this to the
+            # commits API `.author.type == "Bot"` signal once the routines sign
+            # their own commits; that work is gated on the bot-identity split (#299).
+            email_host="${author_email##*@}"
             if [ "$email_host" = "users.noreply.github.com" ]; then
-              echo "SKIP $sha — bot email ($author_email)"
+              echo "SKIP $sha — noreply email ($author_email)"
               continue
             fi
 
@@ -58,12 +69,15 @@ jobs:
               continue
             fi
 
-            # Check for a Signed-off-by line that includes the author email.
+            # Require a Signed-off-by trailer carrying the author's email in the
+            # canonical `Signed-off-by: Name <email>` angle-bracket form (matching
+            # a bare email substring would also accept an address mentioned
+            # elsewhere in the message).
             if echo "$message" | grep -qF "Signed-off-by:"; then
-              if echo "$message" | grep "Signed-off-by:" | grep -qF "$author_email"; then
+              if echo "$message" | grep -F "Signed-off-by:" | grep -qF "<$author_email>"; then
                 echo "OK   $sha — signed off by $author_email"
               else
-                echo "FAIL $sha — Signed-off-by present but email ($author_email) not found in trailer"
+                echo "FAIL $sha — Signed-off-by present but no trailer matches <$author_email>"
                 failed=$((failed + 1))
               fi
             else
@@ -81,5 +95,10 @@ jobs:
             exit 1
           fi
 
+          # NOTE: this verifies the PR's individual commits. On squash-merge the
+          # single commit that lands on main takes its message from the PR
+          # description, so the sign-off must also appear in the PR body (see the
+          # "Squash-merge note" in CONTRIBUTING.md). That is a maintainer
+          # convention and is not enforced here.
           echo ""
           echo "All commits have valid Signed-off-by trailers."
