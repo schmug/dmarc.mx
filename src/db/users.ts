@@ -6,6 +6,7 @@ export interface User {
   email_alerts_enabled: number;
   notify_on_change_only: number;
   api_key_retirement_acknowledged_at: number | null;
+  max_domains_override: number | null;
   created_at: number;
 }
 
@@ -83,6 +84,17 @@ export async function setNotifyOnChangeOnly(
     .prepare("UPDATE users SET notify_on_change_only = ? WHERE id = ?")
     .bind(enabled ? 1 : 0, userId)
     .run();
+}
+
+export async function getMaxDomainsOverrideForUser(
+  db: D1Database,
+  userId: string,
+): Promise<number | null> {
+  const row = await db
+    .prepare("SELECT max_domains_override FROM users WHERE id = ?")
+    .bind(userId)
+    .first<{ max_domains_override: number | null }>();
+  return row?.max_domains_override ?? null;
 }
 
 // Dismisses the one-time "your old cleartext API key was retired" banner by

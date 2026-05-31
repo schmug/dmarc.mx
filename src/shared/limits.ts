@@ -14,3 +14,14 @@ export const PRO_WATCHLIST_CAP = 25;
 export function watchlistCapForPlan(plan: PlanTier): number {
   return plan === "pro" ? PRO_WATCHLIST_CAP : FREE_WATCHLIST_CAP;
 }
+
+// Returns the effective watchlist cap for a user, respecting a per-user
+// override when set. The override wins regardless of plan tier, so comped /
+// enterprise accounts can hold more than PRO_WATCHLIST_CAP domains without
+// a new billing tier. When override is null/undefined the plan-based cap applies.
+export function watchlistCapFor(
+  plan: PlanTier,
+  overrideMaxDomains?: number | null,
+): number {
+  return overrideMaxDomains ?? watchlistCapForPlan(plan);
+}

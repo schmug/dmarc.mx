@@ -422,6 +422,37 @@ describe("processBulkScan", () => {
       // No new row inserted.
       expect(domainStore).toHaveLength(1);
     });
+
+    it("accepts the 26th domain when watchlistCap is raised via per-user override", async () => {
+      // Simulate a Pro user already at their default 25-domain limit.
+      for (let i = 0; i < 25; i++) {
+        domainStore.push({
+          id: i + 1,
+          user_id: "user_1",
+          domain: `d${i}.example`,
+          is_free: 0,
+          scan_frequency: "weekly",
+          last_scanned_at: 1700000000,
+          last_grade: "A",
+        });
+      }
+      const scanFn = vi.fn(async (d: string) => okScan(d));
+      const out = await processBulkScan({
+        db: makeDb(),
+        userId: "user_1",
+        rawDomains: ["new26.example"],
+        scanFn,
+        watchlistCap: 50, // raised by max_domains_override via watchlistCapFor
+      });
+      if (isCapExceeded(out)) throw new Error("unexpected cap");
+      const scanned = out.results.filter((r) => r.status === "scanned");
+      const rejected = out.results.filter(
+        (r) => r.status === "error" && r.error === "Watchlist limit reached",
+      );
+      expect(scanned.map((r) => r.domain)).toEqual(["new26.example"]);
+      expect(rejected).toHaveLength(0);
+      expect(domainStore).toHaveLength(26);
+    });
   });
 
   it("returns empty results for an empty submission", async () => {
