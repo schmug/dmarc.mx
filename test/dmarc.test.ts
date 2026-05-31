@@ -324,6 +324,37 @@ describe("analyzeDmarc — alignment and failure-reporting tags", () => {
     ).toBe(true);
   });
 
+  it("explains strict DKIM and SPF alignment plus fo=1 when all three are set", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: [
+        "v=DMARC1; p=reject; adkim=s; aspf=s; fo=1; ruf=mailto:f@mydomain.com; rua=mailto:r@mydomain.com",
+      ],
+      raw: "v=DMARC1; p=reject; adkim=s; aspf=s; fo=1; ruf=mailto:f@mydomain.com; rua=mailto:r@mydomain.com",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.message.includes("DKIM alignment") && v.message.includes("strict"),
+      ),
+    ).toBe(true);
+    expect(
+      result.validations.some(
+        (v) =>
+          v.message.includes("SPF alignment") && v.message.includes("strict"),
+      ),
+    ).toBe(true);
+    // fo=1 should explain what it means, not just mention the value
+    expect(
+      result.validations.some(
+        (v) =>
+          v.message.includes("fo=1") &&
+          v.message.includes("any authentication mechanism fails"),
+      ),
+    ).toBe(true);
+  });
+
   it("explains the relaxed default alignment when adkim/aspf are absent", async () => {
     mockQueryTxt.mockResolvedValueOnce({
       entries: ["v=DMARC1; p=reject; rua=mailto:r@mydomain.com"],
@@ -339,9 +370,17 @@ describe("analyzeDmarc — alignment and failure-reporting tags", () => {
           v.message.includes("default"),
       ),
     ).toBe(true);
+    expect(
+      result.validations.some(
+        (v) =>
+          v.message.includes("SPF alignment") &&
+          v.message.includes("relaxed") &&
+          v.message.includes("default"),
+      ),
+    ).toBe(true);
   });
 
-  it("explains the fo failure-reporting options when present", async () => {
+  it("explains the fo=1 failure-reporting option when present", async () => {
     mockQueryTxt.mockResolvedValueOnce({
       entries: [
         "v=DMARC1; p=reject; fo=1; ruf=mailto:f@mydomain.com; rua=mailto:r@mydomain.com",
@@ -350,8 +389,83 @@ describe("analyzeDmarc — alignment and failure-reporting tags", () => {
     });
 
     const result = await analyzeDmarc("mydomain.com");
-    expect(result.validations.some((v) => v.message.includes("fo=1"))).toBe(
-      true,
-    );
+    expect(
+      result.validations.some(
+        (v) =>
+          v.message.includes("fo=1") &&
+          v.message.includes("any authentication mechanism fails"),
+      ),
+    ).toBe(true);
+  });
+
+  it("explains the fo=0 default when fo tag is absent", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=reject; rua=mailto:r@mydomain.com"],
+      raw: "v=DMARC1; p=reject; rua=mailto:r@mydomain.com",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.message.includes("fo=0") &&
+          v.message.includes("the default") &&
+          v.message.includes("all authentication mechanisms fail"),
+      ),
+    ).toBe(true);
+  });
+
+  it("explains the fo=d DKIM-specific failure-reporting option", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: [
+        "v=DMARC1; p=reject; fo=d; ruf=mailto:f@mydomain.com; rua=mailto:r@mydomain.com",
+      ],
+      raw: "v=DMARC1; p=reject; fo=d; ruf=mailto:f@mydomain.com; rua=mailto:r@mydomain.com",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.message.includes("fo=d") &&
+          v.message.includes("DKIM") &&
+          v.message.includes("fails"),
+      ),
+    ).toBe(true);
+  });
+
+  it("explains the fo=s SPF-specific failure-reporting option", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: [
+        "v=DMARC1; p=reject; fo=s; ruf=mailto:f@mydomain.com; rua=mailto:r@mydomain.com",
+      ],
+      raw: "v=DMARC1; p=reject; fo=s; ruf=mailto:f@mydomain.com; rua=mailto:r@mydomain.com",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.message.includes("fo=s") &&
+          v.message.includes("SPF") &&
+          v.message.includes("fails"),
+      ),
+    ).toBe(true);
+  });
+
+  it("notes that fo has no effect without a ruf address", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=reject; fo=1; rua=mailto:r@mydomain.com"],
+      raw: "v=DMARC1; p=reject; fo=1; rua=mailto:r@mydomain.com",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.message.includes("fo=1") &&
+          v.message.includes("no effect without a ruf address"),
+      ),
+    ).toBe(true);
   });
 });
