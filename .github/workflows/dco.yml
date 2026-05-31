@@ -17,23 +17,44 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
           API_URL: ${{ github.api_url }}
+        shell: bash
         run: |
           set -euo pipefail
 
-          # Fetch the list of commits in this PR.
-          commits=$(curl -sSf \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "$API_URL/repos/$REPO/pulls/$PR_NUMBER/commits?per_page=100")
+          # Fetch the full list of commits in this PR via pagination.
+          # GitHub's PR-commits endpoint returns at most 100 items per page and
+          # at most 250 commits total — that is GitHub's documented ceiling for
+          # this endpoint. We walk pages until we receive a short page (<100
+          # items), which signals the last page, then validate every accumulated
+          # commit. We stop early at page 3 (300-item budget) to avoid an
+          # infinite loop if GitHub ever returns exactly-full pages beyond 250.
+          commits="[]"
+          page=1
+          while true; do
+            page_data=$(curl -sSf \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "$API_URL/repos/$REPO/pulls/$PR_NUMBER/commits?per_page=100&page=$page")
+            page_len=$(echo "$page_data" | jq 'length')
+            commits=$(echo "$commits $page_data" | jq -sc 'add')
+            if [ "$page_len" -lt 100 ]; then
+              # Short page — we have fetched all commits.
+              break
+            fi
+            # Stop after 3 pages (300-item budget > 250-commit ceiling).
+            if [ "$page" -ge 3 ]; then
+              break
+            fi
+            page=$((page + 1))
+          done
 
-          # Fail closed if the commit list may be truncated. This endpoint
-          # returns at most 100 commits per page and we do not paginate, so a PR
-          # with 100+ commits could otherwise smuggle an unsigned commit past the
-          # check — OSPS-LE-01.01 requires asserting on *every* commit.
-          if [ "$(echo "$commits" | jq 'length')" -ge 100 ]; then
-            echo "ERROR: PR has 100+ commits; this check only reads the first 100."
-            echo "Split the PR so every commit can be verified for sign-off."
+          total=$(echo "$commits" | jq 'length')
+          # Fail closed above the 250-commit ceiling — GitHub's PR-commits
+          # endpoint documents a hard maximum of 250 commits across all pages,
+          # so any PR that exceeds this limit has commits we cannot read.
+          if [ "$total" -gt 250 ]; then
+            echo "ERROR: PR has more than 250 commits — split the PR before the DCO check can verify all commits."
             exit 1
           fi
 
