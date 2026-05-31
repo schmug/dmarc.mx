@@ -12,6 +12,7 @@ import { dashboardBillingRoutes } from "../billing/routes.js";
 import { escapeCsvField } from "../csv.js";
 import {
   acknowledgeAlert,
+  acknowledgeAllAlertsForUser,
   countUnacknowledgedByDomain,
   listUnacknowledgedForUser,
 } from "../db/alerts.js";
@@ -693,6 +694,15 @@ dashboardRoutes.get("/export", async (c) => {
       "Cache-Control": "no-store",
     },
   });
+});
+
+// Bulk-acknowledge route — registered BEFORE /alerts/:id/acknowledge so Hono
+// does not treat "acknowledge-all" as the :id param.
+dashboardRoutes.post("/alerts/acknowledge-all", async (c) => {
+  const session = c.get("user" as never) as SessionPayload;
+  const db = (c.env as { DB: D1Database }).DB;
+  await acknowledgeAllAlertsForUser(db, session.sub);
+  return c.redirect("/dashboard", 303);
 });
 
 dashboardRoutes.post("/alerts/:id/acknowledge", async (c) => {

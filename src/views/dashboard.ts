@@ -201,6 +201,21 @@ const DASHBOARD_CSS = `
   border-color: var(--clr-fail);
   color: var(--clr-fail);
 }
+.alerts-needs-attention .alerts-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+.alerts-needs-attention .alerts-header h2 {
+  margin: 0;
+}
+.alerts-needs-attention .alerts-header .dismiss-all-form {
+  margin-left: auto;
+}
+.alerts-needs-attention .btn-dismiss-all {
+  font-size: 0.75rem;
+}
 .grade-badge {
   display: inline-flex;
   align-items: center;
@@ -1467,8 +1482,17 @@ export function renderAlertsSection(
 </li>`;
     })
     .join("");
+  const dismissAll =
+    alerts.length >= 2
+      ? `<form method="post" action="/dashboard/alerts/acknowledge-all" class="dismiss-all-form">
+    <button type="submit" class="btn-dismiss btn-dismiss-all">Dismiss all</button>
+  </form>`
+      : "";
   return `<section class="alerts-needs-attention" aria-label="Domain regressions needing attention">
-  <h2>Needs attention</h2>
+  <div class="alerts-header">
+    <h2>Needs attention</h2>
+    ${dismissAll}
+  </div>
   <ul>${items}</ul>
 </section>`;
 }
