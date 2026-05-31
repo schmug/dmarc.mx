@@ -310,13 +310,15 @@ export function spfTree(node: SpfIncludeNode): string {
     const isExpandable = inner !== "";
     const safeId = child.domain.replace(/[^a-z0-9]+/g, "-");
     const listId = `spf-list-${safeId}-${i}`;
+    const btnId = `${listId}-btn`;
     const attrs = isExpandable
-      ? ' role="button" tabindex="0" aria-expanded="true" aria-controls="' +
-        listId +
-        '"'
+      ? ` id="${btnId}" role="button" tabindex="0" aria-expanded="true" aria-controls="${listId}"`
       : "";
     const innerWithId = isExpandable
-      ? inner.replace("<ul>", `<ul id="${listId}">`)
+      ? inner.replace(
+          "<ul>",
+          `<ul id="${listId}" role="region" aria-labelledby="${btnId}">`,
+        )
       : inner;
     includes +=
       '<li><span class="spf-node include"' +
@@ -350,13 +352,15 @@ function spfTreeInner(node: SpfIncludeNode): string {
     const isExpandable = inner !== "";
     const safeId = child.domain.replace(/[^a-z0-9]+/g, "-");
     const listId = `spf-list-${safeId}-${i}`;
+    const btnId = `${listId}-btn`;
     const attrs = isExpandable
-      ? ' role="button" tabindex="0" aria-expanded="true" aria-controls="' +
-        listId +
-        '"'
+      ? ` id="${btnId}" role="button" tabindex="0" aria-expanded="true" aria-controls="${listId}"`
       : "";
     const innerWithId = isExpandable
-      ? inner.replace("<ul>", `<ul id="${listId}">`)
+      ? inner.replace(
+          "<ul>",
+          `<ul id="${listId}" role="region" aria-labelledby="${btnId}">`,
+        )
       : inner;
     includes +=
       '<li><span class="spf-node include"' +
