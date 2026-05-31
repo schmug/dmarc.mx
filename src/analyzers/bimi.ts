@@ -120,14 +120,15 @@ async function fetchCert(
       }
     }
 
-    const body = new TextDecoder().decode(
-      chunks.reduce((acc, chunk) => {
-        const merged = new Uint8Array(acc.length + chunk.length);
-        merged.set(acc, 0);
-        merged.set(chunk, acc.length);
-        return merged;
-      }, new Uint8Array(0)),
-    );
+    // ⚡ Bolt Optimization: Pre-allocate the entire Uint8Array using bytesRead
+    // instead of creating O(n^2) allocations with .reduce().
+    const merged = new Uint8Array(bytesRead);
+    let offset = 0;
+    for (const chunk of chunks) {
+      merged.set(chunk, offset);
+      offset += chunk.length;
+    }
+    const body = new TextDecoder().decode(merged);
 
     if (!body.includes("-----BEGIN CERTIFICATE-----")) {
       // Could be DER-encoded — report fetch success but skip expiry check.
