@@ -8,3 +8,6 @@
 ## 2025-05-19 - Inline Workflows for Empty States
 **Learning:** Forcing users to navigate to a new page from an empty state can break flow and feel disjointed.
 **Action:** When empty states provide a CTA, prefer triggering inline components (like modals or wizards) over full page navigations to reduce friction.
+## 2026-05-31 - Custom Accordion A11y Pattern
+**Learning:** In dmarc.mx, the SPF tree components use custom spans functioning as buttons. While they correctly employed `role="button"`, `tabindex="0"`, and `aria-controls`, the target collapsible elements lacked the required `role="region"` and `aria-labelledby` properties to complete the WAI-ARIA Accordion pattern.
+**Action:** When implementing or auditing custom accordions (like `.spf-node.include` controls or `.card` headers), verify that the control has an `id`, `role="button"`, `aria-expanded`, and `aria-controls`, and that the target container has an `id`, `role="region"`, and `aria-labelledby` pointing back to the control.
