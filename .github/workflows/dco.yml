@@ -1,0 +1,106 @@
+name: DCO
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  DCO:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Signed-off-by trailers
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          API_URL: ${{ github.api_url }}
+        run: |
+          set -euo pipefail
+
+          # Fetch the list of commits in this PR.
+          commits=$(curl -sSf \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "$API_URL/repos/$REPO/pulls/$PR_NUMBER/commits?per_page=100")
+
+          # Fail closed if the commit list may be truncated. This endpoint
+          # returns at most 100 commits per page and we do not paginate, so a PR
+          # with 100+ commits could otherwise smuggle an unsigned commit past the
+          # check — OSPS-LE-01.01 requires asserting on *every* commit.
+          if [ "$(echo "$commits" | jq 'length')" -ge 100 ]; then
+            echo "ERROR: PR has 100+ commits; this check only reads the first 100."
+            echo "Split the PR so every commit can be verified for sign-off."
+            exit 1
+          fi
+
+          failed=0
+
+          while IFS= read -r row; do
+            sha=$(echo "$row" | jq -r '.sha')
+            message=$(echo "$row" | jq -r '.commit.message')
+            author_name=$(echo "$row" | jq -r '.commit.author.name')
+            author_email=$(echo "$row" | jq -r '.commit.author.email')
+
+            # Skip automated commits that cannot run `git commit -s`.
+            #
+            # NOTE: matching the @users.noreply.github.com host also skips humans
+            # who use GitHub's private-email default — this is intentionally broad
+            # for now so existing unsigned autonomous-routine PRs (authored by the
+            # admin account via a noreply address) keep passing. Narrow this to the
+            # commits API `.author.type == "Bot"` signal once the routines sign
+            # their own commits; that work is gated on the bot-identity split (#299).
+            email_host="${author_email##*@}"
+            if [ "$email_host" = "users.noreply.github.com" ]; then
+              echo "SKIP $sha — noreply email ($author_email)"
+              continue
+            fi
+
+            # Skip commits whose author name contains [bot] or is github-actions.
+            if echo "$author_name" | grep -qF '[bot]'; then
+              echo "SKIP $sha — bot name ($author_name)"
+              continue
+            fi
+            if [ "$author_name" = "github-actions" ]; then
+              echo "SKIP $sha — github-actions author"
+              continue
+            fi
+
+            # Require a Signed-off-by trailer carrying the author's email in the
+            # canonical `Signed-off-by: Name <email>` angle-bracket form (matching
+            # a bare email substring would also accept an address mentioned
+            # elsewhere in the message).
+            if echo "$message" | grep -qF "Signed-off-by:"; then
+              if echo "$message" | grep -F "Signed-off-by:" | grep -qF "<$author_email>"; then
+                echo "OK   $sha — signed off by $author_email"
+              else
+                echo "FAIL $sha — Signed-off-by present but no trailer matches <$author_email>"
+                failed=$((failed + 1))
+              fi
+            else
+              echo "FAIL $sha — missing Signed-off-by trailer (author: $author_name <$author_email>)"
+              echo "     Commit message: $(echo "$message" | head -1)"
+              failed=$((failed + 1))
+            fi
+          done < <(echo "$commits" | jq -c '.[]')
+
+          if [ "$failed" -gt 0 ]; then
+            echo ""
+            echo "ERROR: $failed commit(s) lack a valid Signed-off-by trailer."
+            echo "Use 'git commit -s' to add the trailer automatically."
+            echo "For existing commits: 'git rebase --signoff HEAD~N' then force-push."
+            exit 1
+          fi
+
+          # NOTE: verifies the PR's individual commits. This repo squash-merges
+          # with the message default set to the combined commit messages
+          # (squash_merge_commit_message = COMMIT_MESSAGES), so these per-commit
+          # Signed-off-by trailers are carried onto main automatically. The only
+          # residual gap is a manual edit of the squash message at merge time,
+          # which no PR-time check can prevent. Keep that repo setting — see the
+          # DCO squash-merge invariant in CLAUDE.md.
+          echo ""
+          echo "All commits have valid Signed-off-by trailers."

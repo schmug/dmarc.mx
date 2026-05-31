@@ -76,3 +76,35 @@ compensating controls are documented in
 
 Be respectful and constructive. A formal `CODE_OF_CONDUCT.md` may be added
 later; until then, the maintainer moderates participation at their discretion.
+
+## Sign your commits (DCO)
+
+Every commit must carry a `Signed-off-by:` trailer asserting that you have
+legal authorization to contribute the code (Developer Certificate of Origin,
+[OSPS LE-01.01](https://baseline.openssf.org/versions/2025-02-25#le-0101)).
+
+```bash
+git commit -s -m "feat: your message here"
+```
+
+`-s` appends the trailer automatically using your `user.name` and `user.email`
+from git config:
+
+```
+Signed-off-by: Your Name <you@example.com>
+```
+
+If you forget the flag on an existing commit:
+
+```bash
+git commit --amend -s   # for the most recent commit
+# or
+git rebase --signoff HEAD~N   # for the last N commits, then force-push
+```
+
+**Squash-merge note:** this repo squash-merges with GitHub's commit-message
+default (`squash_merge_commit_message = COMMIT_MESSAGES`), so the
+`Signed-off-by:` trailers on your individual commits are carried into the
+single commit that lands on `main` automatically — you do **not** need to
+repeat the trailer in the PR description. Just don't strip the trailers if you
+hand-edit the squash message at merge time.
