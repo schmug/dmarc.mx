@@ -46,19 +46,6 @@ jobs:
             author_email=$(echo "$row" | jq -r '.commit.author.email')
 
             # Skip automated commits that cannot run `git commit -s`.
-            #
-            # NOTE: matching the @users.noreply.github.com host also skips humans
-            # who use GitHub's private-email default — this is intentionally broad
-            # for now so existing unsigned autonomous-routine PRs (authored by the
-            # admin account via a noreply address) keep passing. Narrow this to the
-            # commits API `.author.type == "Bot"` signal once the routines sign
-            # their own commits; that work is gated on the bot-identity split (#299).
-            email_host="${author_email##*@}"
-            if [ "$email_host" = "users.noreply.github.com" ]; then
-              echo "SKIP $sha — noreply email ($author_email)"
-              continue
-            fi
-
             # Skip commits whose author name contains [bot] or is github-actions.
             if echo "$author_name" | grep -qF '[bot]'; then
               echo "SKIP $sha — bot name ($author_name)"
