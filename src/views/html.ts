@@ -1,5 +1,6 @@
 import type {
   BimiResult,
+  DaneResult,
   DkimResult,
   DmarcResult,
   DnssecResult,
@@ -378,9 +379,43 @@ export function renderDnssecCard(d: DnssecResult): string {
   return protocolCard("DNSSEC", d.status, subtitle, body, false, "dnssec");
 }
 
+export function renderDaneCard(d: DaneResult): string {
+  const hostsWithTlsa = d.hosts.filter((h) => h.tlsaRecords.length > 0);
+  const subtitle =
+    hostsWithTlsa.length > 0
+      ? `${hostsWithTlsa.length} host${hostsWithTlsa.length !== 1 ? "s" : ""} with TLSA records`
+      : "Not configured";
+  let body = "";
+  if (hostsWithTlsa.length > 0) {
+    body += `<div class="tag-grid">`;
+    for (const host of hostsWithTlsa) {
+      const badge = host.dnssecValidated
+        ? `<span class="tag-pass">DNSSEC ✓</span>`
+        : `<span class="tag-warn">DNSSEC ?</span>`;
+      const records = host.tlsaRecords
+        .map((r) => `<code>${r.usage} ${r.selector} ${r.matchingType} …</code>`)
+        .join("<br>");
+      body += `<div><strong>${esc(host.exchange)}</strong></div><div>${records} ${badge}</div>`;
+    }
+    body += `</div>`;
+  }
+  body += validationList(d.validations);
+  return protocolCard("DANE/TLSA", d.status, subtitle, body, false, "dane");
+}
+
 function reportBody(result: ScanResult): string {
-  const { mx, dmarc, spf, dkim, bimi, mta_sts, security_txt, tls_rpt, dnssec } =
-    result.protocols;
+  const {
+    mx,
+    dmarc,
+    spf,
+    dkim,
+    bimi,
+    mta_sts,
+    security_txt,
+    tls_rpt,
+    dnssec,
+    dane,
+  } = result.protocols;
 
   return `<main class="report">
   <div class="report-nav">
@@ -410,6 +445,7 @@ function reportBody(result: ScanResult): string {
   ${security_txt ? renderSecurityTxtCard(security_txt) : ""}
   ${tls_rpt ? renderTlsRptCard(tls_rpt) : ""}
   ${dnssec ? renderDnssecCard(dnssec) : ""}
+  ${dane ? renderDaneCard(dane) : ""}
   ${monitorSnapshotCard(result)}
   <div class="learn-link" style="margin-top:2.5rem">Analyze message headers: <a href="https://toolbox.googleapps.com/apps/messageheader/" target="_blank" rel="noopener">Google &#8599;</a> &middot; <a href="https://mha.azurewebsites.net/" target="_blank" rel="noopener">Microsoft &#8599;</a></div>
   <div class="learn-link" style="margin-top:0.4rem;margin-bottom:1rem"><a href="/scoring">How is my score calculated?</a> &middot; <a href="https://www.cloudflare.com/learning/email-security/dmarc-dkim-spf/" target="_blank" rel="noopener">What is email security? &#8599;</a> &middot; <a href="https://github.com/schmug/dmarcheck/releases" target="_blank" rel="noopener">Changelog &#8599;</a></div>
@@ -518,6 +554,7 @@ export function renderStreamingLoading(
     ${skeletonCard("MTA-STS", false)}
     ${skeletonCard("security.txt", false, "security_txt")}
     ${skeletonCard("TLS-RPT", false, "tls_rpt")}
+    ${skeletonCard("DANE/TLSA", false, "dane")}
   </div>
   <noscript><meta http-equiv="refresh" content="0;url=/check?${esc(qs)}&_direct=1"></noscript>
 </main>

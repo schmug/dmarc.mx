@@ -132,6 +132,26 @@ export interface DnssecResult {
   lookup_error?: { code: string; message: string };
 }
 
+export interface DaneTlsaRecord {
+  usage: number;
+  selector: number;
+  matchingType: number;
+  data: string;
+}
+
+export interface DaneHostResult {
+  exchange: string;
+  tlsaRecords: DaneTlsaRecord[];
+  dnssecValidated: boolean;
+}
+
+export interface DaneResult {
+  status: Status;
+  hosts: DaneHostResult[];
+  validations: Validation[];
+  lookup_error?: { code: string; message: string };
+}
+
 export interface ScanResult {
   domain: string;
   timestamp: string;
@@ -148,5 +168,6 @@ export interface ScanResult {
     security_txt: SecurityTxtResult;
     tls_rpt?: TlsRptResult;
     dnssec?: DnssecResult;
+    dane?: DaneResult;
   };
 }
