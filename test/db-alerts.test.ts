@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   type AlertRow,
   acknowledgeAlert,
+  acknowledgeAllAlertsForUser,
   countUnacknowledgedByDomain,
   listUnacknowledgedForUser,
   listUnsentAlerts,
@@ -46,6 +47,21 @@ function makeD1Mock(): D1Database {
           return { success: true, meta: { changes: row ? 1 : 0 } };
         }
         if (/^\s*UPDATE alerts\s+SET acknowledged_at/i.test(sql)) {
+          // Bulk acknowledge: UPDATE ... WHERE acknowledged_at IS NULL AND domain_id IN (...)
+          // has 2 params (now, userId); single acknowledge has 3 (now, alertId, userId).
+          if (params.length === 2) {
+            const [now, userId] = params as [number, string];
+            let changes = 0;
+            for (const [id, row] of alertStore.entries()) {
+              if (row.acknowledged_at !== null) continue;
+              const d = domainStore.get(row.domain_id);
+              if (!d || d.user_id !== userId) continue;
+              alertStore.set(id, { ...row, acknowledged_at: now });
+              changes++;
+            }
+            return { success: true, meta: { changes } };
+          }
+          // Single acknowledge: UPDATE ... WHERE id = ? AND acknowledged_at IS NULL AND domain_id IN (...)
           const [now, alertId, userId] = params as [number, number, string];
           const row = alertStore.get(alertId);
           if (!row || row.acknowledged_at !== null) {
@@ -381,6 +397,61 @@ describe("db/alerts", () => {
     it("returns false for a nonexistent alert id", async () => {
       const ok = await acknowledgeAlert(db, "user_1", 999, 555);
       expect(ok).toBe(false);
+    });
+  });
+
+  describe("acknowledgeAllAlertsForUser", () => {
+    beforeEach(async () => {
+      // Seed two alerts for user_1 and one for user_2
+      await recordAlert(db, {
+        domainId: 7, // user_1
+        type: "grade_drop",
+        previousValue: "A",
+        newValue: "C",
+        createdAt: 100,
+      });
+      await recordAlert(db, {
+        domainId: 7, // user_1
+        type: "protocol_regression",
+        previousValue: "dmarc:pass",
+        newValue: "dmarc:fail",
+        createdAt: 200,
+      });
+      await recordAlert(db, {
+        domainId: 9, // user_2 — must NOT be touched
+        type: "grade_drop",
+        previousValue: "B",
+        newValue: "F",
+        createdAt: 300,
+      });
+    });
+
+    it("sets acknowledged_at on all of the caller's unacknowledged alerts", async () => {
+      const count = await acknowledgeAllAlertsForUser(db, "user_1", 999);
+      expect(count).toBe(2);
+      expect(alertStore.get(1)?.acknowledged_at).toBe(999);
+      expect(alertStore.get(2)?.acknowledged_at).toBe(999);
+    });
+
+    it("does not touch another user's alerts (IDOR safety)", async () => {
+      await acknowledgeAllAlertsForUser(db, "user_1", 999);
+      // user_2's alert must remain unacknowledged
+      expect(alertStore.get(3)?.acknowledged_at).toBeNull();
+    });
+
+    it("skips already-acknowledged alerts and returns only newly-updated count", async () => {
+      // Pre-acknowledge alert 1
+      await acknowledgeAlert(db, "user_1", 1, 555);
+      const count = await acknowledgeAllAlertsForUser(db, "user_1", 999);
+      expect(count).toBe(1);
+      expect(alertStore.get(1)?.acknowledged_at).toBe(555); // unchanged
+      expect(alertStore.get(2)?.acknowledged_at).toBe(999); // newly acknowledged
+    });
+
+    it("returns 0 when the user has no unacknowledged alerts", async () => {
+      await acknowledgeAllAlertsForUser(db, "user_1", 500);
+      const count = await acknowledgeAllAlertsForUser(db, "user_1", 999);
+      expect(count).toBe(0);
     });
   });
 

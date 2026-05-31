@@ -148,6 +148,25 @@ export async function acknowledgeAlert(
   return (result.meta?.changes ?? 0) > 0;
 }
 
+// IDOR-safe bulk acknowledge: only touches alerts whose owning domain belongs
+// to the supplied userId. Returns the number of rows updated.
+export async function acknowledgeAllAlertsForUser(
+  db: D1Database,
+  userId: string,
+  now: number = Math.floor(Date.now() / 1000),
+): Promise<number> {
+  const result = await db
+    .prepare(
+      `UPDATE alerts
+       SET acknowledged_at = ?
+       WHERE acknowledged_at IS NULL
+         AND domain_id IN (SELECT id FROM domains WHERE user_id = ?)`,
+    )
+    .bind(now, userId)
+    .run();
+  return result.meta?.changes ?? 0;
+}
+
 interface UnacknowledgedCountRow {
   domain_id: number;
   count: number;
