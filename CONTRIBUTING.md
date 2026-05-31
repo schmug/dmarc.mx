@@ -102,6 +102,9 @@ git commit --amend -s   # for the most recent commit
 git rebase --signoff HEAD~N   # for the last N commits, then force-push
 ```
 
-**Squash-merge note:** GitHub copies the PR description into the squash commit
-message. Make sure your PR description includes the `Signed-off-by:` line so
-the merged commit is also signed off.
+**Squash-merge note:** this repo squash-merges with GitHub's commit-message
+default (`squash_merge_commit_message = COMMIT_MESSAGES`), so the
+`Signed-off-by:` trailers on your individual commits are carried into the
+single commit that lands on `main` automatically — you do **not** need to
+repeat the trailer in the PR description. Just don't strip the trailers if you
+hand-edit the squash message at merge time.

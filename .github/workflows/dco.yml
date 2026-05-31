@@ -95,10 +95,12 @@ jobs:
             exit 1
           fi
 
-          # NOTE: this verifies the PR's individual commits. On squash-merge the
-          # single commit that lands on main takes its message from the PR
-          # description, so the sign-off must also appear in the PR body (see the
-          # "Squash-merge note" in CONTRIBUTING.md). That is a maintainer
-          # convention and is not enforced here.
+          # NOTE: verifies the PR's individual commits. This repo squash-merges
+          # with the message default set to the combined commit messages
+          # (squash_merge_commit_message = COMMIT_MESSAGES), so these per-commit
+          # Signed-off-by trailers are carried onto main automatically. The only
+          # residual gap is a manual edit of the squash message at merge time,
+          # which no PR-time check can prevent. Keep that repo setting — see the
+          # DCO squash-merge invariant in CLAUDE.md.
           echo ""
           echo "All commits have valid Signed-off-by trailers."
