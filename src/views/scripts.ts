@@ -1047,17 +1047,30 @@ if (typeof navigator !== 'undefined' && navigator.modelContext && typeof navigat
       chevron = el('span', { class: 'drawer-protocol-chevron', 'aria-hidden': 'true', text: '▸' });
       children.push(chevron);
     }
+    var safeId = 'protocol-' + name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+    var btnId = safeId + '-btn';
+    var panelId = safeId + '-panel';
     var headBtnAttrs = {
       type: 'button',
       class: 'drawer-protocol-head',
-      'aria-expanded': 'false'
+      'aria-expanded': 'false',
+      id: btnId
     };
-    if (!hasRecord) headBtnAttrs.disabled = '';
+    if (hasRecord) {
+      headBtnAttrs['aria-controls'] = panelId;
+    } else {
+      headBtnAttrs.disabled = '';
+    }
     var head = el('button', headBtnAttrs, children);
     var detail = null;
     if (hasRecord) {
       var rec = el('div', { class: 'drawer-protocol-record', text: info.record });
-      detail = el('div', { class: 'drawer-protocol-detail' }, [
+      detail = el('div', {
+        class: 'drawer-protocol-detail',
+        id: panelId,
+        role: 'region',
+        'aria-labelledby': btnId
+      }, [
         rec,
         copyButton(info.record, { label: 'Copy' })
       ]);
