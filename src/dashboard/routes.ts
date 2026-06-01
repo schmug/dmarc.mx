@@ -212,12 +212,22 @@ function buildDrawerDetail(
   const spfLookupLimit =
     typeof spf?.lookup_limit === "number" ? spf.lookup_limit : 10;
   const dkimSelectors = dkim?.selectors ?? {};
-  const dkimFound = Object.values(dkimSelectors).filter(
-    (s) => s?.found === true,
-  );
-  const dkimKeyBits = dkimFound
-    .map((s) => (typeof s.key_bits === "number" ? s.key_bits : 0))
-    .filter((n) => n > 0);
+  // ⚡ Bolt Optimization: Use a single-pass loop instead of Object.values().filter().map().filter()
+  // Reduces GC pressure on the dashboard view by avoiding multiple intermediate array allocations.
+  let dkimFoundCount = 0;
+  let minDkimKeyBits = Infinity;
+  for (const key in dkimSelectors) {
+    const s = dkimSelectors[key];
+    if (s?.found) {
+      dkimFoundCount++;
+      if (typeof s.key_bits === "number" && s.key_bits > 0) {
+        if (s.key_bits < minDkimKeyBits) {
+          minDkimKeyBits = s.key_bits;
+        }
+      }
+    }
+  }
+
   const bimiConfigured = !!(bimi?.tags && Object.keys(bimi.tags).length > 0);
   const mtaMode =
     typeof mta?.policy?.mode === "string" ? mta.policy.mode : null;
@@ -240,9 +250,9 @@ function buildDrawerDetail(
     dkim: {
       status: asProtocolStatus(dkim?.status),
       summary:
-        dkimFound.length > 0
-          ? `${dkimFound.length} selector${dkimFound.length === 1 ? "" : "s"}` +
-            (dkimKeyBits.length ? ` · ${Math.min(...dkimKeyBits)}-bit` : "")
+        dkimFoundCount > 0
+          ? `${dkimFoundCount} selector${dkimFoundCount === 1 ? "" : "s"}` +
+            (minDkimKeyBits !== Infinity ? ` · ${minDkimKeyBits}-bit` : "")
           : "no selectors found",
       record: null,
     },
