@@ -138,6 +138,77 @@ describe("analyzeDane — lookup error", () => {
   });
 });
 
+describe("analyzeDane — Cloudflare DoH generic (RFC 3597) TLSA format", () => {
+  // Cloudflare's DoH JSON API returns TLSA rdata in RFC 3597 generic format
+  // ("\# <rdlength> <hex bytes>") rather than the "<usage> <selector>
+  // <matching-type> <hex>" presentation format. These fixtures are the actual
+  // records published for dmarc.mx's MX hosts (_25._tcp.route1.mx.cloudflare.net).
+  beforeEach(() => {
+    queryDoh.mockResolvedValue({
+      Status: 0,
+      AD: true,
+      Answer: [
+        makeTlsaAnswer(
+          "\\# 35 02 01 01 59 e7 38 e6 74 22 17 02 af 1e db 87 c5 20 0c 1a 4b 75 f6 4f ae 3d 2c 3d 26 51 24 c6 1b d8 3c 79",
+        ),
+        makeTlsaAnswer(
+          "\\# 35 03 01 01 0f 0c 6c 16 4a 36 f9 7e 7b 4c 5a 5b 69 d6 f4 f2 39 d4 22 fc 3e c2 59 20 72 ec fa b8 c2 71 c4 52",
+        ),
+      ],
+    });
+  });
+
+  it("parses generic-format TLSA records instead of dropping them", async () => {
+    const result = await analyzeDane("example.com", ["mx.example.com"]);
+    expect(result.status).toBe("pass");
+    expect(result.hosts[0].tlsaRecords).toHaveLength(2);
+    expect(result.hosts[0].dnssecValidated).toBe(true);
+  });
+
+  it("decodes usage/selector/matching-type/data from the hex octets", async () => {
+    const result = await analyzeDane("example.com", ["mx.example.com"]);
+    const [ta, ee] = result.hosts[0].tlsaRecords;
+    // First record: DANE-TA (usage 2), SPKI selector (1), SHA-256 (1)
+    expect(ta.usage).toBe(2);
+    expect(ta.selector).toBe(1);
+    expect(ta.matchingType).toBe(1);
+    expect(ta.data).toBe(
+      "59e738e674221702af1edb87c5200c1a4b75f64fae3d2c3d265124c61bd83c79",
+    );
+    // Second record: DANE-EE (usage 3)
+    expect(ee.usage).toBe(3);
+    expect(ee.selector).toBe(1);
+    expect(ee.matchingType).toBe(1);
+    expect(ee.data).toBe(
+      "0f0c6c164a36f97e7b4c5a5b69d6f4f239d422fc3ec2592072ecfab8c271c452",
+    );
+  });
+});
+
+describe("analyzeDane — malformed generic-format TLSA", () => {
+  it("drops a non-hex generic record and reports not configured", async () => {
+    queryDoh.mockResolvedValue({
+      Status: 0,
+      AD: true,
+      Answer: [makeTlsaAnswer("\\# 4 zz zz")],
+    });
+    const result = await analyzeDane("example.com", ["mx.example.com"]);
+    expect(result.hosts[0].tlsaRecords).toHaveLength(0);
+    expect(result.status).toBe("info");
+  });
+
+  it("drops a truncated generic record shorter than the 3-octet header", async () => {
+    queryDoh.mockResolvedValue({
+      Status: 0,
+      AD: true,
+      Answer: [makeTlsaAnswer("\\# 1 03")],
+    });
+    const result = await analyzeDane("example.com", ["mx.example.com"]);
+    expect(result.hosts[0].tlsaRecords).toHaveLength(0);
+    expect(result.status).toBe("info");
+  });
+});
+
 describe("analyzeDane — mixed validated and unvalidated", () => {
   it("returns pass with warn validation when one host is validated and another is not", async () => {
     queryDoh

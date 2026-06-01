@@ -6,10 +6,38 @@ import type {
   Validation,
 } from "./types.js";
 
-// TLSA record data arrives as "<usage> <selector> <matching-type> <hex-data>"
-// e.g. "3 1 1 abcdef1234..."
+// TLSA record data can arrive in two shapes:
+//  1. Presentation format (RFC 6698 §2.2): "<usage> <selector> <matching-type>
+//     <hex-data>", e.g. "3 1 1 abcdef1234...".
+//  2. RFC 3597 §5 generic format: "\# <rdlength> <hex octets>", e.g.
+//     "\# 35 03 01 01 0f0c...". This is what Cloudflare's DoH JSON API returns
+//     for TLSA, since it predates a type-specific presentation in that API.
+// Both decode to the same RFC 6698 §2.1 RDATA: 1 octet certificate usage,
+// 1 octet selector, 1 octet matching type, then the certificate-association data.
 function parseTlsaRecord(data: string): DaneTlsaRecord | null {
-  const parts = data.trim().split(/\s+/);
+  const trimmed = data.trim();
+
+  if (trimmed.startsWith("\\#")) {
+    // Drop the "\#" marker and the leading rdlength token, then concatenate the
+    // remaining (possibly space-separated) hex octets into one lowercase string.
+    const hex = trimmed
+      .slice(2)
+      .trim()
+      .split(/\s+/)
+      .slice(1)
+      .join("")
+      .toLowerCase();
+    // Need at least the 3 header octets (6 hex chars); reject anything non-hex.
+    // After this guard every two-char slice is valid hex, so parseInt base-16
+    // can never return NaN — no further NaN check needed in this branch.
+    if (hex.length < 6 || !/^[0-9a-f]+$/.test(hex)) return null;
+    const usage = parseInt(hex.slice(0, 2), 16);
+    const selector = parseInt(hex.slice(2, 4), 16);
+    const matchingType = parseInt(hex.slice(4, 6), 16);
+    return { usage, selector, matchingType, data: hex.slice(6) };
+  }
+
+  const parts = trimmed.split(/\s+/);
   if (parts.length < 4) return null;
   const usage = parseInt(parts[0], 10);
   const selector = parseInt(parts[1], 10);
