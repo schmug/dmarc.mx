@@ -50,7 +50,7 @@ export type ProtocolResult =
   | DnssecResult
   | DaneResult;
 
-const PROTOCOL_LABEL: Record<ProtocolId, string> = {
+export const PROTOCOL_LABEL: Record<ProtocolId, string> = {
   mx: "MX",
   dmarc: "DMARC",
   spf: "SPF",

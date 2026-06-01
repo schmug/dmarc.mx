@@ -554,6 +554,7 @@ export function renderStreamingLoading(
     ${skeletonCard("MTA-STS", false)}
     ${skeletonCard("security.txt", false, "security_txt")}
     ${skeletonCard("TLS-RPT", false, "tls_rpt")}
+    ${skeletonCard("DNSSEC", false)}
     ${skeletonCard("DANE/TLSA", false, "dane")}
   </div>
   <noscript><meta http-equiv="refresh" content="0;url=/check?${esc(qs)}&_direct=1"></noscript>
