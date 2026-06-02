@@ -15,3 +15,6 @@
 ## 2024-05-18 - ARIA Accordion Pattern for Client-Rendered Elements
 **Learning:** When client-side scripts dynamically render interactive components like accordions (e.g. `protocolRowEl` in `src/views/scripts.ts`), you have to manually generate predictable IDs to wire up the WAI-ARIA `aria-controls`, `role="region"`, and `aria-labelledby` attributes, since you are generating the DOM elements directly without a framework like React.
 **Action:** When creating inline/JS-rendered expandable sections, always pass or generate unique IDs (e.g. `protocol-${name.toLowerCase()}`) to correctly wire the WAI-ARIA accordion pattern between the toggle button and the expanding content panel.
+## 2026-06-01 - Add aria-sort to sortable headers
+**Learning:** Sortable headers should be marked with the aria-sort attribute so that screen readers are aware of the order.
+**Action:** When creating sortable headers, ensure that only the active sorting header is marked with the aria-sort attribute.
