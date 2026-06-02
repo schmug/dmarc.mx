@@ -11,9 +11,16 @@ name: Prod Smoke Test
 #   - DNS-resolution edge cases that only surface against real recursive
 #     resolvers
 #
-# No secrets are ever passed to this workflow — it only probes the public
-# surface. If/when authenticated smoke (Pro endpoints, dashboard) is added,
-# split it into a separate workflow with a dedicated test bearer.
+# The only secret passed in is SMOKE_TOKEN — a low-sensitivity bypass value
+# matched by a Cloudflare WAF "Skip" rule so the prober clears bot management.
+# (Cloudflare began managed-challenging the GitHub-hosted runner ASN around
+# 2026-05-29, 403'ing every probe with a "Just a moment..." interstitial
+# before the request reached the Worker.) SMOKE_TOKEN is NOT a data
+# credential: leaked, it only exempts these already-public GET endpoints from
+# the bot challenge. Rotate by regenerating it in BOTH places — the GitHub
+# Actions secret (SMOKE_TOKEN) and the Cloudflare WAF rule string. If/when
+# authenticated smoke (Pro endpoints, dashboard) is added, split it into a
+# separate workflow with a dedicated test bearer.
 #
 # Triggers:
 #   - workflow_run on CI completing on main: post-deploy smoke. Cloudflare
@@ -47,6 +54,10 @@ jobs:
       issues: write
     env:
       BASE: https://dmarc.mx
+      # Shared secret sent as the X-Smoke-Token header on every probe and
+      # matched by a Cloudflare WAF Skip rule (see the header note above).
+      # Referenced as $SMOKE_TOKEN in run: scripts — never inline-interpolated.
+      SMOKE_TOKEN: ${{ secrets.SMOKE_TOKEN }}
     steps:
       # Wait for the Cloudflare Git-integration deploy to finish rolling
       # out. Typical end-to-end is well under 90s; bump if we see flake on
@@ -58,7 +69,7 @@ jobs:
       - name: Probe /health
         run: |
           set -euo pipefail
-          status=$(curl -s -o /tmp/health.json -w "%{http_code}" "$BASE/health")
+          status=$(curl -s -H "X-Smoke-Token: $SMOKE_TOKEN" -o /tmp/health.json -w "%{http_code}" "$BASE/health")
           test "$status" = "200" || { echo "::error::/health returned $status"; cat /tmp/health.json; exit 1; }
           jq -e '.status == "ok"' /tmp/health.json > /dev/null
 
@@ -69,9 +80,9 @@ jobs:
       - name: Probe /api/check?domain=dmarc.mx (own domain)
         run: |
           set -euo pipefail
-          status=$(curl -s -o /tmp/own.json -w "%{http_code}" "$BASE/api/check?domain=dmarc.mx")
+          status=$(curl -s -H "X-Smoke-Token: $SMOKE_TOKEN" -o /tmp/own.json -w "%{http_code}" "$BASE/api/check?domain=dmarc.mx")
           test "$status" = "200" || { echo "::error::own-domain scan returned $status"; cat /tmp/own.json; exit 1; }
-          ct=$(curl -sI "$BASE/api/check?domain=dmarc.mx" | awk -F': ' 'tolower($1)=="content-type"{print tolower($2)}' | tr -d '\r')
+          ct=$(curl -sI -H "X-Smoke-Token: $SMOKE_TOKEN" "$BASE/api/check?domain=dmarc.mx" | awk -F': ' 'tolower($1)=="content-type"{print tolower($2)}' | tr -d '\r')
           echo "$ct" | grep -q 'application/json' || { echo "::error::expected application/json, got: $ct"; exit 1; }
           jq -e '.grade | test("^(S|A\\+?|A-|B\\+?|B-)$")' /tmp/own.json > /dev/null \
             || { echo "::error::grade out of expected band: $(jq -r .grade /tmp/own.json)"; exit 1; }
@@ -84,7 +95,7 @@ jobs:
       - name: Probe /api/check?domain=cloudflare.com (third-party)
         run: |
           set -euo pipefail
-          status=$(curl -s -o /tmp/cf.json -w "%{http_code}" "$BASE/api/check?domain=cloudflare.com")
+          status=$(curl -s -H "X-Smoke-Token: $SMOKE_TOKEN" -o /tmp/cf.json -w "%{http_code}" "$BASE/api/check?domain=cloudflare.com")
           test "$status" = "200" || { echo "::error::cloudflare scan returned $status"; cat /tmp/cf.json; exit 1; }
           jq -e '.summary.dmarc_policy == "reject"' /tmp/cf.json > /dev/null \
             || { echo "::error::cloudflare.com summary.dmarc_policy != 'reject': $(jq -r .summary.dmarc_policy /tmp/cf.json)"; exit 1; }
@@ -92,18 +103,18 @@ jobs:
       - name: Probe /openapi.json
         run: |
           set -euo pipefail
-          status=$(curl -s -o /tmp/openapi.json -w "%{http_code}" "$BASE/openapi.json")
+          status=$(curl -s -H "X-Smoke-Token: $SMOKE_TOKEN" -o /tmp/openapi.json -w "%{http_code}" "$BASE/openapi.json")
           test "$status" = "200" || { echo "::error::/openapi.json returned $status"; exit 1; }
-          ct=$(curl -sI "$BASE/openapi.json" | awk -F': ' 'tolower($1)=="content-type"{print tolower($2)}' | tr -d '\r')
+          ct=$(curl -sI -H "X-Smoke-Token: $SMOKE_TOKEN" "$BASE/openapi.json" | awk -F': ' 'tolower($1)=="content-type"{print tolower($2)}' | tr -d '\r')
           echo "$ct" | grep -q 'application/openapi+json' || { echo "::error::expected application/openapi+json, got: $ct"; exit 1; }
           jq -e '.openapi | startswith("3.1")' /tmp/openapi.json > /dev/null
 
       - name: Probe /.well-known/api-catalog
         run: |
           set -euo pipefail
-          status=$(curl -s -o /tmp/catalog.json -w "%{http_code}" "$BASE/.well-known/api-catalog")
+          status=$(curl -s -H "X-Smoke-Token: $SMOKE_TOKEN" -o /tmp/catalog.json -w "%{http_code}" "$BASE/.well-known/api-catalog")
           test "$status" = "200" || { echo "::error::api-catalog returned $status"; exit 1; }
-          ct=$(curl -sI "$BASE/.well-known/api-catalog" | awk -F': ' 'tolower($1)=="content-type"{print tolower($2)}' | tr -d '\r')
+          ct=$(curl -sI -H "X-Smoke-Token: $SMOKE_TOKEN" "$BASE/.well-known/api-catalog" | awk -F': ' 'tolower($1)=="content-type"{print tolower($2)}' | tr -d '\r')
           echo "$ct" | grep -q 'application/linkset+json' || { echo "::error::expected application/linkset+json, got: $ct"; exit 1; }
 
       # The Link header advertises the discovery surface. If even one rel
@@ -111,7 +122,7 @@ jobs:
       - name: Probe Link header on landing page
         run: |
           set -euo pipefail
-          headers=$(curl -sI "$BASE/")
+          headers=$(curl -sI -H "X-Smoke-Token: $SMOKE_TOKEN" "$BASE/")
           link=$(echo "$headers" | awk -F': ' 'tolower($1)=="link"{$1=""; sub(/^ /,""); print}' | tr -d '\r')
           test -n "$link" || { echo "::error::no Link header on landing page"; echo "$headers"; exit 1; }
           for rel in 'rel="api-catalog"' 'rel="https://agentskills.io/rel/index"' 'rel="service-desc"' 'rel="service-doc"' 'rel="status"'; do
@@ -121,7 +132,7 @@ jobs:
       - name: Probe HSTS header
         run: |
           set -euo pipefail
-          hsts=$(curl -sI "$BASE/" | awk -F': ' 'tolower($1)=="strict-transport-security"{$1=""; sub(/^ /,""); print}' | tr -d '\r')
+          hsts=$(curl -sI -H "X-Smoke-Token: $SMOKE_TOKEN" "$BASE/" | awk -F': ' 'tolower($1)=="strict-transport-security"{$1=""; sub(/^ /,""); print}' | tr -d '\r')
           test -n "$hsts" || { echo "::error::no Strict-Transport-Security header"; exit 1; }
           echo "$hsts" | grep -q 'max-age=' || { echo "::error::HSTS missing max-age: $hsts"; exit 1; }
 
@@ -138,6 +149,11 @@ jobs:
       - name: Open or update incident issue
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # This job has no actions/checkout, so gh has no git remote to infer
+          # the repo from. GH_REPO supplies it explicitly — without this every
+          # gh call dies with "fatal: not a git repository" and no incident is
+          # ever filed (the smoke failures were silent for that reason).
+          GH_REPO: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           TRIGGER: ${{ github.event_name }}
         run: |
