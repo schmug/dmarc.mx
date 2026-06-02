@@ -1581,7 +1581,12 @@ function renderSortableHeader(
     direction: nextDirection,
     page: 1,
   });
-  return `<th><a class="sort-link${isActive ? " active" : ""}" href="${esc(href)}">${esc(label)}<span class="sort-arrow">${arrow}</span></a></th>`;
+  const ariaAttr = isActive
+    ? controls.direction === "asc"
+      ? ' aria-sort="ascending"'
+      : ' aria-sort="descending"'
+    : "";
+  return `<th${ariaAttr}><a class="sort-link${isActive ? " active" : ""}" href="${esc(href)}">${esc(label)}<span class="sort-arrow">${arrow}</span></a></th>`;
 }
 
 function renderDomainToolbar(controls: DashboardControls): string {
