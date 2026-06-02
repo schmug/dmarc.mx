@@ -138,6 +138,11 @@ jobs:
       - name: Open or update incident issue
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # This job has no actions/checkout, so gh has no git remote to infer
+          # the repo from. GH_REPO supplies it explicitly — without this every
+          # gh call dies with "fatal: not a git repository" and no incident is
+          # ever filed (prod-smoke failures were silent for that reason).
+          GH_REPO: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           TRIGGER: ${{ github.event_name }}
         run: |
