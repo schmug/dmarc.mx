@@ -17,7 +17,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { app } from "../src/index.js";
-import { scanStreaming } from "../src/orchestrator.js";
+import { PROTOCOL_LABEL, scanStreaming } from "../src/orchestrator.js";
 import { _memoryStore } from "../src/rate-limit.js";
 import { drainSSE } from "./helpers/drain-sse.js";
 
@@ -133,22 +133,31 @@ const CACHED_SCAN = {
       tags: null,
       validations: [],
     },
+    dnssec: {
+      status: "info" as const,
+      signed: false,
+      validated: false,
+      validations: [],
+    },
+    dane: {
+      status: "info" as const,
+      hosts: [],
+      validations: [],
+    },
   },
 };
 
 // ---------------------------------------------------------------------------
-// Known protocol IDs the route must emit
+// Known protocol IDs the route must emit.
+//
+// Derived from `PROTOCOL_LABEL` (a `Record<ProtocolId, string>` — the canonical
+// exhaustive id source, also used by the #454 skeleton guard) rather than a
+// hand-listed set. Adding a protocol to the `ProtocolId` union forces a new
+// `PROTOCOL_LABEL` key, which flows into this set, which makes the
+// "emits a protocol event for every known protocol" assertions exercise it.
+// This is what the stale 8-entry literal failed to do for dnssec/dane (#451).
 // ---------------------------------------------------------------------------
-const KNOWN_PROTOCOL_IDS = new Set<string>([
-  "mx",
-  "dmarc",
-  "spf",
-  "dkim",
-  "bimi",
-  "mta_sts",
-  "security_txt",
-  "tls_rpt",
-]);
+const KNOWN_PROTOCOL_IDS = new Set<string>(Object.keys(PROTOCOL_LABEL));
 
 // ---------------------------------------------------------------------------
 // Per-test setup
@@ -325,6 +334,36 @@ describe("GET /api/check/stream — happy path (cache-hit replay)", () => {
     const doneData = JSON.parse(doneFrame?.data) as { grade: string };
     expect(doneData.grade).toBe(CACHED_SCAN.grade);
   });
+});
+
+// ---------------------------------------------------------------------------
+// 1b. Cache-hit replay parity guard (#455)
+//
+// Mirrors the #454 skeleton guard (`test/streaming-skeleton.test.ts`): the
+// cache-hit replay path must emit a `protocol` event for *every* ProtocolId the
+// orchestrator can produce. `PROTOCOL_LABEL` is the canonical exhaustive id
+// source, so adding a protocol to the `ProtocolId` union forces a new key here
+// — and unless that protocol is wired into both the replay iteration
+// (`src/index.ts`) and the `CACHED_SCAN` fixture, this test fails. That is the
+// failure that the stale 8-entry fixture/list silently swallowed for
+// dnssec/dane (#451).
+// ---------------------------------------------------------------------------
+describe("GET /api/check/stream — cache-hit replay protocol parity", () => {
+  for (const id of Object.keys(PROTOCOL_LABEL)) {
+    it(`emits a 'protocol' event for the ${id} protocol on a cache hit`, async () => {
+      const res = await requestWithCacheHit(
+        "/api/check/stream?domain=test.example.com",
+      );
+      const frames = await drainSSE(res);
+      const emittedIds = frames
+        .filter((f) => f.event === "protocol")
+        .map((f) => (JSON.parse(f.data) as { id: string }).id);
+      expect(
+        emittedIds,
+        `cache-hit replay dropped protocol "${id}" — it is in PROTOCOL_LABEL but not emitted (check the replay loop in src/index.ts and the CACHED_SCAN fixture)`,
+      ).toContain(id);
+    });
+  }
 });
 
 // ---------------------------------------------------------------------------
