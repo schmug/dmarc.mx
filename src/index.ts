@@ -587,18 +587,13 @@ app.get("/api/check/stream", async (c) => {
 
     if (cached) {
       tagScanResult(cached);
-      const protocolIds: ProtocolId[] = [
-        "mx",
-        "dmarc",
-        "spf",
-        "dkim",
-        "bimi",
-        "mta_sts",
-        "security_txt",
-        "tls_rpt",
-        "dnssec",
-        "dane",
-      ];
+      // Derive the replay set from `protocolRenderers` keys, not a hand-listed
+      // literal. `protocolRenderers` is `Record<ProtocolId, …>`, so adding a
+      // protocol to the union forces a renderer key, which is iterated here —
+      // no protocol can be silently dropped from the cache-hit path (#455).
+      // Object insertion order matches the previous literal, so `done` still
+      // comes last with no duplicate or reordered events.
+      const protocolIds = Object.keys(protocolRenderers) as ProtocolId[];
       for (const id of protocolIds) {
         const protocolResult = cached.protocols[id];
         // Older cached scans (pre-#40) may lack security_txt; skip rather
