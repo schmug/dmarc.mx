@@ -816,6 +816,8 @@ describe("Learn pages", () => {
     { slug: "mta-sts", label: "MTA-STS" },
     { slug: "security-txt", label: "security.txt" },
     { slug: "tls-rpt", label: "TLS-RPT" },
+    { slug: "dnssec", label: "DNSSEC" },
+    { slug: "dane", label: "DANE" },
   ];
 
   it("serves the /learn hub with a CollectionPage + BreadcrumbList", async () => {
@@ -943,11 +945,44 @@ describe("Learn pages", () => {
     expect(html).toContain("TLSRPTv1");
   });
 
+  it("DNSSEC learn page mentions DS records, the AD flag, and the chain of trust", async () => {
+    const res = await app.request("/learn/dnssec");
+    const html = await res.text();
+    expect(res.status).toBe(200);
+    expect(html).toContain(
+      '<link rel="canonical" href="https://dmarc.mx/learn/dnssec">',
+    );
+    expect(html).toContain("DS");
+    expect(html).toContain("AD");
+    expect(html).toMatch(/chain of trust/i);
+  });
+
+  it("DANE learn page mentions _25._tcp, TLSA, and the DNSSEC requirement", async () => {
+    const res = await app.request("/learn/dane");
+    const html = await res.text();
+    expect(res.status).toBe(200);
+    expect(html).toContain(
+      '<link rel="canonical" href="https://dmarc.mx/learn/dane">',
+    );
+    expect(html).toContain("_25._tcp");
+    expect(html).toContain("TLSA");
+    expect(html).toContain("DNSSEC");
+    // DANE is tied to DNSSEC and links back to the DNSSEC learn page
+    expect(html).toContain('href="/learn/dnssec"');
+  });
+
   it("sitemap.xml lists /learn/security-txt and /learn/tls-rpt", async () => {
     const res = await app.request("/sitemap.xml");
     const body = await res.text();
     expect(body).toContain("<loc>https://dmarc.mx/learn/security-txt</loc>");
     expect(body).toContain("<loc>https://dmarc.mx/learn/tls-rpt</loc>");
+  });
+
+  it("sitemap.xml lists /learn/dnssec and /learn/dane", async () => {
+    const res = await app.request("/sitemap.xml");
+    const body = await res.text();
+    expect(body).toContain("<loc>https://dmarc.mx/learn/dnssec</loc>");
+    expect(body).toContain("<loc>https://dmarc.mx/learn/dane</loc>");
   });
 });
 
