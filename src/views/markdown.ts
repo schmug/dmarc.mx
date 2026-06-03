@@ -132,7 +132,7 @@ Or render this page as a human report: <${MD_SITE}/check?domain=example.com>.
 ## Resources
 
 - Scoring rubric: <${MD_SITE}/scoring>
-- Learn: <${MD_SITE}/learn> (DMARC, SPF, DKIM, BIMI, MTA-STS)
+- Learn: <${MD_SITE}/learn> (DMARC, SPF, DKIM, BIMI, MTA-STS, security.txt, TLS-RPT, DNSSEC, DANE)
 - Source: <https://github.com/schmug/dmarcheck>
 
 Rate limited to 10 requests per minute per IP.
@@ -378,6 +378,8 @@ export function renderLearnHubMarkdown(): string {
 - [MTA-STS](${MD_SITE}/learn/mta-sts) — TLS enforcement for inbound mail
 - [security.txt](${MD_SITE}/learn/security-txt) — machine-readable security disclosure policies
 - [TLS-RPT](${MD_SITE}/learn/tls-rpt) — SMTP TLS failure reporting via DNS
+- [DNSSEC](${MD_SITE}/learn/dnssec) — signed DNS zones and the chain of trust
+- [DANE](${MD_SITE}/learn/dane) — TLSA records pinning MX certificates over DNSSEC
 
 Run a scan: ${MD_SITE}/check?domain=example.com
 `;

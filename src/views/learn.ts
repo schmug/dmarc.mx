@@ -115,6 +115,16 @@ const LEARN_SIBLINGS: Array<{ slug: string; protocol: string; blurb: string }> =
       protocol: "TLS-RPT",
       blurb: "SMTP TLS failure reporting via DNS.",
     },
+    {
+      slug: "dnssec",
+      protocol: "DNSSEC",
+      blurb: "Signed DNS zones and the chain of trust.",
+    },
+    {
+      slug: "dane",
+      protocol: "DANE/TLSA",
+      blurb: "TLSA records pinning MX certificates over DNSSEC.",
+    },
   ];
 
 function siblingLinks(currentSlug: string): string {
@@ -197,7 +207,7 @@ export function renderLearnHub(): string {
         "@type": "CollectionPage",
         name: "Learn email authentication — dmarcheck",
         description:
-          "Plain-English guides to DMARC, SPF, DKIM, BIMI, and MTA-STS — what they do, how to read each record, and how to fix the most common misconfigurations.",
+          "Plain-English guides to DMARC, SPF, DKIM, BIMI, MTA-STS, security.txt, TLS-RPT, DNSSEC, and DANE — what they do, how to read each record, and how to fix the most common misconfigurations.",
         url: `${SITE_ORIGIN}/learn`,
         mainEntity: {
           "@type": "ItemList",
@@ -244,7 +254,7 @@ export function renderLearnHub(): string {
     <span class="breadcrumb-current">Learn</span>
   </nav>
   <h1 class="rubric-title">Learn email authentication</h1>
-  <p class="rubric-intro">Five short guides to the DNS records dmarcheck scans. Each page walks through how the record works, how to read a real example, and how to fix the misconfigurations that lower your grade.</p>
+  <p class="rubric-intro">Nine short guides to the DNS records dmarcheck scans. Each page walks through how the record works, how to read a real example, and how to fix the misconfigurations that lower your grade.</p>
   <ul class="learn-hub-grid">${cards}</ul>
   ${learnCta("Enter a domain to scan")}
   ${LEARN_FOOTER}
@@ -254,7 +264,7 @@ export function renderLearnHub(): string {
     title: "Learn email authentication — dmarcheck",
     path: "/learn",
     description:
-      "Plain-English guides to DMARC, SPF, DKIM, BIMI, and MTA-STS. Read each DNS record, understand the tags, and fix the common misconfigurations.",
+      "Plain-English guides to DMARC, SPF, DKIM, BIMI, MTA-STS, security.txt, TLS-RPT, DNSSEC, and DANE. Read each DNS record, understand the tags, and fix the common misconfigurations.",
     jsonLd: hubJsonLd,
     body,
   });
@@ -759,6 +769,162 @@ export function renderLearnTlsRpt(): string {
     headline: "What is TLS-RPT? SMTP TLS Reporting for inbound mail",
     description:
       "A plain-English guide to TLS-RPT (RFC 8460): the _smtp._tls DNS record, the rua= report URI, what the JSON reports contain, and how TLS-RPT complements MTA-STS and DMARC reporting.",
+    body,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// DNSSEC
+// ---------------------------------------------------------------------------
+
+export function renderLearnDnssec(): string {
+  const body = `
+  <p class="rubric-intro">DNSSEC (DNS Security Extensions, RFCs 4033&ndash;4035) cryptographically signs your DNS zone so that resolvers can detect tampering. Without it, an attacker who can intercept or forge DNS answers can quietly redirect your mail, your MX records, or your SPF/DKIM/DMARC lookups. DNSSEC is the foundation the rest of your email security rests on &mdash; in particular, DANE/TLSA only becomes trustworthy once the zone serving the TLSA records is signed and validated.</p>
+
+  <div class="bd-card">
+    <div class="bd-card-title">How DNSSEC is checked</div>
+    <div class="bd-card-body">
+      <p class="tier-text">DNSSEC status is determined from two signals: the presence of <strong>DS (Delegation Signer) records</strong> in the parent zone, and the <strong>AD (Authenticated Data) flag</strong> set by a validating resolver.</p>
+      <dl class="explainer-grid">
+        <div><dt><code>DS</code> records</dt><dd>Published in the <em>parent</em> zone (e.g. <code>.com</code> holds the DS records for <code>example.com</code>). Their presence means the parent has signed the delegation to your zone &mdash; the standard way to tell a zone is DNSSEC-enabled without walking the entire chain of trust.</dd></div>
+        <div><dt>AD flag</dt><dd>Set by a DNSSEC-aware resolver when it has successfully verified the full signature chain from the root down to the record you asked for. When DS records are present <em>and</em> the AD flag is set, the zone is signed and validated.</dd></div>
+        <div><dt><code>DNSKEY</code> / <code>RRSIG</code></dt><dd>Inside your zone, the <code>DNSKEY</code> records hold the public keys and every record set carries an <code>RRSIG</code> signature. The DS record in the parent is a hash of your <code>DNSKEY</code>, which is what links your zone into the global chain of trust anchored at the DNS root.</dd></div>
+      </dl>
+    </div>
+  </div>
+
+  <div class="bd-card">
+    <div class="bd-card-title">Signed vs. validated</div>
+    <div class="bd-card-body">
+      <p class="tier-text">These are two distinct states, and the difference matters:</p>
+      <dl class="explainer-grid">
+        <div><dt>Signed and validated</dt><dd>DS records are present and a validating resolver returns the AD flag. The chain of trust is intact end to end &mdash; this is the healthy state.</dd></div>
+        <div><dt>Signed but not validated</dt><dd>DS records exist, but the resolver did not set the AD flag. The zone has DNSSEC configured, yet validation is failing &mdash; commonly a broken or expired signature, a key rollover that didn't complete, or a DS record in the parent that no longer matches your current <code>DNSKEY</code>. A broken DNSSEC chain can make your domain <em>unreachable</em> to validating resolvers, which is often worse than having no DNSSEC at all.</dd></div>
+        <div><dt>Not configured</dt><dd>No DS records in the parent zone. The zone is unsigned, so resolvers cannot detect forged answers for it.</dd></div>
+      </dl>
+    </div>
+  </div>
+
+  <div class="bd-card">
+    <div class="bd-card-title">Why DNSSEC matters for email</div>
+    <div class="bd-card-body">
+      <p class="tier-text">Every email-security record dmarcheck scans is a DNS lookup: your MX records, the SPF TXT record, DKIM public keys at <code>selector._domainkey</code>, the DMARC record at <code>_dmarc</code>, and MTA-STS policy. If an attacker can forge those answers, they can strip or weaken your protections without touching your servers. DNSSEC is what makes the answers tamper-evident.</p>
+      <p class="tier-text">It is also a hard prerequisite for DANE: a TLSA record that pins your MX certificate is only meaningful if the resolver can prove the TLSA record itself wasn't forged &mdash; which requires the zone to be DNSSEC-signed and validated.</p>
+    </div>
+  </div>
+
+  <div class="bd-card">
+    <div class="bd-card-title">Common misconfigurations</div>
+    <div class="bd-card-body">
+      <ul class="learn-pitfalls">
+        <li><strong>Signed but not validated.</strong> The most dangerous state: DNSSEC is enabled but the chain is broken. Usually a stale DS record after a key rollover, or expired signatures. Validating resolvers will return SERVFAIL, making your domain unreachable for those users.</li>
+        <li><strong>Missing DS record.</strong> You signed the zone at your DNS provider but never published the DS record at the registrar. The signatures exist but nothing in the parent zone vouches for them, so resolvers treat the zone as unsigned.</li>
+        <li><strong>Key rollover gone wrong.</strong> Rotating your KSK without updating the parent DS record (or removing the old key too early) breaks validation until the DS catches up.</li>
+        <li><strong>Provider transfer without re-signing.</strong> Moving DNS hosting and forgetting to re-enable DNSSEC and republish a matching DS leaves a dangling, invalid chain.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="bd-card">
+    <div class="bd-card-title">What to fix first</div>
+    <div class="bd-card-body">
+      <ol class="learn-steps">
+        <li>If the scan shows <em>signed but not validated</em>, treat it as urgent &mdash; a broken chain can take your domain offline for validating resolvers. Verify the DS record at your registrar matches your current <code>DNSKEY</code>.</li>
+        <li>If DNSSEC is <em>not configured</em>, enable zone signing at your DNS provider, then publish the generated DS record at your domain registrar so the parent zone signs your delegation.</li>
+        <li>After enabling or repairing, confirm a validating resolver returns the AD flag for your domain before relying on it for DANE.</li>
+        <li>Automate key rollovers where your provider supports it, and monitor the chain so an expired signature or stale DS is caught before it causes a SERVFAIL outage.</li>
+      </ol>
+    </div>
+  </div>
+
+  ${learnCta("Enter a domain to check for DNSSEC")}
+  `;
+
+  return renderLearnPage({
+    protocol: "DNSSEC",
+    slug: "dnssec",
+    title:
+      "What is DNSSEC? Signed DNS zones and the chain of trust — dmarcheck",
+    headline: "What is DNSSEC? Signing your DNS zone and the chain of trust",
+    description:
+      "A plain-English guide to DNSSEC: DS records in the parent zone, the AD flag from a validating resolver, the difference between signed and validated, and why DNSSEC underpins DANE and the rest of your email security.",
+    body,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// DANE / TLSA
+// ---------------------------------------------------------------------------
+
+export function renderLearnDane(): string {
+  const body = `
+  <p class="rubric-intro">DANE (DNS-Based Authentication of Named Entities, RFC 6698) lets you publish a <strong>TLSA record</strong> in DNS that pins the TLS certificate your mail servers present. A sending mail server that supports DANE checks the TLSA record before delivering, so it can detect a downgraded or substituted certificate. Because the proof lives in DNS, DANE is only trustworthy when the zone is DNSSEC-signed and validated &mdash; TLSA records without a DNSSEC chain can themselves be forged.</p>
+
+  <div class="bd-card">
+    <div class="bd-card-title">How to read a TLSA record</div>
+    <div class="bd-card-body">
+      <p class="tier-text">DANE for SMTP is queried <strong>per MX exchange</strong>. For each MX host, the TLSA record lives at <code>_25._tcp.&lt;mx-host&gt;</code> &mdash; port 25, TCP, prefixed to the mail server's hostname:</p>
+      <pre class="learn-example"><code>_25._tcp.mx1.example.com.  IN TLSA  3 1 1 0f0c8e...d4</code></pre>
+      <p class="tier-text">The first three numbers are the certificate-usage triple defined by RFC 6698:</p>
+      <dl class="explainer-grid">
+        <div><dt>Usage</dt><dd>How the association is used. <code>3</code> (DANE-EE) pins the server certificate directly &mdash; the common, recommended choice for SMTP. <code>2</code> (DANE-TA) pins a trust anchor / CA in your chain. <code>0</code> and <code>1</code> (PKIX-TA / PKIX-EE) additionally require public-CA validation and are rarely used for mail.</dd></div>
+        <div><dt>Selector</dt><dd>Which part of the certificate is matched. <code>0</code> matches the full certificate; <code>1</code> matches just the SubjectPublicKeyInfo (the public key), which survives certificate renewal as long as you keep the same key.</dd></div>
+        <div><dt>Matching type</dt><dd>How the data is compared. <code>0</code> is the raw bytes; <code>1</code> is a SHA-256 hash (the usual choice); <code>2</code> is SHA-512.</dd></div>
+        <div><dt>Association data</dt><dd>The hex-encoded certificate, public key, or hash &mdash; whatever the selector and matching type select.</dd></div>
+      </dl>
+    </div>
+  </div>
+
+  <div class="bd-card">
+    <div class="bd-card-title">DANE requires DNSSEC</div>
+    <div class="bd-card-body">
+      <p class="tier-text">A TLSA record is only a security control if a resolver can prove it wasn't tampered with. That proof comes from DNSSEC: the zone serving the TLSA record must be signed, and the resolver must validate the chain (return the AD flag). dmarcheck checks both &mdash; a TLSA record found on a host whose DNSSEC is <em>not</em> validated is reported as a warning, not a pass, because an attacker who can forge DNS could forge the TLSA record too.</p>
+      <p class="tier-text">So the correct deployment order is: turn on DNSSEC for your zone first (see <a href="/learn/dnssec">our DNSSEC guide</a>), confirm it validates, then publish TLSA records for each MX host. Doing it the other way around gives you records that look configured but provide no real protection.</p>
+    </div>
+  </div>
+
+  <div class="bd-card">
+    <div class="bd-card-title">Per-MX-host configuration</div>
+    <div class="bd-card-body">
+      <p class="tier-text">Mail can be delivered to any of your MX exchanges, so each one needs its own TLSA record matching the certificate <em>that host</em> actually serves. dmarcheck queries <code>_25._tcp.&lt;exchange&gt;</code> for every MX host in your domain and reports them individually &mdash; it's common to have DANE correctly configured on a primary MX but missing or mismatched on a backup.</p>
+      <p class="tier-text">If you have no MX records, DANE is not applicable &mdash; there's no SMTP endpoint to pin.</p>
+    </div>
+  </div>
+
+  <div class="bd-card">
+    <div class="bd-card-title">Common misconfigurations</div>
+    <div class="bd-card-body">
+      <ul class="learn-pitfalls">
+        <li><strong>TLSA records without DNSSEC.</strong> The single most common mistake: publishing TLSA records on a zone that isn't DNSSEC-signed and validated. Sending MTAs will ignore them, and dmarcheck flags them as a warning rather than a pass.</li>
+        <li><strong>Stale association after certificate renewal.</strong> If you use a selector of <code>0</code> (full certificate) or matching type <code>0</code>, renewing the certificate breaks the match unless you republish the TLSA record. Using selector <code>1</code> (public key) and reusing the key across renewals avoids this.</li>
+        <li><strong>Missing on a backup MX.</strong> DANE configured on the primary but not the secondary MX leaves a hole &mdash; mail that fails over to the backup gets no certificate pinning.</li>
+        <li><strong>Wrong owner name.</strong> The record must be at <code>_25._tcp.&lt;mx-host&gt;</code>, using the MX hostname, not the domain itself.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="bd-card">
+    <div class="bd-card-title">What to fix first</div>
+    <div class="bd-card-body">
+      <ol class="learn-steps">
+        <li>Enable and validate DNSSEC for your zone first &mdash; DANE is meaningless without it.</li>
+        <li>Generate a TLSA record for each MX host's certificate, preferring usage <code>3</code>, selector <code>1</code>, matching type <code>1</code> (DANE-EE, public-key, SHA-256) for renewal-safe pinning.</li>
+        <li>Publish each record at <code>_25._tcp.&lt;mx-host&gt;</code> and re-scan to confirm every MX exchange shows DNSSEC-validated TLSA.</li>
+        <li>Tie TLSA updates to your certificate-renewal process so the pin and the served certificate never drift apart, and keep DANE in sync across primary and backup MX hosts.</li>
+      </ol>
+    </div>
+  </div>
+
+  ${learnCta("Enter a domain to check for DANE/TLSA")}
+  `;
+
+  return renderLearnPage({
+    protocol: "DANE/TLSA",
+    slug: "dane",
+    title: "What is DANE/TLSA? Pinning MX certificates over DNSSEC — dmarcheck",
+    headline: "What is DANE? TLSA records that pin your MX certificates",
+    description:
+      "A plain-English guide to DANE/TLSA (RFC 6698): the _25._tcp TLSA record queried per MX host, the usage/selector/matching-type triple, and why DANE only works on a DNSSEC-signed and validated zone.",
     body,
   });
 }

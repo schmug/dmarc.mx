@@ -91,8 +91,10 @@ import {
 } from "./views/html.js";
 import {
   renderLearnBimi,
+  renderLearnDane,
   renderLearnDkim,
   renderLearnDmarc,
+  renderLearnDnssec,
   renderLearnHub,
   renderLearnMtaSts,
   renderLearnSecurityTxt,
@@ -944,6 +946,8 @@ const STATIC_SITEMAP_URLS: Array<{ loc: string; priority: string }> = [
   { loc: "https://dmarc.mx/learn/mta-sts", priority: "0.7" },
   { loc: "https://dmarc.mx/learn/security-txt", priority: "0.6" },
   { loc: "https://dmarc.mx/learn/tls-rpt", priority: "0.6" },
+  { loc: "https://dmarc.mx/learn/dnssec", priority: "0.7" },
+  { loc: "https://dmarc.mx/learn/dane", priority: "0.6" },
   { loc: "https://dmarc.mx/mx", priority: "0.7" },
   { loc: "https://dmarc.mx/mx/outlook", priority: "0.8" },
   { loc: "https://dmarc.mx/mx/google", priority: "0.8" },
@@ -1008,6 +1012,8 @@ app.get("/learn/bimi", (c) => c.html(renderLearnBimi()));
 app.get("/learn/mta-sts", (c) => c.html(renderLearnMtaSts()));
 app.get("/learn/security-txt", (c) => c.html(renderLearnSecurityTxt()));
 app.get("/learn/tls-rpt", (c) => c.html(renderLearnTlsRpt()));
+app.get("/learn/dnssec", (c) => c.html(renderLearnDnssec()));
+app.get("/learn/dane", (c) => c.html(renderLearnDane()));
 
 app.get("/mx", (c) => {
   if (wantsMarkdown(c)) return markdownResponse(c, renderMxHubMarkdown());
