@@ -18,7 +18,7 @@ export function buildLlmsTxt(origin: string = CANONICAL_ORIGIN): string {
 ## Docs
 
 - [Landing page](${origin}/?format=md): What dmarcheck does, how to scan a domain, rate limits.
-- [Learn hub](${origin}/learn?format=md): Plain-English explainers for DMARC, SPF, DKIM, BIMI, and MTA-STS.
+- [Learn hub](${origin}/learn?format=md): Plain-English explainers for the email security DNS records dmarcheck covers — DMARC, SPF, DKIM, BIMI, MTA-STS, and more.
 - [Scoring rubric](${origin}/scoring?format=md): How the letter grade is computed and which factors weigh most.
 - [Pricing](${origin}/pricing?format=md): Free tier and Pro plan limits.
 
