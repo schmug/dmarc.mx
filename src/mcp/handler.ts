@@ -25,7 +25,7 @@ export const MCP_SERVER_CARD = JSON.stringify({
   name: "dmarcheck",
   version: "1.0.0",
   description:
-    "DNS email-security scanner (DMARC, SPF, DKIM, BIMI, MTA-STS, MX). Rate-limited to 10 req/IP/60s.",
+    "DNS email-security scanner (DMARC, SPF, DKIM, BIMI, MTA-STS, MX, security.txt, TLS-RPT, DNSSEC, DANE). Rate-limited to 10 req/IP/60s.",
   url: "https://dmarc.mx/mcp",
   tools: [{ name: "scan_domain" }],
 });
@@ -33,7 +33,7 @@ export const MCP_SERVER_CARD = JSON.stringify({
 const SCAN_DOMAIN_TOOL = {
   name: "scan_domain",
   description:
-    "Analyse a domain's email-security DNS posture (DMARC, SPF, DKIM, BIMI, MTA-STS, MX) and return a graded result. Equivalent to GET /api/check.",
+    "Analyse a domain's email-security DNS posture (DMARC, SPF, DKIM, BIMI, MTA-STS, MX, security.txt, TLS-RPT, DNSSEC, DANE) and return a graded result. Equivalent to GET /api/check.",
   inputSchema: {
     type: "object",
     required: ["domain"],

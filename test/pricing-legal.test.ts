@@ -27,7 +27,8 @@ describe("pricing page", () => {
     const res = await app.request("/pricing");
     const html = await res.text();
     expect(html).toContain("$19/mo");
-    expect(html).toContain("Nightly DMARC, SPF, DKIM, BIMI");
+    expect(html).toContain("Nightly email-security monitoring");
+    expect(html).toContain("DMARC");
     expect(html).toContain("MTA-STS");
   });
 
@@ -64,7 +65,7 @@ describe("pricing page", () => {
     );
     const body = await res.text();
     expect(body).toContain("$19/mo");
-    expect(body).toContain("Nightly DMARC");
+    expect(body).toContain("Nightly email-security monitoring");
     expect(body).not.toMatch(/\[PLACEHOLDER/);
   });
 

@@ -29,7 +29,8 @@ export const OPENAPI_DOCUMENT = {
   info: {
     title: "dmarcheck API",
     version: "1.0.0",
-    summary: "DNS email-security (DMARC, SPF, DKIM, BIMI, MTA-STS) scanner.",
+    summary:
+      "DNS email-security scanner (DMARC, SPF, DKIM, BIMI, MTA-STS, MX, security.txt, TLS-RPT, DNSSEC, DANE).",
     description:
       "Public, unauthenticated API that grades a domain's email-security DNS posture. Rate-limited to 10 requests per minute per IP.",
     license: { name: "MIT", identifier: "MIT" },
@@ -41,7 +42,7 @@ export const OPENAPI_DOCUMENT = {
       get: {
         summary: "Scan a domain's email-security posture",
         description:
-          "Runs DMARC, SPF, DKIM, BIMI, MTA-STS, and MX analyzers in parallel and returns a graded result. Results are cached for a short period.",
+          "Runs all analyzers (DMARC, SPF, DKIM, BIMI, MTA-STS, MX, security.txt, TLS-RPT, DNSSEC, DANE) in parallel and returns a graded result. Results are cached for a short period.",
         operationId: "scanDomain",
         parameters: [
           {

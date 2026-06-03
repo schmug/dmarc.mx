@@ -8,7 +8,7 @@ const PRICING_JSON_LD = JSON.stringify({
       "@type": "Product",
       name: "dmarcheck Pro",
       description:
-        "Nightly monitoring for your domains' DMARC, SPF, DKIM, BIMI, and MTA-STS posture. Saved history, grade-drop email alerts, bulk scan, and a higher-rate API key.",
+        "Nightly email-security monitoring for your domains — DMARC, SPF, DKIM, BIMI, MTA-STS, and more. Saved history, grade-drop email alerts, bulk scan, and a higher-rate API key.",
       brand: { "@type": "Brand", name: "dmarcheck" },
       offers: {
         "@type": "Offer",
@@ -33,7 +33,7 @@ const PRICING_JSON_LD = JSON.stringify({
           name: "Does the free scanner stay free?",
           acceptedAnswer: {
             "@type": "Answer",
-            text: "Yes. The scanner, all five analyzers, and the JSON API stay free and open source. Pro adds hosted features — history, monitoring, alerts — not the scan itself.",
+            text: "Yes. The scanner, all its analyzers, and the JSON API stay free and open source. Pro adds hosted features — history, monitoring, alerts — not the scan itself.",
           },
         },
         {
@@ -79,7 +79,7 @@ export function renderPricingPage(): string {
     <a href="/">${generateCreature("sm")} Home</a>
   </div>
 
-  <h1 class="rubric-title">Nightly DMARC, SPF, DKIM, BIMI &amp; MTA-STS monitoring</h1>
+  <h1 class="rubric-title">Nightly email-security monitoring &mdash; DMARC, SPF, DKIM &amp; more</h1>
   <p class="rubric-intro"><strong>$19/mo.</strong> Free forever for one-off scans.</p>
 
   <div class="bd-card">
@@ -90,7 +90,7 @@ export function renderPricingPage(): string {
         <li>Unlimited on-demand scans from the web UI</li>
         <li>JSON API: <code>GET /api/check?domain=example.com</code></li>
         <li>10 requests per minute per IP</li>
-        <li>All five analyzers: DMARC, SPF, DKIM, BIMI, MTA-STS</li>
+        <li>All analyzers: DMARC, SPF, DKIM, BIMI, MTA-STS, MX, security.txt, TLS-RPT, DNSSEC, DANE</li>
         <li>Self-hostable &mdash; MIT-licensed, <a href="https://github.com/schmug/dmarcheck">clone &amp; run your own</a></li>
       </ul>
     </div>
@@ -122,7 +122,7 @@ export function renderPricingPage(): string {
     <div class="bd-card-body">
       <div class="rubric-protocol">
         <h3>Does the free scanner stay free?</h3>
-        <p>Yes. The scanner, all five analyzers, and the JSON API stay free and open source. Pro adds hosted features &mdash; history, monitoring, alerts &mdash; not the scan itself.</p>
+        <p>Yes. The scanner, all its analyzers, and the JSON API stay free and open source. Pro adds hosted features &mdash; history, monitoring, alerts &mdash; not the scan itself.</p>
       </div>
       <div class="rubric-protocol">
         <h3>What counts as "nightly"?</h3>
@@ -162,7 +162,7 @@ export function renderPricingPage(): string {
     title: "Pricing — dmarcheck",
     path: "/pricing",
     description:
-      "Nightly DMARC, SPF, DKIM, BIMI & MTA-STS monitoring for $19/mo. Free forever for one-off scans. Cancel anytime via Stripe.",
+      "Nightly email-security monitoring (DMARC, SPF, DKIM, BIMI, MTA-STS and more) for $19/mo. Free forever for one-off scans. Cancel anytime via Stripe.",
     jsonLd: PRICING_JSON_LD,
     body,
   });
