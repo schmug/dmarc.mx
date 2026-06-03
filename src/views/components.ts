@@ -474,6 +474,9 @@ const PROTO_LABELS: Record<string, string> = {
   security_txt: "security.txt",
   tls_rpt: "TLS-RPT",
   dnssec: "DNSSEC",
+  // DANE is checked but not scored, so it never enters protocolSummaries today.
+  // Included here defensively so scoreSnippet never falls back to a raw key.
+  dane: "DANE/TLSA",
 };
 
 export function scoreSnippet(result: ScanResult): string {

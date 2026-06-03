@@ -216,6 +216,10 @@ h1.tagline, .tagline { color: var(--clr-text-dim); font-size: 1.1rem; font-weigh
   margin: 0 auto 1.75rem; max-width: 680px;
   text-align: center; color: var(--clr-text-dim);
 }
+.landing-explainer > p.explainer-note {
+  margin: -0.75rem auto 1.25rem; max-width: 620px;
+  font-size: 0.82rem; color: var(--clr-text-muted);
+}
 .explainer-grid {
   display: grid; gap: 0.85rem; grid-template-columns: repeat(3, 1fr);
   margin: 0;
@@ -718,6 +722,11 @@ h1.domain-name, .domain-name { font-size: 1.5rem; font-weight: 700; margin: 0; }
   display: inline-flex; align-items: center; justify-content: center;
   width: 36px; height: 28px; border-radius: 6px; font-weight: 700; font-size: 0.85rem;
 }
+.rubric-subhead {
+  margin: 4px 0 6px; font-size: 0.82rem; font-weight: 600;
+  color: var(--clr-text-dim);
+}
+.rubric-subhead:not(:first-child) { margin-top: 18px; }
 .rubric-protocol { padding: 10px 0; border-bottom: 1px solid var(--clr-border-subtle); }
 .rubric-protocol:last-child { border-bottom: none; }
 .rubric-protocol h3 { font-size: 0.9rem; font-weight: 600; color: var(--clr-accent); margin-bottom: 4px; }
@@ -970,7 +979,7 @@ h1.domain-name, .domain-name { font-size: 1.5rem; font-weight: 700; margin: 0; }
   .landing-hero { padding: 1.5rem 1rem; }
   .landing-explainer { padding: 2.5rem 1rem 2rem; }
   .explainer-grid { grid-template-columns: repeat(2, 1fr); gap: 0.75rem; }
-  .explainer-grid > div:last-child { grid-column: 1 / -1; }
+  .explainer-grid > div:nth-child(odd):last-child { grid-column: 1 / -1; }
   .search-box { flex-direction: column; border-radius: 12px; }
   .search-box button { padding: 14px; }
   .report { padding: 1rem; }
