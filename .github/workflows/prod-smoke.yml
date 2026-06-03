@@ -55,11 +55,59 @@ jobs:
         if: ${{ github.event_name == 'workflow_run' }}
         run: sleep 90
 
+      # Shared Cloudflare-challenge detector. Bash functions don't survive
+      # across `run:` steps (each step is a fresh shell), so write the helper
+      # to a file once and `source` it in every probe. $RUNNER_TEMP exists on
+      # every GitHub-hosted runner even without actions/checkout.
+      #
+      # Why this exists: on 2026-05-29 Bot Fight Mode was toggled on the
+      # dmarc.mx zone and challenged every probe from the runner ASN with a
+      # 403 "Just a moment…" interstitial. The canary went red but the log
+      # only said "returned 403", so it took an audit-log dig to attribute it
+      # to an edge bot-management toggle rather than a Worker/code regression
+      # (see PR #458 for the full root cause). This helper turns that into a
+      # one-line read. It only enriches the message — the probe still fails.
+      - name: Set up Cloudflare-challenge detector
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/cf_challenge.sh" <<'EOF'
+          # cf_challenge_check <label> <generic-message> [headers-file] [body-file]
+          # Emits a distinct Bot-Fight-Mode hint when the response is a
+          # Cloudflare managed-challenge, otherwise the caller's generic
+          # message. Always returns 1 so the probe stays red either way.
+          cf_challenge_check() {
+            cf__label="$1"
+            cf__generic="$2"
+            cf__hdr="${3:-}"
+            cf__body="${4:-}"
+            cf__challenge=""
+            # Cleanest signal: Cloudflare sets `cf-mitigated: challenge` on a
+            # managed challenge. Header-name match is case-insensitive.
+            if [ -n "$cf__hdr" ] && [ -f "$cf__hdr" ] \
+              && grep -qiE '^[[:space:]]*cf-mitigated:[[:space:]]*challenge' "$cf__hdr"; then
+              cf__challenge="yes"
+            fi
+            # Fallback body markers (the interstitial HTML, present in saved
+            # response bodies even when we asked for JSON).
+            if [ -z "$cf__challenge" ] && [ -n "$cf__body" ] && [ -f "$cf__body" ] \
+              && grep -qiE 'Just a moment|cdn-cgi/challenge-platform|_cf_chl_opt' "$cf__body"; then
+              cf__challenge="yes"
+            fi
+            if [ -n "$cf__challenge" ]; then
+              echo "::error::$cf__label: Cloudflare Bot Fight Mode challenge detected (not a code/Worker regression). The edge served a managed-challenge interstitial to the GitHub Actions runner before the request reached the Worker. Check Cloudflare → Security → Bots and the zone audit log for a recently toggled bot-management setting (this matches the 2026-05-29 incident; see PR #458)."
+            else
+              echo "::error::$cf__generic"
+            fi
+            return 1
+          }
+          EOF
+
       - name: Probe /health
         run: |
           set -euo pipefail
-          status=$(curl -s -o /tmp/health.json -w "%{http_code}" "$BASE/health")
-          test "$status" = "200" || { echo "::error::/health returned $status"; cat /tmp/health.json; exit 1; }
+          source "$RUNNER_TEMP/cf_challenge.sh"
+          status=$(curl -s -D "$RUNNER_TEMP/health.h" -o /tmp/health.json -w "%{http_code}" "$BASE/health")
+          test "$status" = "200" || { cf_challenge_check "/health" "/health returned $status" "$RUNNER_TEMP/health.h" /tmp/health.json || true; cat /tmp/health.json; exit 1; }
           jq -e '.status == "ok"' /tmp/health.json > /dev/null
 
       # We control dmarc.mx, so this end-to-end check is the most sensitive
@@ -69,8 +117,9 @@ jobs:
       - name: Probe /api/check?domain=dmarc.mx (own domain)
         run: |
           set -euo pipefail
-          status=$(curl -s -o /tmp/own.json -w "%{http_code}" "$BASE/api/check?domain=dmarc.mx")
-          test "$status" = "200" || { echo "::error::own-domain scan returned $status"; cat /tmp/own.json; exit 1; }
+          source "$RUNNER_TEMP/cf_challenge.sh"
+          status=$(curl -s -D "$RUNNER_TEMP/own.h" -o /tmp/own.json -w "%{http_code}" "$BASE/api/check?domain=dmarc.mx")
+          test "$status" = "200" || { cf_challenge_check "own-domain scan" "own-domain scan returned $status" "$RUNNER_TEMP/own.h" /tmp/own.json || true; cat /tmp/own.json; exit 1; }
           ct=$(curl -sI "$BASE/api/check?domain=dmarc.mx" | awk -F': ' 'tolower($1)=="content-type"{print tolower($2)}' | tr -d '\r')
           echo "$ct" | grep -q 'application/json' || { echo "::error::expected application/json, got: $ct"; exit 1; }
           jq -e '.grade | test("^(S|A\\+?|A-|B\\+?|B-)$")' /tmp/own.json > /dev/null \
@@ -84,16 +133,18 @@ jobs:
       - name: Probe /api/check?domain=cloudflare.com (third-party)
         run: |
           set -euo pipefail
-          status=$(curl -s -o /tmp/cf.json -w "%{http_code}" "$BASE/api/check?domain=cloudflare.com")
-          test "$status" = "200" || { echo "::error::cloudflare scan returned $status"; cat /tmp/cf.json; exit 1; }
+          source "$RUNNER_TEMP/cf_challenge.sh"
+          status=$(curl -s -D "$RUNNER_TEMP/cf.h" -o /tmp/cf.json -w "%{http_code}" "$BASE/api/check?domain=cloudflare.com")
+          test "$status" = "200" || { cf_challenge_check "cloudflare scan" "cloudflare scan returned $status" "$RUNNER_TEMP/cf.h" /tmp/cf.json || true; cat /tmp/cf.json; exit 1; }
           jq -e '.summary.dmarc_policy == "reject"' /tmp/cf.json > /dev/null \
             || { echo "::error::cloudflare.com summary.dmarc_policy != 'reject': $(jq -r .summary.dmarc_policy /tmp/cf.json)"; exit 1; }
 
       - name: Probe /openapi.json
         run: |
           set -euo pipefail
-          status=$(curl -s -o /tmp/openapi.json -w "%{http_code}" "$BASE/openapi.json")
-          test "$status" = "200" || { echo "::error::/openapi.json returned $status"; exit 1; }
+          source "$RUNNER_TEMP/cf_challenge.sh"
+          status=$(curl -s -D "$RUNNER_TEMP/openapi.h" -o /tmp/openapi.json -w "%{http_code}" "$BASE/openapi.json")
+          test "$status" = "200" || { cf_challenge_check "/openapi.json" "/openapi.json returned $status" "$RUNNER_TEMP/openapi.h" /tmp/openapi.json || true; exit 1; }
           ct=$(curl -sI "$BASE/openapi.json" | awk -F': ' 'tolower($1)=="content-type"{print tolower($2)}' | tr -d '\r')
           echo "$ct" | grep -q 'application/openapi+json' || { echo "::error::expected application/openapi+json, got: $ct"; exit 1; }
           jq -e '.openapi | startswith("3.1")' /tmp/openapi.json > /dev/null
@@ -101,19 +152,28 @@ jobs:
       - name: Probe /.well-known/api-catalog
         run: |
           set -euo pipefail
-          status=$(curl -s -o /tmp/catalog.json -w "%{http_code}" "$BASE/.well-known/api-catalog")
-          test "$status" = "200" || { echo "::error::api-catalog returned $status"; exit 1; }
+          source "$RUNNER_TEMP/cf_challenge.sh"
+          status=$(curl -s -D "$RUNNER_TEMP/catalog.h" -o /tmp/catalog.json -w "%{http_code}" "$BASE/.well-known/api-catalog")
+          test "$status" = "200" || { cf_challenge_check "api-catalog" "api-catalog returned $status" "$RUNNER_TEMP/catalog.h" /tmp/catalog.json || true; exit 1; }
           ct=$(curl -sI "$BASE/.well-known/api-catalog" | awk -F': ' 'tolower($1)=="content-type"{print tolower($2)}' | tr -d '\r')
           echo "$ct" | grep -q 'application/linkset+json' || { echo "::error::expected application/linkset+json, got: $ct"; exit 1; }
 
       # The Link header advertises the discovery surface. If even one rel
       # falls off, agent clients break silently — assert all five.
+      # Header-only probes use a GET that discards the body (-o /dev/null) but
+      # saves response headers (-D), rather than HEAD (-sI): a HEAD wouldn't
+      # carry the challenge body and Cloudflare's challenge posture on HEAD is
+      # not guaranteed. Saving headers also lets the detector read the
+      # `cf-mitigated: challenge` signal so a Bot Fight Mode challenge here is
+      # attributed correctly instead of looking like a dropped header.
       - name: Probe Link header on landing page
         run: |
           set -euo pipefail
-          headers=$(curl -sI "$BASE/")
+          source "$RUNNER_TEMP/cf_challenge.sh"
+          curl -s -D "$RUNNER_TEMP/landing.h" -o /dev/null "$BASE/"
+          headers=$(cat "$RUNNER_TEMP/landing.h")
           link=$(echo "$headers" | awk -F': ' 'tolower($1)=="link"{$1=""; sub(/^ /,""); print}' | tr -d '\r')
-          test -n "$link" || { echo "::error::no Link header on landing page"; echo "$headers"; exit 1; }
+          test -n "$link" || { cf_challenge_check "Link header" "no Link header on landing page" "$RUNNER_TEMP/landing.h" || true; echo "$headers"; exit 1; }
           for rel in 'rel="api-catalog"' 'rel="https://agentskills.io/rel/index"' 'rel="service-desc"' 'rel="service-doc"' 'rel="status"'; do
             echo "$link" | grep -q "$rel" || { echo "::error::Link header missing $rel"; echo "Link: $link"; exit 1; }
           done
@@ -121,8 +181,10 @@ jobs:
       - name: Probe HSTS header
         run: |
           set -euo pipefail
-          hsts=$(curl -sI "$BASE/" | awk -F': ' 'tolower($1)=="strict-transport-security"{$1=""; sub(/^ /,""); print}' | tr -d '\r')
-          test -n "$hsts" || { echo "::error::no Strict-Transport-Security header"; exit 1; }
+          source "$RUNNER_TEMP/cf_challenge.sh"
+          curl -s -D "$RUNNER_TEMP/hsts.h" -o /dev/null "$BASE/"
+          hsts=$(awk -F': ' 'tolower($1)=="strict-transport-security"{$1=""; sub(/^ /,""); print}' "$RUNNER_TEMP/hsts.h" | tr -d '\r')
+          test -n "$hsts" || { cf_challenge_check "HSTS header" "no Strict-Transport-Security header" "$RUNNER_TEMP/hsts.h" || true; exit 1; }
           echo "$hsts" | grep -q 'max-age=' || { echo "::error::HSTS missing max-age: $hsts"; exit 1; }
 
   # File a tracking issue when the smoke fails. Skipped on workflow_dispatch
