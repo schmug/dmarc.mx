@@ -594,6 +594,41 @@ describe("HTML head tags", () => {
     expect(html).toContain('<dt><a href="/learn/mta-sts">MTA-STS</a></dt>');
   });
 
+  it("landing explainer lists every checked protocol, not just the graded set", async () => {
+    const res = await app.request("/");
+    const html = await res.text();
+    // Copy must not hardcode a protocol count (issue #453).
+    expect(html).not.toMatch(/\b(five|5)\s+protocols\b/i);
+    // The non-graded protocols must also appear in the inventory.
+    expect(html).toContain("<dt>MX</dt>");
+    expect(html).toContain(
+      '<dt><a href="/learn/security-txt">security.txt</a></dt>',
+    );
+    expect(html).toContain('<dt><a href="/learn/tls-rpt">TLS-RPT</a></dt>');
+    expect(html).toContain("<dt>DNSSEC</dt>");
+    expect(html).toContain("<dt>DANE/TLSA</dt>");
+    // The lead prose should still surface the SEO keyword targets.
+    expect(html).toContain("DMARC");
+    expect(html).toContain("MTA-STS");
+  });
+
+  it("/scoring heading is count-agnostic and lists every checked protocol", async () => {
+    const res = await app.request("/scoring");
+    const html = await res.text();
+    // Copy must not hardcode a protocol count anywhere on the page
+    // (issue #453: keep it from going stale again).
+    expect(html).not.toMatch(/\b(five|5)\s+protocols\b/i);
+    expect(html).toContain("The protocols we check");
+    // Non-graded protocols are present and distinguished from the graded set.
+    expect(html).toContain("<h3>MX</h3>");
+    expect(html).toContain(
+      '<h3><a href="/learn/security-txt">security.txt</a></h3>',
+    );
+    expect(html).toContain('<h3><a href="/learn/tls-rpt">TLS-RPT</a></h3>');
+    expect(html).toContain("<h3>DNSSEC</h3>");
+    expect(html).toContain("<h3>DANE/TLSA</h3>");
+  });
+
   it("/scoring cross-links each protocol heading to its /learn page", async () => {
     const res = await app.request("/scoring");
     const html = await res.text();

@@ -194,13 +194,19 @@ export function renderLandingPage(): string {
   </div>
   <section class="landing-explainer" id="what-we-check" aria-labelledby="explainer-heading">
     <h2 id="explainer-heading">What dmarcheck checks</h2>
-    <p>dmarcheck is a free DMARC, SPF, DKIM, BIMI, and MTA-STS checker for any domain. Enter a hostname and it pulls the live DNS records, validates them against the specs, and grades the overall posture from F to A+.</p>
+    <p>dmarcheck is a free DMARC, SPF, DKIM, BIMI, and MTA-STS checker for any domain. Enter a hostname and it pulls the live DNS records, validates them against the specs, and grades the overall posture from F to A+. It also checks MX, security.txt, TLS-RPT, DNSSEC, and DANE/TLSA and reports them alongside your grade.</p>
+    <p class="explainer-note">DMARC, SPF, DKIM, BIMI, and MTA-STS drive your grade. The rest are checked for context and reported, but don't change the letter grade.</p>
     <dl class="explainer-grid">
       <div><dt><a href="/learn/dmarc">DMARC</a></dt><dd>The policy record that tells receivers how to treat unauthenticated mail and where to send aggregate reports.</dd></div>
       <div><dt><a href="/learn/spf">SPF</a></dt><dd>The list of hosts authorized to send on your behalf, including the 10-DNS-lookup budget.</dd></div>
       <div><dt><a href="/learn/dkim">DKIM</a></dt><dd>Per-selector signing keys and their key length, checked against 38 common selectors.</dd></div>
       <div><dt><a href="/learn/bimi">BIMI</a></dt><dd>The brand logo record that can render next to authenticated messages in supporting inboxes.</dd></div>
       <div><dt><a href="/learn/mta-sts">MTA-STS</a></dt><dd>The TLS enforcement policy that prevents downgrade attacks on inbound mail.</dd></div>
+      <div><dt>MX</dt><dd>The mail exchangers that accept inbound mail for the domain, with provider detection. Informational — not part of the grade.</dd></div>
+      <div><dt><a href="/learn/security-txt">security.txt</a></dt><dd>The published contact for reporting security issues, per RFC 9116. Checked and reported, not graded.</dd></div>
+      <div><dt><a href="/learn/tls-rpt">TLS-RPT</a></dt><dd>The reporting address for TLS delivery failures on inbound mail. Checked and reported, not graded.</dd></div>
+      <div><dt>DNSSEC</dt><dd>Whether the zone is cryptographically signed against DNS tampering. Checked and reported, not graded.</dd></div>
+      <div><dt>DANE/TLSA</dt><dd>TLSA records that bind your mail server's certificate to DNS. Checked and reported, not graded.</dd></div>
     </dl>
   </section>
 </main>`,
@@ -801,8 +807,9 @@ export function renderScoringRubric(
   </div>
 
   <div class="bd-card">
-    <div class="bd-card-title">The five protocols</div>
+    <div class="bd-card-title">The protocols we check</div>
     <div class="bd-card-body">
+      <p class="rubric-subhead">These protocols determine your letter grade:</p>
       <div class="rubric-protocol">
         <h3><a href="/learn/dmarc">DMARC</a></h3>
         <p>Domain-based Message Authentication, Reporting &amp; Conformance. The policy layer that ties SPF and DKIM together and tells receivers what to do with unauthenticated mail. This is the most important factor in your grade.</p>
@@ -822,6 +829,27 @@ export function renderScoringRubric(
       <div class="rubric-protocol">
         <h3><a href="/learn/mta-sts">MTA-STS</a></h3>
         <p>Mail Transfer Agent Strict Transport Security. Forces TLS encryption for inbound mail delivery, preventing downgrade attacks. Modes: testing (report only) and enforce (reject unencrypted).</p>
+      </div>
+      <p class="rubric-subhead">We also check these and report them on every scan, but they do not currently affect the grade:</p>
+      <div class="rubric-protocol">
+        <h3>MX</h3>
+        <p>Mail Exchanger records. The servers that accept inbound mail for your domain, with provider detection. Informational only.</p>
+      </div>
+      <div class="rubric-protocol">
+        <h3><a href="/learn/security-txt">security.txt</a></h3>
+        <p>A published, machine-readable contact for reporting security issues (RFC 9116). Reported, not graded.</p>
+      </div>
+      <div class="rubric-protocol">
+        <h3><a href="/learn/tls-rpt">TLS-RPT</a></h3>
+        <p>SMTP TLS Reporting. A reporting address that receives diagnostics when inbound mail fails to negotiate TLS. Reported, not graded.</p>
+      </div>
+      <div class="rubric-protocol">
+        <h3>DNSSEC</h3>
+        <p>DNS Security Extensions. Cryptographic signatures that protect your zone's records from tampering in transit. Reported, not graded.</p>
+      </div>
+      <div class="rubric-protocol">
+        <h3>DANE/TLSA</h3>
+        <p>DNS-based Authentication of Named Entities. TLSA records that pin your mail server's certificate to DNS. Reported, not graded.</p>
       </div>
     </div>
   </div>
