@@ -43,7 +43,7 @@ import {
 
 export const SITE_ORIGIN = "https://dmarc.mx";
 export const DEFAULT_DESCRIPTION =
-  "Free, open-source DNS email security analyzer. Check DMARC, SPF, DKIM, BIMI, and MTA-STS records for any domain.";
+  "Free, open-source DNS email security analyzer. Check DMARC, SPF, DKIM, BIMI, MTA-STS, and more for any domain.";
 
 interface PageOptions {
   title: string;
@@ -149,7 +149,7 @@ export function renderLandingPage(): string {
     <div class="landing-nav">${navLoginButton()}</div>
     <div class="landing-main">
       <div class="logo">${generateCreature("lg")}<span class="logo-text">dmar<span>check</span></span></div>
-      <h1 class="tagline">DNS email security analyzer &mdash; DMARC, SPF, DKIM, BIMI &amp; MTA-STS</h1>
+      <h1 class="tagline">DNS email security analyzer &mdash; DMARC, SPF, DKIM, BIMI &amp; more</h1>
       <form action="/check" method="GET">
         <div class="search-box">
           <input type="text" name="domain" placeholder="Enter a domain (e.g., google.com)" aria-label="Enter a domain" autocapitalize="none" autocorrect="off" spellcheck="false" autofocus required>
@@ -468,7 +468,7 @@ export function renderReport(result: ScanResult): string {
   return page({
     title: `${result.domain} DMARC report — Free check | dmarcheck`,
     path: `/check?domain=${encodeURIComponent(result.domain)}`,
-    description: `Free, open-source DMARC, SPF, DKIM, BIMI, and MTA-STS check for ${result.domain}. See the current grade, records, and fixes. No signup, no email required.`,
+    description: `Free, open-source DMARC, SPF, DKIM, BIMI, MTA-STS, and more for ${result.domain}. See the current grade, records, and fixes. No signup, no email required.`,
     noindex: !isIndexableScanDomain(result.domain),
     body: reportBody(result),
   });
@@ -539,7 +539,7 @@ export function renderStreamingLoading(
   return page({
     title: `${domain} DMARC report — Free check | dmarcheck`,
     path: `/check?domain=${encodeURIComponent(domain)}`,
-    description: `Free, open-source DMARC, SPF, DKIM, BIMI, and MTA-STS check for ${domain}. See the current grade, records, and fixes. No signup, no email required.`,
+    description: `Free, open-source DMARC, SPF, DKIM, BIMI, MTA-STS, and more for ${domain}. See the current grade, records, and fixes. No signup, no email required.`,
     noindex: !isIndexableScanDomain(domain),
     body: `<main class="report" data-qs="${esc(qs)}">
   <div class="report-nav">

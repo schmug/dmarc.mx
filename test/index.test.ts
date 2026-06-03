@@ -782,7 +782,7 @@ describe("/check meta tags and noindex gating", () => {
     expect(res.status).toBe(200);
     const html = await res.text();
     expect(html).toContain(
-      'content="Free, open-source DMARC, SPF, DKIM, BIMI, and MTA-STS check for github.com. See the current grade, records, and fixes. No signup, no email required."',
+      'content="Free, open-source DMARC, SPF, DKIM, BIMI, MTA-STS, and more for github.com. See the current grade, records, and fixes. No signup, no email required."',
     );
   });
 

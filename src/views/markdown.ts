@@ -386,7 +386,7 @@ Run a scan: ${MD_SITE}/check?domain=example.com
 }
 
 export function renderPricingMarkdown(): string {
-  return `# Nightly DMARC, SPF, DKIM, BIMI & MTA-STS monitoring
+  return `# Nightly email-security monitoring — DMARC, SPF, DKIM & more
 
 **$19/mo.** Free forever for one-off scans.
 
@@ -397,7 +397,7 @@ Public scanner, no account needed.
 - Unlimited on-demand scans from the web UI
 - JSON API: \`GET /api/check?domain=example.com\`
 - 10 requests per minute per IP
-- All five analyzers: DMARC, SPF, DKIM, BIMI, MTA-STS
+- All analyzers: DMARC, SPF, DKIM, BIMI, MTA-STS, MX, security.txt, TLS-RPT, DNSSEC, DANE
 - Self-hostable (MIT) — <https://github.com/schmug/dmarcheck>
 
 ## Pro — $19/mo
@@ -418,7 +418,7 @@ Continuous monitoring for the domains you actually care about.
 
 ## FAQ
 
-- **Does the free scanner stay free?** Yes. The scanner, all five analyzers, and the JSON API stay free and open source. Pro adds hosted features — history, monitoring, alerts — not the scan itself.
+- **Does the free scanner stay free?** Yes. The scanner, all its analyzers, and the JSON API stay free and open source. Pro adds hosted features — history, monitoring, alerts — not the scan itself.
 - **What counts as "nightly"?** Once every 24 hours, in the early-UTC-morning window. Every domain on your watchlist gets re-scanned; if the grade drops or a protocol regresses versus the previous scan, you get an email.
 - **How do I cancel?** One click in the Stripe Customer Portal, linked from your account page. You keep access until the end of the current billing cycle and aren't charged again.
 - **Refunds?** Yes — email support@dmarc.mx within 30 days of the charge for a full refund. After 30 days, cancel at period end.
