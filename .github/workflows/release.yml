@@ -132,7 +132,7 @@ jobs:
             "dmarcheck-${VERSION}.zip" > SHA256SUMS
 
       - name: Install cosign (Sigstore)
-        uses: sigstore/cosign-installer@11606fdb78ecbf8504a2bf72df938fc4c43bfedd # v3.8.1
+        uses: sigstore/cosign-installer@d7d6bc7722e3daa8354c50bcb52f4837da5e9b6a # v3.8.1
 
       - name: Sign SHA256SUMS with Sigstore keyless signing
         run: |
