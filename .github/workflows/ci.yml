@@ -30,3 +30,39 @@ jobs:
       # Security tab, they just don't block PRs here. Tighten if the threat
       # model expands to cover developer machines.
       - run: npm audit --audit-level=high --omit=dev
+      # Action-pin integrity: verify every third-party SHA-pinned action in
+      # .github/workflows/** resolves to a real commit in its upstream repo.
+      # Catches typos and hallucinated pins before they reach a release run
+      # (the class of error that broke #469). Folded into the required `check`
+      # job so it always reports and never creates a merge-deadlock context.
+      - name: Verify pinned action SHAs resolve
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          failed=0
+          while IFS= read -r pin; do
+            [ -z "$pin" ] && continue
+            action="${pin%@*}"
+            sha="${pin##*@}"
+            owner="${action%%/*}"
+            rest="${action#*/}"
+            repo="${rest%%/*}"
+            if gh api "repos/${owner}/${repo}/commits/${sha}" --silent > /dev/null 2>&1; then
+              echo "OK   ${owner}/${repo}@${sha}"
+            else
+              echo "FAIL ${owner}/${repo}@${sha} — SHA does not resolve in upstream repo"
+              failed=$((failed + 1))
+            fi
+          done < <(
+            grep -rhoE 'uses: [^ ]+@[0-9a-f]{40}' .github/workflows/ \
+              | sed 's/^uses: //' \
+              | grep -vE '^(\.\/|docker://)' \
+              | sort -u \
+              || true
+          )
+          if [ "$failed" -gt 0 ]; then
+            echo "::error::$failed pinned action SHA(s) do not resolve — fix or re-pin before merging."
+            exit 1
+          fi
+          echo "All pinned action SHAs resolve."
