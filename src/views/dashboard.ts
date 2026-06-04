@@ -1468,11 +1468,13 @@ export function renderAlertsSection(
   now: number = Math.floor(Date.now() / 1000),
 ): string {
   if (alerts.length === 0) return "";
-  const items = alerts
-    .map((a) => {
-      const domainHref = `/dashboard/domain/${encodeURIComponent(a.domain)}`;
-      const ackHref = `/dashboard/alerts/${a.id}/acknowledge`;
-      return `<li>
+  // ⚡ Bolt Optimization: Use loop instead of array .map().join("")
+  // to reduce memory allocations and GC pressure on hot rendering paths.
+  let items = "";
+  for (const a of alerts) {
+    const domainHref = `/dashboard/domain/${encodeURIComponent(a.domain)}`;
+    const ackHref = `/dashboard/alerts/${a.id}/acknowledge`;
+    items += `<li>
   <span class="alert-domain"><a href="${domainHref}">${esc(a.domain)}</a></span>
   <span class="alert-message">${esc(describeAlert(a))}</span>
   <span class="alert-time">${esc(relativeTime(a.createdAt, now))}</span>
@@ -1480,8 +1482,7 @@ export function renderAlertsSection(
     <button type="submit" class="btn-dismiss" aria-label="Dismiss alert for ${esc(a.domain)}">Dismiss</button>
   </form>
 </li>`;
-    })
-    .join("");
+  }
   const dismissAll =
     alerts.length >= 2
       ? `<form method="post" action="/dashboard/alerts/acknowledge-all" class="dismiss-all-form">
@@ -2876,21 +2877,22 @@ function renderWebhookTestFlash(flash: WebhookTestFlash | null): string {
 
 function renderWebhookDeliveries(rows: RecentWebhookDelivery[]): string {
   if (rows.length === 0) return "";
-  const items = rows
-    .map((row) => {
-      const when = new Date(row.attemptedAt * 1000).toLocaleString();
-      const result = row.ok
-        ? `HTTP ${row.statusCode ?? "?"} ✓`
-        : row.statusCode !== null
-          ? `HTTP ${row.statusCode} ✗`
-          : `${esc(row.error ?? "error")} ✗`;
-      return `<tr>
+  // ⚡ Bolt Optimization: Use loop instead of array .map().join("")
+  // to reduce memory allocations and GC pressure on hot rendering paths.
+  let items = "";
+  for (const row of rows) {
+    const when = new Date(row.attemptedAt * 1000).toLocaleString();
+    const result = row.ok
+      ? `HTTP ${row.statusCode ?? "?"} ✓`
+      : row.statusCode !== null
+        ? `HTTP ${row.statusCode} ✗`
+        : `${esc(row.error ?? "error")} ✗`;
+    items += `<tr>
   <td style="padding:0.25rem 0.5rem">${esc(when)}</td>
   <td style="padding:0.25rem 0.5rem"><code>${esc(row.eventType)}</code></td>
   <td style="padding:0.25rem 0.5rem">${result}</td>
 </tr>`;
-    })
-    .join("");
+  }
   return `<details style="margin-top:1rem">
   <summary style="cursor:pointer;font-size:0.875rem;color:var(--clr-text-muted)">Recent deliveries (${rows.length})</summary>
   <table style="margin-top:0.5rem;font-size:0.8125rem;border-collapse:collapse;width:100%">
