@@ -48,7 +48,7 @@ jobs:
 
       - name: Install git-cliff
         if: steps.check.outputs.skip != 'true'
-        uses: taiki-e/install-action@6ed6112eb9893c58dd600eebccdf6e77ab7bfa9c # v2.79.12
+        uses: taiki-e/install-action@25435dc8dd3baed7417e0c96d3fe89013a5b2e09 # v2.81.3
         with:
           tool: git-cliff
 
