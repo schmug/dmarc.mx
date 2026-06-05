@@ -72,6 +72,7 @@ interface FakeSubscription {
 
 let domainStore: FakeDomain[];
 let subStore: FakeSubscription[];
+let overrideStore: Map<string, number | null>;
 let nextId: number;
 
 // Minimal D1 mock supporting subscriptions lookup, domain CRUD, and the
@@ -122,6 +123,16 @@ function makeDb(): D1Database {
         const sub = subStore.find((s) => s.user_id === params[0]);
         return (sub ? { status: sub.status } : null) as T | null;
       }
+      if (sql.includes("SELECT COUNT(*) AS n FROM domains")) {
+        const userId = params[0] as string;
+        const n = domainStore.filter((d) => d.user_id === userId).length;
+        return { n } as T;
+      }
+      if (sql.includes("SELECT max_domains_override FROM users")) {
+        const userId = params[0] as string;
+        const override = overrideStore.get(userId) ?? null;
+        return { max_domains_override: override } as T;
+      }
       if (/SELECT \* FROM domains WHERE user_id = \? AND domain/i.test(sql)) {
         return (domainStore.find(
           (d) => d.user_id === params[0] && d.domain === params[1],
@@ -129,7 +140,19 @@ function makeDb(): D1Database {
       }
       return null as T | null;
     },
-    all: async <T>() => ({ results: [] as T[] }),
+    all: async <T>() => {
+      if (
+        /SELECT domain FROM domains WHERE user_id = \? AND domain IN/i.test(sql)
+      ) {
+        const userId = params[0] as string;
+        const names = params.slice(1) as string[];
+        const results = domainStore
+          .filter((d) => d.user_id === userId && names.includes(d.domain))
+          .map((d) => ({ domain: d.domain }));
+        return { results: results as T[] };
+      }
+      return { results: [] as T[] };
+    },
   });
 
   return {
@@ -169,6 +192,7 @@ function fetchBulk(body: unknown, init: RequestInit = {}) {
 beforeEach(() => {
   domainStore = [];
   subStore = [];
+  overrideStore = new Map();
   nextId = 1;
   bearerStub = null;
 });
@@ -262,5 +286,32 @@ describe("POST /api/bulk-scan", () => {
     subStore.push({ user_id: "user_was_pro", status: "canceled" });
     const res = await fetchBulk({ domains: ["example.com"] });
     expect(res.status).toBe(402);
+  });
+
+  it("respects max_domains_override when the default Pro cap is exhausted", async () => {
+    bearerStub = { userId: "user_pro", keyId: "k1" };
+    subStore.push({ user_id: "user_pro", status: "active" });
+    overrideStore.set("user_pro", 50);
+    for (let i = 0; i < 25; i++) {
+      domainStore.push({
+        id: nextId++,
+        user_id: "user_pro",
+        domain: `d${i}.example`,
+        is_free: 0,
+        scan_frequency: "weekly",
+        last_scanned_at: 1700000000,
+        last_grade: "A",
+      });
+    }
+    const res = await fetchBulk({ domains: ["new26.example"] });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      accepted: number;
+      results: Array<{ domain: string; status: string; error?: string }>;
+    };
+    expect(body.accepted).toBe(1);
+    expect(body.results).toEqual([
+      { domain: "new26.example", status: "scanned", grade: "B" },
+    ]);
   });
 });
