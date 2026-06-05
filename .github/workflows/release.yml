@@ -107,7 +107,12 @@ jobs:
             "dmarcheck-${VERSION}.zip" > SHA256SUMS
 
       - name: Install cosign (Sigstore)
-        uses: sigstore/cosign-installer@d7d6bc7722e3daa8354c50bcb52f4837da5e9b6a # v3.8.1
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          # Pin the cosign CLI explicitly so the signing binary can't silently
+          # drift on a future cosign-installer bump. v3.0.6 is installer
+          # v4.1.2's default; cosign 3.x requires installer v4+.
+          cosign-release: 'v3.0.6'
 
       - name: Sign SHA256SUMS with Sigstore keyless signing
         run: |
