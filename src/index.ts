@@ -43,7 +43,10 @@ import { dashboardRoutes } from "./dashboard/routes.js";
 import { getDomainByUserAndName } from "./db/domains.js";
 import { recordScan } from "./db/scans.js";
 import { getPlanForUser } from "./db/subscriptions.js";
-import { setEmailAlertsEnabled } from "./db/users.js";
+import {
+  getMaxDomainsOverrideForUser,
+  setEmailAlertsEnabled,
+} from "./db/users.js";
 import type { Env } from "./env.js";
 import { handleMcpRequest, MCP_SERVER_CARD } from "./mcp/handler.js";
 import type { ProtocolId, ProtocolResult } from "./orchestrator.js";
@@ -56,7 +59,7 @@ import {
 } from "./rate-limit.js";
 import { normalizeDomain } from "./shared/domain.js";
 import { listIndexableScanDomains } from "./shared/indexable-domains.js";
-import { watchlistCapForPlan } from "./shared/limits.js";
+import { watchlistCapFor } from "./shared/limits.js";
 import { parseScoringConfig } from "./shared/scoring-config.js";
 import { CSS_PATH, JS_PATH } from "./views/assets.js";
 import {
@@ -1119,7 +1122,10 @@ app.post("/api/bulk-scan", async (c) => {
   if (!db) {
     return c.json({ error: "Database not configured" }, 500);
   }
-  const plan = await getPlanForUser(db, bearer.userId);
+  const [plan, override] = await Promise.all([
+    getPlanForUser(db, bearer.userId),
+    getMaxDomainsOverrideForUser(db, bearer.userId),
+  ]);
   if (plan !== "pro") {
     return c.json(
       {
@@ -1148,7 +1154,7 @@ app.post("/api/bulk-scan", async (c) => {
     db,
     userId: bearer.userId,
     rawDomains,
-    watchlistCap: watchlistCapForPlan(plan),
+    watchlistCap: watchlistCapFor(plan, override),
     scoringConfig: parseScoringConfig(c.env?.SCORING_CONFIG),
   });
   if (isCapExceeded(outcome)) {
