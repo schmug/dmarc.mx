@@ -5,6 +5,8 @@ import {
   deleteDomain,
   getDomainByUserAndName,
   getDomainsByUser,
+  getGradeDistributionForUser,
+  getWorstGradedDomainForUser,
   listDomainsForUserPaged,
   updateLastScan,
 } from "../src/db/domains.js";
@@ -72,6 +74,42 @@ function makeD1Mock(): D1Database {
               }
               return null;
             }
+            // getWorstGradedDomainForUser: lowest-graded domain across the whole
+            // watchlist, tie-broken alphabetically, ungraded rows excluded.
+            if (
+              /last_grade IS NOT NULL/i.test(sql) &&
+              /ORDER BY/i.test(sql) &&
+              /LIMIT 1/i.test(sql)
+            ) {
+              const [userId] = params as [string];
+              const score: Record<string, number> = {
+                S: 12,
+                "A+": 11,
+                A: 10,
+                "A-": 9,
+                "B+": 8,
+                B: 7,
+                "B-": 6,
+                "C+": 5,
+                C: 4,
+                "C-": 3,
+                "D+": 2,
+                D: 1,
+                "D-": 1,
+                F: 0,
+              };
+              const graded = [...store.values()].filter(
+                (row) => row.user_id === userId && row.last_grade !== null,
+              );
+              if (graded.length === 0) return null;
+              graded.sort((a, b) => {
+                const ra = score[a.last_grade as string] ?? 0;
+                const rb = score[b.last_grade as string] ?? 0;
+                return ra !== rb ? ra - rb : a.domain.localeCompare(b.domain);
+              });
+              const worst = graded[0];
+              return { domain: worst.domain, grade: worst.last_grade } as T;
+            }
             return null;
           },
           all: async <T>(): Promise<{ results: T[] }> => {
@@ -80,6 +118,23 @@ function makeD1Mock(): D1Database {
               const results = [...store.values()]
                 .filter((row) => row.user_id === userId)
                 .sort((a, b) => a.created_at - b.created_at) as T[];
+              return { results };
+            }
+            // getGradeDistributionForUser: GROUP BY last_grade counts.
+            if (/GROUP BY last_grade/i.test(sql)) {
+              const [userId] = params as [string];
+              const counts = new Map<string | null, number>();
+              for (const row of store.values()) {
+                if (row.user_id !== userId) continue;
+                counts.set(
+                  row.last_grade,
+                  (counts.get(row.last_grade) ?? 0) + 1,
+                );
+              }
+              const results = [...counts.entries()].map(([grade, count]) => ({
+                grade,
+                count,
+              })) as T[];
               return { results };
             }
             return { results: [] };
@@ -254,6 +309,89 @@ describe("db/domains", () => {
       const updated = await getDomainByUserAndName(db, "user-1", "rescan.com");
       expect(updated?.last_grade).toBe("A+");
       expect(updated?.last_scanned_at).toBe(1700001000);
+    });
+  });
+
+  // Helper: create a domain and optionally stamp a grade on it, mirroring how
+  // the cron/scan path populates domains.last_grade.
+  async function addGraded(
+    userId: string,
+    domain: string,
+    grade: string | null,
+  ): Promise<void> {
+    await createDomain(db, { userId, domain, isFree: false });
+    if (grade !== null) {
+      const d = await getDomainByUserAndName(db, userId, domain);
+      if (d) await updateLastScan(db, d.id, grade, 1700000000);
+    }
+  }
+
+  describe("getGradeDistributionForUser", () => {
+    it("tallies the whole watchlist into healthy/drifting/failing/ungraded", async () => {
+      await addGraded("user-1", "a1.com", "A");
+      await addGraded("user-1", "a2.com", "A");
+      await addGraded("user-1", "b1.com", "B-");
+      await addGraded("user-1", "c1.com", "C");
+      await addGraded("user-1", "f1.com", "F");
+      await addGraded("user-1", "f2.com", "F");
+      await addGraded("user-1", "f3.com", "F");
+      await addGraded("user-1", "u1.com", null);
+      // Another user's domain must not bleed into the tally.
+      await addGraded("user-2", "other.com", "F");
+
+      const stats = await getGradeDistributionForUser(db, "user-1");
+      expect(stats).toEqual({
+        total: 8,
+        healthy: 3,
+        drifting: 1,
+        failing: 3,
+        ungraded: 1,
+      });
+    });
+
+    it("returns an all-zero tally for a user with no domains", async () => {
+      const stats = await getGradeDistributionForUser(db, "nobody");
+      expect(stats).toEqual({
+        total: 0,
+        healthy: 0,
+        drifting: 0,
+        failing: 0,
+        ungraded: 0,
+      });
+    });
+  });
+
+  describe("getWorstGradedDomainForUser", () => {
+    it("returns the lowest-graded domain, tie-broken alphabetically", async () => {
+      await addGraded("user-1", "zeta.com", "F");
+      await addGraded("user-1", "alpha.com", "F");
+      await addGraded("user-1", "mid.com", "C");
+
+      const worst = await getWorstGradedDomainForUser(db, "user-1");
+      expect(worst).toEqual({ domain: "alpha.com", grade: "F" });
+    });
+
+    it("ignores ungraded domains", async () => {
+      await addGraded("user-1", "ungraded.com", null);
+      await addGraded("user-1", "graded.com", "D");
+
+      const worst = await getWorstGradedDomainForUser(db, "user-1");
+      expect(worst).toEqual({ domain: "graded.com", grade: "D" });
+    });
+
+    it("does not rank a perfect S grade as the worst", async () => {
+      await addGraded("user-1", "perfect.com", "S");
+      await addGraded("user-1", "drifting.com", "C");
+
+      const worst = await getWorstGradedDomainForUser(db, "user-1");
+      expect(worst).toEqual({ domain: "drifting.com", grade: "C" });
+    });
+
+    it("returns null when no domain has been graded", async () => {
+      await addGraded("user-1", "pending.com", null);
+
+      const worst = await getWorstGradedDomainForUser(db, "user-1");
+      expect(worst).toBeNull();
     });
   });
 });

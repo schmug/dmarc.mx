@@ -29,6 +29,8 @@ import {
   deleteDomain,
   getDomainByUserAndName,
   getDomainsByUser,
+  getGradeDistributionForUser,
+  getWorstGradedDomainForUser,
   listDomainsForUserPaged,
 } from "../db/domains.js";
 import {
@@ -386,12 +388,19 @@ dashboardRoutes.get("/", async (c) => {
   const db = (c.env as { DB: D1Database }).DB;
   const plan = await getPlanForUser(db, session.sub);
 
-  const [alerts, unackCounts, portfolioTrend, user] = await Promise.all([
-    listUnacknowledgedForUser(db, session.sub, 20),
-    countUnacknowledgedByDomain(db, session.sub),
-    getPortfolioTrendForUser(db, session.sub, 30),
-    getUserById(db, session.sub),
-  ]);
+  // distribution + worst are portfolio-wide aggregates (not per-page), so the
+  // hero, stat strip, and on-fire banner reflect the entire watchlist even
+  // when the Pro table below shows only one paginated page. distribution.total
+  // doubles as the usage count, so no separate countDomainsByUser is needed.
+  const [alerts, unackCounts, portfolioTrend, user, distribution, worst] =
+    await Promise.all([
+      listUnacknowledgedForUser(db, session.sub, 20),
+      countUnacknowledgedByDomain(db, session.sub),
+      getPortfolioTrendForUser(db, session.sub, 30),
+      getUserById(db, session.sub),
+      getGradeDistributionForUser(db, session.sub),
+      getWorstGradedDomainForUser(db, session.sub),
+    ]);
 
   // First-run = the user signed up within the last 24 hours and has exactly
   // one domain (the one auto-provisioned from their email suffix). The hero's
@@ -435,31 +444,27 @@ dashboardRoutes.get("/", async (c) => {
         controls: null,
         usage: {
           plan,
-          current: domains.length,
+          current: distribution.total,
           cap: watchlistCapFor(plan, user?.max_domains_override),
         },
+        stats: distribution,
+        worst,
       }),
     );
   }
 
   const query = parseDomainListQuery(new URL(c.req.url));
   const offset = (query.page - 1) * query.pageSize;
-  // Unfiltered watchlist count, separate from `page.total` (which respects
-  // the search/grade/frequency filters). The toolbar usage hint reflects
-  // the user's full watchlist regardless of what's currently filtered.
-  const [page, totalForUser] = await Promise.all([
-    listDomainsForUserPaged(db, {
-      userId: session.sub,
-      search: query.search || undefined,
-      grade: query.grade ?? undefined,
-      frequency: query.frequency ?? undefined,
-      sort: query.sort,
-      direction: query.direction,
-      limit: query.pageSize,
-      offset,
-    }),
-    countDomainsByUser(db, session.sub),
-  ]);
+  const page = await listDomainsForUserPaged(db, {
+    userId: session.sub,
+    search: query.search || undefined,
+    grade: query.grade ?? undefined,
+    frequency: query.frequency ?? undefined,
+    sort: query.sort,
+    direction: query.direction,
+    limit: query.pageSize,
+    offset,
+  });
 
   // Clamp out-of-range pages so a deep-linked stale URL doesn't render an
   // empty table when results exist.
@@ -496,9 +501,11 @@ dashboardRoutes.get("/", async (c) => {
       },
       usage: {
         plan,
-        current: totalForUser,
+        current: distribution.total,
         cap: watchlistCapFor(plan, user?.max_domains_override),
       },
+      stats: distribution,
+      worst,
     }),
   );
 });

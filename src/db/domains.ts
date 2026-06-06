@@ -1,3 +1,5 @@
+import { type PortfolioStats, tallyGradeCounts } from "../shared/portfolio.js";
+
 export interface Domain {
   id: number;
   user_id: string;
@@ -61,6 +63,66 @@ export async function countDomainsByUser(
     .bind(userId)
     .first<{ n: number }>();
   return row?.n ?? 0;
+}
+
+// Portfolio-wide grade distribution for the dashboard scoreboard. One indexed
+// GROUP BY over the user's domains — returns counts, not rows — so the summary
+// reflects the entire watchlist regardless of which page the table is showing.
+export async function getGradeDistributionForUser(
+  db: D1Database,
+  userId: string,
+): Promise<PortfolioStats> {
+  const result = await db
+    .prepare(
+      "SELECT last_grade AS grade, COUNT(*) AS count FROM domains WHERE user_id = ? GROUP BY last_grade",
+    )
+    .bind(userId)
+    .all<{ grade: string | null; count: number }>();
+  return tallyGradeCounts(result.results);
+}
+
+// Worst-graded domain across the whole watchlist, for the hero's "triage X
+// first" line. Ordered worst→best (F lowest, S highest), tie-broken
+// alphabetically. Deliberately NOT GRADE_RANK_SQL: that table omits 'S' and so
+// ranks a perfect grade as worst — wrong for this query. Ungraded domains are
+// excluded so a freshly-added, never-scanned entry isn't mislabeled.
+const WORST_GRADE_ORDER_SQL = `CASE last_grade
+  WHEN 'S'  THEN 12
+  WHEN 'A+' THEN 11
+  WHEN 'A'  THEN 10
+  WHEN 'A-' THEN 9
+  WHEN 'B+' THEN 8
+  WHEN 'B'  THEN 7
+  WHEN 'B-' THEN 6
+  WHEN 'C+' THEN 5
+  WHEN 'C'  THEN 4
+  WHEN 'C-' THEN 3
+  WHEN 'D+' THEN 2
+  WHEN 'D'  THEN 1
+  WHEN 'D-' THEN 1
+  WHEN 'F'  THEN 0
+  ELSE 0
+END`;
+
+export interface WorstGradedDomain {
+  domain: string;
+  grade: string;
+}
+
+export async function getWorstGradedDomainForUser(
+  db: D1Database,
+  userId: string,
+): Promise<WorstGradedDomain | null> {
+  const row = await db
+    .prepare(
+      `SELECT domain, last_grade AS grade FROM domains
+       WHERE user_id = ? AND last_grade IS NOT NULL
+       ORDER BY ${WORST_GRADE_ORDER_SQL} ASC, domain ASC
+       LIMIT 1`,
+    )
+    .bind(userId)
+    .first<WorstGradedDomain>();
+  return row ?? null;
 }
 
 // Returns the subset of `domains` that the user already owns. Used by

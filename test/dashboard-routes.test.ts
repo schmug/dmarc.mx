@@ -178,6 +178,41 @@ function createMockDB(data: {
         const rows = filterPagedDomains(sql, bindings, domains);
         return { n: rows.length } as T;
       }
+      // getWorstGradedDomainForUser: lowest-graded domain across the watchlist,
+      // tie-broken alphabetically, ungraded excluded, S treated as best.
+      if (
+        /last_grade IS NOT NULL/i.test(sql) &&
+        /ORDER BY/i.test(sql) &&
+        /LIMIT 1/i.test(sql)
+      ) {
+        const [userId] = bindings as [string];
+        const score: Record<string, number> = {
+          S: 12,
+          "A+": 11,
+          A: 10,
+          "A-": 9,
+          "B+": 8,
+          B: 7,
+          "B-": 6,
+          "C+": 5,
+          C: 4,
+          "C-": 3,
+          "D+": 2,
+          D: 1,
+          "D-": 1,
+          F: 0,
+        };
+        const graded = domains.filter(
+          (d) => d.user_id === userId && d.last_grade !== null,
+        );
+        if (graded.length === 0) return null;
+        graded.sort((a, b) => {
+          const ra = score[a.last_grade as string] ?? 0;
+          const rb = score[b.last_grade as string] ?? 0;
+          return ra !== rb ? ra - rb : a.domain.localeCompare(b.domain);
+        });
+        return { domain: graded[0].domain, grade: graded[0].last_grade } as T;
+      }
       return null as T | null;
     },
     all: async <T>() => {
@@ -275,6 +310,21 @@ function createMockDB(data: {
         }
         const rows = [...counts.entries()].map(([domain_id, count]) => ({
           domain_id,
+          count,
+        }));
+        return { results: rows as T[] };
+      }
+      // getGradeDistributionForUser: GROUP BY last_grade counts for the whole
+      // watchlist, scoped to the user.
+      if (/GROUP BY last_grade/i.test(sql)) {
+        const [userId] = bindings as [string];
+        const counts = new Map<string | null, number>();
+        for (const d of domains) {
+          if (d.user_id !== userId) continue;
+          counts.set(d.last_grade, (counts.get(d.last_grade) ?? 0) + 1);
+        }
+        const rows = [...counts.entries()].map(([grade, count]) => ({
+          grade,
           count,
         }));
         return { results: rows as T[] };
@@ -510,6 +560,57 @@ describe("dashboard/routes", () => {
       expect(body).toContain("domain-01.com");
       expect(body).toContain("domain-25.com");
       expect(body).not.toContain("domain-26.com");
+    });
+
+    it("computes the scoreboard from the whole watchlist, not the visible page", async () => {
+      // 30 domains: page 1 (domain-01..25, sorted asc) is all healthy A's, and
+      // every failure lives on page 2 (domain-26..30 = F). If the scoreboard
+      // read only the visible page it would show 0 failures and party-hat;
+      // portfolio-wide it must surface 5 failures and triage the worst.
+      const proDomains = Array.from({ length: 30 }, (_, i) => ({
+        id: i + 1,
+        user_id: "user_pro",
+        domain: `domain-${String(i + 1).padStart(2, "0")}.com`,
+        is_free: 0,
+        scan_frequency: "weekly" as const,
+        last_scanned_at: 1700000000 + i,
+        last_grade: i < 25 ? "A" : "F",
+        created_at: 1700000000 + i,
+      }));
+      const db = createMockDB({
+        users: [
+          {
+            id: "user_pro",
+            email: "pro@example.com",
+            email_domain: "example.com",
+            stripe_customer_id: "cus_x",
+            email_alerts_enabled: 1,
+            api_key_retirement_acknowledged_at: 1700000000,
+            created_at: 1700000000,
+          },
+        ],
+        subscriptions: [{ user_id: "user_pro", status: "active" }],
+        domains: proDomains,
+      });
+      const app = createTestApp(db);
+      const cookie = await makeSessionCookie("user_pro", "pro@example.com");
+      const res = await app.request("/dashboard", {
+        headers: { Cookie: cookie },
+      });
+      const body = await res.text();
+      // The headline symptom: the "Domains" stat card shows the full watchlist
+      // size (30), not the visible page size (25). The stat-card-value anchor
+      // avoids colliding with the "Showing 1–25 of 30" pagination string.
+      expect(body).toMatch(/stat-card-value">30</);
+      // On-fire banner + hero reflect all 5 portfolio failures.
+      expect(body).toContain("5 domains failing");
+      expect(body).toContain("5 domains are failing");
+      // The worst domain (page 2, not in the visible table) is triaged.
+      expect(body).toContain("domain-26.com");
+      // A failing portfolio must not celebrate just because page 1 is green.
+      // Anchor on the rendered creature element so the CSS rule of the same
+      // name (always inlined) doesn't trip the assertion.
+      expect(body).not.toMatch(/<div class="creature[^"]*creature-partying/);
     });
 
     it("filters by search query for Pro users", async () => {

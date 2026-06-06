@@ -342,6 +342,51 @@ describe("renderDashboardPage", () => {
       expect(hasSection(html, "stat-card-fail")).toBe(true); // 1 failing
     });
 
+    it("derives the scoreboard from the explicit stats override, not the page rows", () => {
+      // The Pro dashboard passes one paginated page of rows but portfolio-wide
+      // stats/worst. The scoreboard, on-fire banner, and hero "triage" line
+      // must reflect the whole watchlist, not just the visible page.
+      const html = renderDashboardPage({
+        email: "u@x.com",
+        plan: "pro",
+        // Page rows are all healthy A's — if the scoreboard read these, it would
+        // show 2 healthy / 0 failing and party-hat.
+        domains: [sample("A", "page-a.com"), sample("A", "page-b.com")],
+        stats: {
+          total: 344,
+          healthy: 300,
+          drifting: 32,
+          failing: 12,
+          ungraded: 0,
+        },
+        worst: { domain: "worst-in-portfolio.example", grade: "F" },
+      });
+      // "Domains" card shows the full watchlist size, not the 2 visible rows.
+      expect(html).toContain("344");
+      // Failing card + on-fire banner reflect the 12 portfolio-wide failures.
+      expect(hasSection(html, "stat-card-fail")).toBe(true);
+      expect(hasSection(html, "dashboard-banner-fire")).toBe(true);
+      expect(html).toContain("12 domains failing");
+      // Hero triages the portfolio-wide worst domain, which isn't on this page.
+      expect(html).toContain("12 domains are failing");
+      expect(html).toContain("worst-in-portfolio.example");
+      // A failing portfolio must never party-hat, even though the page is green.
+      expect(html).not.toMatch(/<div class="creature[^"]*creature-partying/);
+    });
+
+    it("falls back to deriving stats from domains when no override is given", () => {
+      // Free tier and fixtures pass the full list as `domains` and omit the
+      // override — the derived path must keep working unchanged.
+      const html = renderDashboardPage({
+        email: "u@x.com",
+        domains: [sample("A", "a.com"), sample("F", "b.com")],
+      });
+      expect(html).toContain('class="stat-strip"');
+      expect(hasSection(html, "stat-card-pass")).toBe(true); // 1 healthy
+      expect(hasSection(html, "stat-card-fail")).toBe(true); // 1 failing
+      expect(html).toContain("b.com"); // worst derived from the list
+    });
+
     it("renders the free-tier banner only when plan=free", () => {
       const free = renderDashboardPage({
         email: "u@x.com",

@@ -1,3 +1,8 @@
+import {
+  emptyPortfolioStats,
+  gradeBucket,
+  type PortfolioStats,
+} from "../shared/portfolio.js";
 import type { WebhookFormat } from "../webhooks/formats/index.js";
 import {
   esc,
@@ -1808,27 +1813,25 @@ function worstDomain(domains: DashboardDomain[]): DashboardDomain | null {
   return worst;
 }
 
-interface PortfolioStats {
-  total: number;
-  healthy: number;
-  drifting: number;
-  failing: number;
-  ungraded: number;
+// Minimal shape the hero needs from the worst-graded domain. Both the in-list
+// `worstDomain` (returns a full DashboardDomain) and the DB-backed override
+// (domain + grade only) satisfy it.
+interface HeroWorst {
+  domain: string;
+  grade: string;
 }
 
+// Tally an in-hand list of domains. Used for the free tier and dev fixtures
+// where `domains` is the user's complete watchlist; the Pro path passes a
+// portfolio-wide tally computed from an aggregate query instead (see the
+// `stats` override on renderDashboardPage).
 function portfolioStats(domains: DashboardDomain[]): PortfolioStats {
-  let healthy = 0;
-  let drifting = 0;
-  let failing = 0;
-  let ungraded = 0;
+  const stats = emptyPortfolioStats();
   for (const d of domains) {
-    const letter = d.grade.charAt(0).toUpperCase();
-    if (letter === "S" || letter === "A" || letter === "B") healthy += 1;
-    else if (letter === "C" || letter === "D") drifting += 1;
-    else if (letter === "F") failing += 1;
-    else ungraded += 1;
+    stats.total += 1;
+    stats[gradeBucket(d.grade)] += 1;
   }
-  return { total: domains.length, healthy, drifting, failing, ungraded };
+  return stats;
 }
 
 // Composes the DMarcus voice line for the hero in the "terse" register the
@@ -1837,7 +1840,7 @@ function portfolioStats(domains: DashboardDomain[]): PortfolioStats {
 // rendered as <code> via the markdown-ish hero-line lookup in render.
 function heroVoiceLine(
   stats: PortfolioStats,
-  worst: DashboardDomain | null,
+  worst: HeroWorst | null,
 ): {
   line: string;
   sub: string;
@@ -1905,7 +1908,7 @@ function renderOnFireBanner(failing: number): string {
 
 function renderDashboardHero(
   stats: PortfolioStats,
-  worst: DashboardDomain | null,
+  worst: HeroWorst | null,
   portfolioTrend: number[],
 ): string {
   // Mood comes from the worst *graded* domain. With nothing scored yet there
@@ -2051,6 +2054,8 @@ export function renderDashboardPage({
   plan = "pro",
   portfolioTrend = [],
   isFirstRun = false,
+  stats: statsOverride,
+  worst: worstOverride,
 }: {
   email: string;
   alerts?: DashboardAlert[];
@@ -2067,9 +2072,18 @@ export function renderDashboardPage({
   // True when the user just signed up and the only domain is the auto-
   // provisioned one from their email suffix. Drives the welcome banner.
   isFirstRun?: boolean;
+  // Portfolio-wide scoreboard inputs. Omit them when `domains` is the user's
+  // complete list (free tier, dev fixtures) and they're derived from it. Pass
+  // them when `domains` is a paginated subset (Pro) so the hero, stat strip,
+  // and on-fire banner reflect the whole watchlist, not just the visible page.
+  stats?: PortfolioStats;
+  worst?: HeroWorst | null;
 }): string {
-  const stats = portfolioStats(domains);
-  const worst = worstDomain(domains);
+  const stats = statsOverride ?? portfolioStats(domains);
+  // `!== undefined` (not `??`) so an explicit `null` override — "no graded
+  // domain in the whole watchlist" — wins over deriving from the page rows.
+  const worst =
+    worstOverride !== undefined ? worstOverride : worstDomain(domains);
   const banners: string[] = [];
   if (plan === "free") banners.push(renderFreeTierBanner());
   if (isFirstRun && domains.length === 1) {
@@ -2078,7 +2092,7 @@ export function renderDashboardPage({
   if (stats.failing >= 3) banners.push(renderOnFireBanner(stats.failing));
 
   const hero = renderDashboardHero(stats, worst, portfolioTrend);
-  const statStrip = domains.length > 0 ? renderDashboardStatStrip(stats) : "";
+  const statStrip = stats.total > 0 ? renderDashboardStatStrip(stats) : "";
 
   return dashboardPage(
     "Domains — dmarc.mx",
