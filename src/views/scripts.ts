@@ -61,29 +61,41 @@ if (!window.__dmarcheckBound) {
   });
 
   document.addEventListener('submit', function(e) {
-    var form = e.target.closest('form[action="/check"]');
+    var form = e.target.closest('form');
     if (!form) return;
     var btn = form.querySelector('button[type="submit"]');
     if (btn) {
-      btn.disabled = true;
-      btn.textContent = 'Scanning...';
+      var loadingText = btn.getAttribute('data-loading-text');
+      if (loadingText) {
+        /* Generic loading state for any button that opts in */
+        btn.disabled = true;
+        btn.textContent = loadingText;
+      } else if (form.getAttribute('action') === '/check') {
+        /* Legacy hardcoded state for the homepage /check form */
+        btn.disabled = true;
+        btn.textContent = 'Scanning...';
+      }
     }
-    var landing = document.querySelector('.landing-main');
-    if (landing) {
-      var domain = form.querySelector('input[name="domain"]').value;
-      var wrapper = document.createElement('div');
-      wrapper.className = 'loading';
-      wrapper.setAttribute('role', 'status');
-      wrapper.setAttribute('aria-live', 'polite');
-      var spinner = document.createElement('div');
-      spinner.className = 'spinner';
-      spinner.setAttribute('aria-hidden', 'true');
-      var msg = document.createElement('p');
-      msg.textContent = 'Scanning ' + domain + '...';
-      wrapper.appendChild(spinner);
-      wrapper.appendChild(msg);
-      Array.from(landing.children).forEach(function(child) { child.style.display = 'none'; });
-      landing.appendChild(wrapper);
+
+    /* Specific UX for the homepage /check form (hides main, shows spinner) */
+    if (form.getAttribute('action') === '/check') {
+      var landing = document.querySelector('.landing-main');
+      if (landing) {
+        var domain = form.querySelector('input[name="domain"]').value;
+        var wrapper = document.createElement('div');
+        wrapper.className = 'loading';
+        wrapper.setAttribute('role', 'status');
+        wrapper.setAttribute('aria-live', 'polite');
+        var spinner = document.createElement('div');
+        spinner.className = 'spinner';
+        spinner.setAttribute('aria-hidden', 'true');
+        var msg = document.createElement('p');
+        msg.textContent = 'Scanning ' + domain + '...';
+        wrapper.appendChild(spinner);
+        wrapper.appendChild(msg);
+        Array.from(landing.children).forEach(function(child) { child.style.display = 'none'; });
+        landing.appendChild(wrapper);
+      }
     }
   });
 }

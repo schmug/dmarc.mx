@@ -2002,7 +2002,7 @@ function renderAddDomainWizardShell(): string {
       <button type="button" class="wizard-secondary" data-wizard-back hidden>Back</button>
       <span style="flex:1"></span>
       <button type="button" class="wizard-primary" data-wizard-next>Next</button>
-      <button type="submit" class="wizard-primary" data-wizard-submit hidden>Add domain</button>
+      <button type="submit" class="wizard-primary" data-wizard-submit hidden data-loading-text="Adding...">Add domain</button>
     </div>
   </form>
 </div>`;
@@ -2333,7 +2333,7 @@ export function renderDomainDetailPage({
 </div>
 <div class="action-row" style="margin-bottom:1.5rem">
   <form method="POST" action="/dashboard/domain/${encodeURIComponent(domain)}/scan" style="display:inline">
-    <button type="submit" class="btn">Scan Now</button>
+    <button type="submit" class="btn" data-loading-text="Scanning...">Scan Now</button>
   </form>
   <a href="/check?domain=${encodeURIComponent(domain)}" class="btn btn-secondary">View Full Report</a>
   <form method="POST" action="/dashboard/domain/${encodeURIComponent(domain)}/delete" style="display:inline" onsubmit="return confirm('Stop monitoring ${esc(domain)}?');">
@@ -2562,7 +2562,7 @@ ${usageBlock}
     We'll run a full DMARC/SPF/DKIM/BIMI/MTA-STS scan and notify you if the grade drops.
   </p>
   <div class="action-row">
-    <button type="submit" class="btn"${submitDisabled}>Add Domain</button>
+    <button type="submit" class="btn"${submitDisabled} data-loading-text="Adding...">Add Domain</button>
     <a href="/dashboard" class="btn btn-secondary">Cancel</a>
   </div>
 </form>`;
@@ -2691,7 +2691,7 @@ ${errorBlock}
     aria-describedby="bulk-help"
   ></textarea>
   <div class="action-row">
-    <button type="submit" class="btn">Scan</button>
+    <button type="submit" class="btn" data-loading-text="Scanning...">Scan</button>
     <a href="/dashboard" class="btn btn-secondary">Cancel</a>
   </div>
 </form>
@@ -3025,7 +3025,7 @@ ${justCreatedBanner}
     <label for="api-key-name" style="display:block;font-size:0.875rem;color:var(--clr-text-muted);margin-bottom:0.4rem">Label (optional)</label>
     <input id="api-key-name" class="settings-input" type="text" name="name" placeholder="ci-pipeline" maxlength="60" autocapitalize="none" autocorrect="off" spellcheck="false" aria-describedby="api-keys-help">
     <div class="action-row">
-      <button type="submit" class="btn">Generate API Key</button>
+      <button type="submit" class="btn" data-loading-text="Generating...">Generate API Key</button>
       <a href="/dashboard/settings" class="btn btn-secondary">Back to Settings</a>
     </div>
   </form>

@@ -18,3 +18,7 @@
 ## 2026-06-01 - Add aria-sort to sortable headers
 **Learning:** Sortable headers should be marked with the aria-sort attribute so that screen readers are aware of the order.
 **Action:** When creating sortable headers, ensure that only the active sorting header is marked with the aria-sort attribute.
+
+## 2026-06-04 - Add generic data-loading-text support for form submission buttons
+**Learning:** Implementing visual feedback (like 'Scanning...' or 'Adding...') on submit buttons often requires custom JS per form. By leveraging a centralized, opt-in `data-loading-text` attribute handled by a single global event listener, we can add consistent, accessible loading states across the application without polluting individual views with duplicated scripts.
+**Action:** For form submit buttons triggering slow or async operations, prefer adding a `data-loading-text` attribute (e.g., `data-loading-text="Scanning..."`) to the `<button type="submit">`. This hooks into the global form submission listener in `src/views/scripts.ts` to automatically handle disabled states and text updates.
