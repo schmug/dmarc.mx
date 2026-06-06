@@ -222,14 +222,18 @@ itself — no long-lived private key is involved.
 
 ### Prerequisites
 
-Install [cosign](https://docs.sigstore.dev/cosign/system_config/installation/):
+Install [cosign](https://docs.sigstore.dev/cosign/system_config/installation/)
+(minimum **v2.4**; v3.x recommended):
 
 ```bash
 # macOS / Linux with Homebrew
 brew install cosign
 
-# or via Go
-go install github.com/sigstore/cosign/v2/cmd/cosign@latest
+# or via Go (installs the latest v3)
+go install github.com/sigstore/cosign/v3/cmd/cosign@latest
+
+# cosign v2.4+ also verifies the current bundle format if you prefer v2:
+# go install github.com/sigstore/cosign/v2/cmd/cosign@latest
 ```
 
 ### Verify a release
