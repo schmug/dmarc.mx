@@ -258,3 +258,23 @@ export async function updateLastScan(
     .bind(grade, scannedAt, domainId)
     .run();
 }
+
+// Marks existing watchlist rows as due for the cron rescanner. Bulk scan
+// queues anything beyond inBandCap with status "queued"; net-new domains get
+// last_scanned_at = NULL from INSERT, but re-submitted existing domains need
+// an explicit reset or getDueDomains won't pick them up until cadence elapses.
+export async function markDomainsDueForRescan(
+  db: D1Database,
+  userId: string,
+  domains: string[],
+): Promise<void> {
+  if (domains.length === 0) return;
+  const placeholders = domains.map(() => "?").join(",");
+  await db
+    .prepare(
+      `UPDATE domains SET last_scanned_at = NULL
+       WHERE user_id = ? AND domain IN (${placeholders})`,
+    )
+    .bind(userId, ...domains)
+    .run();
+}

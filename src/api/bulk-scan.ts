@@ -4,6 +4,7 @@ import {
   createDomains,
   findExistingDomainsForUser,
   getDomainByUserAndName,
+  markDomainsDueForRescan,
 } from "../db/domains.js";
 import { recordScan } from "../db/scans.js";
 import { scan } from "../orchestrator.js";
@@ -194,6 +195,9 @@ export async function processBulkScan(
     const queuedToInsert = uniqueQueued.filter(
       (domain) => !existingSet.has(domain),
     );
+    const queuedExisting = uniqueQueued.filter((domain) =>
+      existingSet.has(domain),
+    );
 
     try {
       if (queuedToInsert.length > 0) {
@@ -206,6 +210,9 @@ export async function processBulkScan(
           })),
         );
       }
+      if (queuedExisting.length > 0) {
+        await markDomainsDueForRescan(input.db, input.userId, queuedExisting);
+      }
 
       for (const domain of uniqueQueued) {
         queuedResults.push({ domain, status: "queued" });
@@ -214,8 +221,12 @@ export async function processBulkScan(
       // Fallback: If the bulk insert fails (e.g. D1 error), try inserting them one by one.
       for (const domain of uniqueQueued) {
         try {
-          // ensureDomainRow is idempotent and handles conflicts
-          await ensureDomainRow(input.db, input.userId, domain);
+          if (existingSet.has(domain)) {
+            await markDomainsDueForRescan(input.db, input.userId, [domain]);
+          } else {
+            // ensureDomainRow is idempotent and handles conflicts
+            await ensureDomainRow(input.db, input.userId, domain);
+          }
           queuedResults.push({ domain, status: "queued" });
         } catch {
           queuedResults.push({

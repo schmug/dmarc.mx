@@ -93,6 +93,14 @@ function makeDb(): D1Database {
         row.last_grade = grade;
         row.last_scanned_at = scannedAt;
       }
+    } else if (/^UPDATE domains SET last_scanned_at = NULL/i.test(sql)) {
+      const [userId, ...domains] = params as [string, ...string[]];
+      const domainSet = new Set(domains);
+      for (const row of domainStore) {
+        if (row.user_id === userId && domainSet.has(row.domain)) {
+          row.last_scanned_at = null;
+        }
+      }
     }
     return { success: true as const, meta: { changes: 1 } };
   };
@@ -242,6 +250,44 @@ describe("processBulkScan", () => {
       expect(row?.last_scanned_at).toBeNull();
     }
     expect(scanHistory).toHaveLength(30);
+  });
+
+  it("resets last_scanned_at for queued re-submits of existing domains", async () => {
+    const recentScan = 1_700_000_000;
+    const submitted = Array.from({ length: 35 }, (_, i) => `d${i}.example`);
+    for (const domain of submitted) {
+      domainStore.push({
+        id: nextId++,
+        user_id: "user_1",
+        domain,
+        is_free: 0,
+        scan_frequency: "weekly",
+        last_scanned_at: recentScan,
+        last_grade: "A",
+      });
+    }
+    const scanFn = vi.fn(async (d: string) => okScan(d));
+    const out = await processBulkScan({
+      db: makeDb(),
+      userId: "user_1",
+      rawDomains: submitted,
+      scanFn,
+      inBandCap: 30,
+      batchSize: 10,
+      watchlistCap: 1000,
+    });
+    if (isCapExceeded(out)) throw new Error("unexpected cap");
+    const queued = out.results.filter((r) => r.status === "queued");
+    expect(queued).toHaveLength(5);
+    for (const q of queued) {
+      const row = domainStore.find((d) => d.domain === q.domain);
+      expect(row?.last_scanned_at).toBeNull();
+    }
+    const scanned = out.results.filter((r) => r.status === "scanned");
+    for (const s of scanned) {
+      const row = domainStore.find((d) => d.domain === s.domain);
+      expect(row?.last_scanned_at).not.toBeNull();
+    }
   });
 
   it("isolates per-domain scan failures", async () => {
