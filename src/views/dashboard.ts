@@ -1484,14 +1484,14 @@ export function renderAlertsSection(
   <span class="alert-message">${esc(describeAlert(a))}</span>
   <span class="alert-time">${esc(relativeTime(a.createdAt, now))}</span>
   <form method="post" action="${ackHref}">
-    <button type="submit" class="btn-dismiss" aria-label="Dismiss alert for ${esc(a.domain)}">Dismiss</button>
+    <button type="submit" class="btn-dismiss" aria-label="Dismiss alert for ${esc(a.domain)}" data-loading-text="Dismissing...">Dismiss</button>
   </form>
 </li>`;
   }
   const dismissAll =
     alerts.length >= 2
       ? `<form method="post" action="/dashboard/alerts/acknowledge-all" class="dismiss-all-form">
-    <button type="submit" class="btn-dismiss btn-dismiss-all">Dismiss all</button>
+    <button type="submit" class="btn-dismiss btn-dismiss-all" data-loading-text="Dismissing...">Dismiss all</button>
   </form>`
       : "";
   return `<section class="alerts-needs-attention" aria-label="Domain regressions needing attention">
@@ -2351,7 +2351,7 @@ export function renderDomainDetailPage({
   </form>
   <a href="/check?domain=${encodeURIComponent(domain)}" class="btn btn-secondary">View Full Report</a>
   <form method="POST" action="/dashboard/domain/${encodeURIComponent(domain)}/delete" style="display:inline" onsubmit="return confirm('Stop monitoring ${esc(domain)}?');">
-    <button type="submit" class="btn btn-danger" aria-label="Delete domain ${esc(domain)}">Delete</button>
+    <button type="submit" class="btn btn-danger" aria-label="Delete domain ${esc(domain)}" data-loading-text="Deleting...">Delete</button>
   </form>
 </div>
 <div class="section-card">
@@ -2827,12 +2827,12 @@ ${retirementBanner}
     <p id="webhook-format-help" style="font-size:0.8125rem;color:var(--clr-text-muted);margin:0.4rem 0 0.75rem">
       Raw posts the signed envelope for your own receiver. Slack and Google Chat send a chat message and omit the signature header (those platforms don't verify it).
     </p>
-    <button type="submit" class="btn">Save Webhook</button>
+    <button type="submit" class="btn" data-loading-text="Saving...">Save Webhook</button>
   </form>
   ${
     webhookUrl
       ? `<form method="POST" action="/dashboard/settings/webhook/test" style="margin-top:0.5rem">
-    <button type="submit" class="btn btn-secondary">Send test event</button>
+    <button type="submit" class="btn btn-secondary" data-loading-text="Sending...">Send test event</button>
   </form>`
       : ""
   }
@@ -2850,7 +2850,7 @@ ${retirementBanner}
       <input type="checkbox" name="enabled" ${emailAlertsEnabled ? "checked" : ""}>
       <span>Send me grade-drop alerts by email</span>
     </label>
-    <button type="submit" class="btn btn-secondary">Save Preference</button>
+    <button type="submit" class="btn btn-secondary" data-loading-text="Saving...">Save Preference</button>
   </form>
 </div>
 
@@ -2864,7 +2864,7 @@ ${retirementBanner}
       <input type="checkbox" name="enabled" ${notifyOnChangeOnly ? "checked" : ""}>
       <span>Only notify me when a scan result changes (grade or protocol status)</span>
     </label>
-    <button type="submit" class="btn btn-secondary">Save Preference</button>
+    <button type="submit" class="btn btn-secondary" data-loading-text="Saving...">Save Preference</button>
   </form>
 </div>
 
@@ -3001,7 +3001,7 @@ export function renderApiKeysPage({
           ? ""
           : `<form method="POST" action="/dashboard/settings/api-keys/revoke" style="display:inline" onsubmit="return confirm('Revoke this key? Requests using it will start failing.');">
               <input type="hidden" name="id" value="${esc(k.id)}">
-              <button type="submit" class="btn btn-danger" style="padding:0.25rem 0.6rem;font-size:0.8125rem" aria-label="Revoke API key ${labelName}">Revoke</button>
+              <button type="submit" class="btn btn-danger" style="padding:0.25rem 0.6rem;font-size:0.8125rem" aria-label="Revoke API key ${labelName}" data-loading-text="Revoking...">Revoke</button>
             </form>`;
         return `<tr>
   <td>${name}</td>
