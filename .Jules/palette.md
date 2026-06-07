@@ -22,3 +22,7 @@
 ## 2026-06-04 - Add generic data-loading-text support for form submission buttons
 **Learning:** Implementing visual feedback (like 'Scanning...' or 'Adding...') on submit buttons often requires custom JS per form. By leveraging a centralized, opt-in `data-loading-text` attribute handled by a single global event listener, we can add consistent, accessible loading states across the application without polluting individual views with duplicated scripts.
 **Action:** For form submit buttons triggering slow or async operations, prefer adding a `data-loading-text` attribute (e.g., `data-loading-text="Scanning..."`) to the `<button type="submit">`. This hooks into the global form submission listener in `src/views/scripts.ts` to automatically handle disabled states and text updates.
+
+## 2026-06-05 - Add data-loading-text to standard synchronous forms
+**Learning:** Using `data-loading-text` isn't just for heavy async processes; standard forms with synchronous POST operations (like settings saves, revokes, or dismissals) also benefit. It provides immediate visual feedback, confirms the click, and disables the button to prevent accidental double-submissions while the server processes the request.
+**Action:** Consistently apply `data-loading-text` to all `<button type="submit">` elements in the app (e.g., settings save buttons, destructive actions) to utilize the global form submit listener for consistent UX and protection against double-clicking.
