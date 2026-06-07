@@ -3,6 +3,7 @@ import {
   emptyPortfolioStats,
   gradeBucket,
   tallyGradeCounts,
+  tallyProtocolFailures,
 } from "../src/shared/portfolio.js";
 
 describe("gradeBucket", () => {
@@ -45,6 +46,88 @@ describe("emptyPortfolioStats", () => {
       failing: 0,
       ungraded: 0,
     });
+  });
+});
+
+describe("tallyProtocolFailures", () => {
+  function row(protocols: Record<string, { status: string }> | null) {
+    return {
+      protocol_results: protocols ? JSON.stringify(protocols) : null,
+    };
+  }
+
+  it("returns null when there are no rows", () => {
+    expect(tallyProtocolFailures([])).toBeNull();
+  });
+
+  it("returns null when all rows have null protocol_results", () => {
+    expect(tallyProtocolFailures([{ protocol_results: null }])).toBeNull();
+  });
+
+  it("returns null when no protocol has status=fail", () => {
+    expect(
+      tallyProtocolFailures([
+        row({ dmarc: { status: "pass" }, spf: { status: "warn" } }),
+        row({ dmarc: { status: "pass" } }),
+      ]),
+    ).toBeNull();
+  });
+
+  it("identifies the single failing protocol", () => {
+    const result = tallyProtocolFailures([
+      row({ dmarc: { status: "fail" }, spf: { status: "pass" } }),
+      row({ dmarc: { status: "fail" } }),
+      row({ dmarc: { status: "pass" } }),
+    ]);
+    expect(result).toEqual({ protocol: "dmarc", count: 2 });
+  });
+
+  it("picks the most-common failing protocol across mixed rows", () => {
+    const result = tallyProtocolFailures([
+      row({ dmarc: { status: "fail" }, dkim: { status: "fail" } }),
+      row({ dkim: { status: "fail" }, spf: { status: "pass" } }),
+      row({ dkim: { status: "fail" } }),
+      row({ dmarc: { status: "pass" } }),
+    ]);
+    // dkim fails 3 times, dmarc fails 1 time
+    expect(result).toEqual({ protocol: "dkim", count: 3 });
+  });
+
+  it("breaks ties alphabetically (lower protocol name wins)", () => {
+    const result = tallyProtocolFailures([
+      row({ bimi: { status: "fail" }, spf: { status: "fail" } }),
+      row({ bimi: { status: "fail" }, spf: { status: "fail" } }),
+    ]);
+    // bimi and spf both fail 2 times; bimi < spf alphabetically
+    expect(result).toEqual({ protocol: "bimi", count: 2 });
+  });
+
+  it("skips rows with invalid JSON gracefully", () => {
+    const rows = [
+      { protocol_results: "not-json" },
+      row({ dmarc: { status: "fail" } }),
+    ];
+    expect(tallyProtocolFailures(rows)).toEqual({
+      protocol: "dmarc",
+      count: 1,
+    });
+  });
+
+  it("skips rows with null protocol_results", () => {
+    const rows = [{ protocol_results: null }, row({ spf: { status: "fail" } })];
+    expect(tallyProtocolFailures(rows)).toEqual({ protocol: "spf", count: 1 });
+  });
+
+  it("returns null for an all-healthy portfolio", () => {
+    const rows = [
+      row({
+        dmarc: { status: "pass" },
+        spf: { status: "pass" },
+        dkim: { status: "pass" },
+      }),
+      row({ dmarc: { status: "warn" }, mta_sts: { status: "warn" } }),
+    ];
+    expect(tallyProtocolFailures(rows)).toBeNull();
   });
 });
 
