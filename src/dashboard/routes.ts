@@ -36,6 +36,7 @@ import {
 import {
   getDashboardExportRows,
   getPortfolioTrendForUser,
+  getProtocolResultsForUser,
   getScanHistory,
   getScanHistoryWithProtocols,
   recordScan,
@@ -52,6 +53,7 @@ import { getRecentDeliveriesForUser } from "../db/webhook-deliveries.js";
 import { scan } from "../orchestrator.js";
 import { normalizeDomain } from "../shared/domain.js";
 import { PRO_WATCHLIST_CAP, watchlistCapFor } from "../shared/limits.js";
+import { tallyProtocolFailures } from "../shared/portfolio.js";
 import {
   computeGradeBreakdown,
   type ScoringConfig,
@@ -392,15 +394,25 @@ dashboardRoutes.get("/", async (c) => {
   // hero, stat strip, and on-fire banner reflect the entire watchlist even
   // when the Pro table below shows only one paginated page. distribution.total
   // doubles as the usage count, so no separate countDomainsByUser is needed.
-  const [alerts, unackCounts, portfolioTrend, user, distribution, worst] =
-    await Promise.all([
-      listUnacknowledgedForUser(db, session.sub, 20),
-      countUnacknowledgedByDomain(db, session.sub),
-      getPortfolioTrendForUser(db, session.sub, 30),
-      getUserById(db, session.sub),
-      getGradeDistributionForUser(db, session.sub),
-      getWorstGradedDomainForUser(db, session.sub),
-    ]);
+  const [
+    alerts,
+    unackCounts,
+    portfolioTrend,
+    user,
+    distribution,
+    worst,
+    protocolRows,
+  ] = await Promise.all([
+    listUnacknowledgedForUser(db, session.sub, 20),
+    countUnacknowledgedByDomain(db, session.sub),
+    getPortfolioTrendForUser(db, session.sub, 30),
+    getUserById(db, session.sub),
+    getGradeDistributionForUser(db, session.sub),
+    getWorstGradedDomainForUser(db, session.sub),
+    getProtocolResultsForUser(db, session.sub),
+  ]);
+
+  const topFailure = tallyProtocolFailures(protocolRows);
 
   // First-run = the user signed up within the last 24 hours and has exactly
   // one domain (the one auto-provisioned from their email suffix). The hero's
@@ -449,6 +461,7 @@ dashboardRoutes.get("/", async (c) => {
         },
         stats: distribution,
         worst,
+        topFailure,
       }),
     );
   }
@@ -506,6 +519,7 @@ dashboardRoutes.get("/", async (c) => {
       },
       stats: distribution,
       worst,
+      topFailure,
     }),
   );
 });

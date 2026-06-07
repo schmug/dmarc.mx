@@ -2,6 +2,7 @@ import {
   emptyPortfolioStats,
   gradeBucket,
   type PortfolioStats,
+  type TopFailure,
 } from "../shared/portfolio.js";
 import type { WebhookFormat } from "../webhooks/formats/index.js";
 import {
@@ -1841,6 +1842,7 @@ function portfolioStats(domains: DashboardDomain[]): PortfolioStats {
 function heroVoiceLine(
   stats: PortfolioStats,
   worst: HeroWorst | null,
+  topFailure?: TopFailure | null,
 ): {
   line: string;
   sub: string;
@@ -1852,15 +1854,23 @@ function heroVoiceLine(
     };
   }
   if (stats.failing >= 3) {
+    const sub =
+      topFailure && topFailure.count > 0
+        ? `Top failure: ${esc(protocolDisplayName(topFailure.protocol))} — ${topFailure.count} of ${stats.failing} failing domains.`
+        : "DMARC, SPF, or DKIM regressions usually trace to a recent DNS edit.";
     return {
       line: `${stats.failing} domains are failing. Triage <code>${esc(worst?.domain ?? "")}</code> first.`,
-      sub: "DMARC, SPF, or DKIM regressions usually trace to a recent DNS edit.",
+      sub,
     };
   }
   if (stats.failing > 0 && worst) {
+    const sub =
+      topFailure && topFailure.count > 0
+        ? `Top failure: ${esc(protocolDisplayName(topFailure.protocol))} — ${topFailure.count} of ${stats.failing} failing ${stats.failing === 1 ? "domain" : "domains"}.`
+        : "Open it to see the diff and grab the fix.";
     return {
       line: `<code>${esc(worst.domain)}</code> is failing. The rest of the watchlist is steady.`,
-      sub: "Open it to see the diff and grab the fix.",
+      sub,
     };
   }
   if (stats.drifting > 0) {
@@ -1900,9 +1910,22 @@ function renderFirstRunBanner(domain: string): string {
 </div>`;
 }
 
-function renderOnFireBanner(failing: number): string {
+function protocolDisplayName(key: string): string {
+  if (key === "mta_sts") return "MTA-STS";
+  if (key === "security_txt") return "security.txt";
+  return key.toUpperCase();
+}
+
+function renderOnFireBanner(
+  failing: number,
+  topFailure: TopFailure | null | undefined,
+): string {
+  const insight =
+    topFailure && topFailure.count > 0
+      ? `<strong>${esc(protocolDisplayName(topFailure.protocol))}</strong> is the top issue — ${topFailure.count} of ${failing} failing ${failing === 1 ? "domain" : "domains"}.`
+      : "Walk down the list — most regressions share a single root cause.";
   return `<div class="dashboard-banner dashboard-banner-fire" role="region" aria-label="Multiple failures">
-  <span class="dashboard-banner-text"><strong>${failing} domains failing.</strong> Walk down the list — most regressions share a single root cause.</span>
+  <span class="dashboard-banner-text"><strong>${failing} domains failing.</strong> ${insight}</span>
 </div>`;
 }
 
@@ -1910,6 +1933,7 @@ function renderDashboardHero(
   stats: PortfolioStats,
   worst: HeroWorst | null,
   portfolioTrend: number[],
+  topFailure?: TopFailure | null,
 ): string {
   // Mood comes from the worst *graded* domain. With nothing scored yet there
   // is no signal to react to, so DMarcus defaults to neutral rather than
@@ -1920,7 +1944,7 @@ function renderDashboardHero(
   // "we won".
   const partyHat =
     stats.healthy > 0 && stats.failing === 0 && stats.drifting === 0;
-  const { line, sub } = heroVoiceLine(stats, worst);
+  const { line, sub } = heroVoiceLine(stats, worst, topFailure);
 
   // Score on a 0–100 scale derived from the latest portfolio average (0–12),
   // for legibility in the hero's right column. Falls back to a sensible
@@ -2056,6 +2080,7 @@ export function renderDashboardPage({
   isFirstRun = false,
   stats: statsOverride,
   worst: worstOverride,
+  topFailure,
 }: {
   email: string;
   alerts?: DashboardAlert[];
@@ -2078,20 +2103,30 @@ export function renderDashboardPage({
   // and on-fire banner reflect the whole watchlist, not just the visible page.
   stats?: PortfolioStats;
   worst?: HeroWorst | null;
+  // Most-common failing protocol across the whole watchlist. Null when no
+  // domains are failing or no protocol_results blobs exist yet.
+  topFailure?: TopFailure | null;
 }): string {
   const stats = statsOverride ?? portfolioStats(domains);
   // `!== undefined` (not `??`) so an explicit `null` override — "no graded
   // domain in the whole watchlist" — wins over deriving from the page rows.
   const worst =
     worstOverride !== undefined ? worstOverride : worstDomain(domains);
+  const activeTopFailure = stats.failing > 0 ? topFailure : null;
   const banners: string[] = [];
   if (plan === "free") banners.push(renderFreeTierBanner());
   if (isFirstRun && domains.length === 1) {
     banners.push(renderFirstRunBanner(domains[0].domain));
   }
-  if (stats.failing >= 3) banners.push(renderOnFireBanner(stats.failing));
+  if (stats.failing >= 3)
+    banners.push(renderOnFireBanner(stats.failing, activeTopFailure));
 
-  const hero = renderDashboardHero(stats, worst, portfolioTrend);
+  const hero = renderDashboardHero(
+    stats,
+    worst,
+    portfolioTrend,
+    activeTopFailure,
+  );
   const statStrip = stats.total > 0 ? renderDashboardStatStrip(stats) : "";
 
   return dashboardPage(
