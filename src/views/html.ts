@@ -153,7 +153,7 @@ export function renderLandingPage(): string {
       <form action="/check" method="GET">
         <div class="search-box">
           <input type="text" name="domain" placeholder="Enter a domain (e.g., google.com)" aria-label="Enter a domain" autocapitalize="none" autocorrect="off" spellcheck="false" autofocus required>
-          <button type="submit">Scan</button>
+          <button type="submit" data-loading-text="Scanning...">Scan</button>
         </div>
         <details class="advanced-options">
           <summary>Advanced options</summary>

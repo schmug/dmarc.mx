@@ -144,7 +144,7 @@ function learnCta(placeholder: string): string {
       <form action="/check" method="GET" class="learn-cta-form">
         <div class="search-box">
           <input type="text" name="domain" placeholder="${esc(placeholder)}" aria-label="Enter a domain" autocapitalize="none" autocorrect="off" spellcheck="false" required>
-          <button type="submit">Scan</button>
+          <button type="submit" data-loading-text="Scanning...">Scan</button>
         </div>
       </form>
     </div>

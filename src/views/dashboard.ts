@@ -1633,7 +1633,7 @@ function renderDomainToolbar(controls: DashboardControls): string {
   ${controls.direction !== "asc" ? `<input type="hidden" name="dir" value="${esc(controls.direction)}">` : ""}
   ${controls.pageSize !== 25 ? `<input type="hidden" name="pageSize" value="${controls.pageSize}">` : ""}
   <div class="toolbar-actions">
-    <button type="submit" class="btn">Apply</button>
+    <button type="submit" class="btn" data-loading-text="Applying...">Apply</button>
     <a href="/dashboard" class="btn btn-secondary">Reset</a>
   </div>
 </form>`;
