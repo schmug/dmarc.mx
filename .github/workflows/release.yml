@@ -124,3 +124,23 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           gh release upload "$VERSION" SHA256SUMS SHA256SUMS.bundle
+
+      - name: Verify Sigstore signature (post-upload smoke test)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          SLUG="schmug/dmarcheck"
+          mkdir -p .sig-verify
+          # Re-download the just-uploaded assets; retry once for asset-propagation lag
+          gh release download "$VERSION" --repo "$SLUG" \
+            --pattern 'SHA256SUMS' --pattern 'SHA256SUMS.bundle' \
+            --dir .sig-verify --clobber || \
+          gh release download "$VERSION" --repo "$SLUG" \
+            --pattern 'SHA256SUMS' --pattern 'SHA256SUMS.bundle' \
+            --dir .sig-verify --clobber
+          cosign verify-blob \
+            --bundle .sig-verify/SHA256SUMS.bundle \
+            --certificate-identity-regexp "https://github.com/schmug/dmarcheck/.github/workflows/release.yml" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            .sig-verify/SHA256SUMS
