@@ -70,10 +70,6 @@ if (!window.__dmarcheckBound) {
         /* Generic loading state for any button that opts in */
         btn.disabled = true;
         btn.textContent = loadingText;
-      } else if (form.getAttribute('action') === '/check') {
-        /* Legacy hardcoded state for the homepage /check form */
-        btn.disabled = true;
-        btn.textContent = 'Scanning...';
       }
     }
 
