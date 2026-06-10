@@ -537,6 +537,87 @@ describe("renderDashboardPage", () => {
       expect(html).toContain("data-drawer-link");
     });
 
+    describe("topFailure insight", () => {
+      it("shows top-failure protocol in the hero sub when 1 domain is failing", () => {
+        const html = renderDashboardPage({
+          email: "u@x.com",
+          domains: [sample("F", "broken.com")],
+          topFailure: { protocol: "dkim", count: 1 },
+        });
+        expect(html).toContain("Top failure: DKIM");
+        expect(html).toContain("1 of 1 failing domain");
+      });
+
+      it("shows top-failure in the hero sub and on-fire banner when 3+ domains are failing", () => {
+        const html = renderDashboardPage({
+          email: "u@x.com",
+          domains: [
+            sample("F", "x.com"),
+            sample("F", "y.com"),
+            sample("F", "z.com"),
+          ],
+          topFailure: { protocol: "dkim", count: 3 },
+        });
+        // Banner names the protocol
+        expect(html).toContain("<strong>DKIM</strong> is the top issue");
+        expect(html).toContain("3 of 3 failing");
+        // Hero sub also names it
+        expect(html).toContain("Top failure: DKIM");
+      });
+
+      it("shows correct count when topFailure affects a subset of failing domains", () => {
+        const html = renderDashboardPage({
+          email: "u@x.com",
+          stats: {
+            total: 12,
+            healthy: 0,
+            drifting: 0,
+            failing: 12,
+            ungraded: 0,
+          },
+          worst: { domain: "w.example", grade: "F" },
+          topFailure: { protocol: "dkim", count: 9 },
+          domains: [],
+        });
+        expect(html).toContain("9 of 12 failing");
+      });
+
+      it("renders MTA-STS display name correctly", () => {
+        const html = renderDashboardPage({
+          email: "u@x.com",
+          domains: [sample("F", "broken.com")],
+          topFailure: { protocol: "mta_sts", count: 1 },
+        });
+        expect(html).toContain("MTA-STS");
+        expect(html).not.toContain("MTA_STS");
+      });
+
+      it("falls back to generic copy when topFailure is null", () => {
+        const html = renderDashboardPage({
+          email: "u@x.com",
+          domains: [
+            sample("F", "x.com"),
+            sample("F", "y.com"),
+            sample("F", "z.com"),
+          ],
+          topFailure: null,
+        });
+        expect(html).toContain("single root cause");
+        expect(html).not.toContain("Top failure:");
+      });
+
+      it("suppresses top-failure copy when the portfolio has no failing domains", () => {
+        const html = renderDashboardPage({
+          email: "u@x.com",
+          domains: [sample("A", "good.com")],
+          // topFailure passed but should not appear — gated on stats.failing > 0
+          topFailure: { protocol: "dkim", count: 1 },
+        });
+        expect(html).not.toContain("Top failure:");
+        expect(html).not.toContain("top issue");
+      });
+    });
+
     it("preserves the existing alerts section markup above the table", () => {
       const html = renderDashboardPage({
         email: "u@x.com",

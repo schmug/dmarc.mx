@@ -172,6 +172,29 @@ export interface DashboardExportRow {
   protocol_results: string | null;
 }
 
+// Returns the latest protocol_results blob for every domain in the user's
+// watchlist. Used to compute per-protocol failure tallies without fresh DNS
+// lookups. Reuses the same correlated-subquery shape as getDashboardExportRows.
+export async function getProtocolResultsForUser(
+  db: D1Database,
+  userId: string,
+): Promise<Array<{ protocol_results: string | null }>> {
+  const result = await db
+    .prepare(
+      `SELECT
+         (SELECT sh.protocol_results
+            FROM scan_history sh
+           WHERE sh.domain_id = d.id
+           ORDER BY sh.scanned_at DESC
+           LIMIT 1) AS protocol_results
+       FROM domains d
+       WHERE d.user_id = ?`,
+    )
+    .bind(userId)
+    .all<{ protocol_results: string | null }>();
+  return result.results;
+}
+
 export async function getDashboardExportRows(
   db: D1Database,
   userId: string,
