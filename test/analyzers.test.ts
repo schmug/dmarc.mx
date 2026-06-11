@@ -452,4 +452,55 @@ describe("analyzeSpf", () => {
       false,
     );
   });
+
+  it("fails when a typo'd mechanism is present (RFC 7208 §4.6.1 unknown term)", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=spf1 inculde:spf.google.com -all"],
+      raw: "v=spf1 inculde:spf.google.com -all",
+    });
+
+    const result = await analyzeSpf("example.com");
+    expect(result.status).toBe("fail");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "fail" &&
+          v.message.includes("Unknown") &&
+          v.message.includes("inculde:spf.google.com"),
+      ),
+    ).toBe(true);
+  });
+
+  it("flags multiple unknown terms in a single validation (RFC 7208 §4.6.1)", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=spf1 inculde:a.example.com somejunk -all"],
+      raw: "v=spf1 inculde:a.example.com somejunk -all",
+    });
+
+    const result = await analyzeSpf("example.com");
+    expect(result.status).toBe("fail");
+    const unknownValidation = result.validations.find(
+      (v) => v.status === "fail" && v.message.includes("Unknown"),
+    );
+    expect(unknownValidation?.message).toContain("inculde:a.example.com");
+    expect(unknownValidation?.message).toContain("somejunk");
+  });
+
+  it("does not flag unknown terms for a clean record with all known mechanisms", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: [
+        "v=spf1 ip4:192.0.2.0/24 ip6:2001:db8::/32 a mx include:_spf.example.com ~all",
+      ],
+      raw: "v=spf1 ip4:192.0.2.0/24 ip6:2001:db8::/32 a mx include:_spf.example.com ~all",
+    });
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=spf1 ip4:203.0.113.0/24 -all"],
+      raw: "v=spf1 ip4:203.0.113.0/24 -all",
+    });
+
+    const result = await analyzeSpf("example.com");
+    expect(result.validations.some((v) => v.message.includes("Unknown"))).toBe(
+      false,
+    );
+  });
 });
