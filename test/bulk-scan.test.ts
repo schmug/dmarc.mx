@@ -93,6 +93,14 @@ function makeDb(): D1Database {
         row.last_grade = grade;
         row.last_scanned_at = scannedAt;
       }
+    } else if (/^UPDATE domains SET last_scanned_at = NULL/i.test(sql)) {
+      const [userId, ...domains] = params as [string, ...string[]];
+      const wanted = new Set(domains);
+      for (const row of domainStore) {
+        if (row.user_id === userId && wanted.has(row.domain)) {
+          row.last_scanned_at = null;
+        }
+      }
     }
     return { success: true as const, meta: { changes: 1 } };
   };
@@ -211,6 +219,47 @@ describe("processBulkScan", () => {
     expect(scanHistory).toHaveLength(3);
     expect(domainStore).toHaveLength(3);
     expect(domainStore.every((d) => d.is_free === 0)).toBe(true);
+  });
+
+  it("queues overflow existing watchlist domains for cron by clearing last_scanned_at", async () => {
+    const now = 1_700_000_000;
+    const existing = Array.from({ length: 35 }, (_, i) => ({
+      id: i + 1,
+      user_id: "user_1",
+      domain: `d${i}.example`,
+      is_free: 0,
+      scan_frequency: "weekly",
+      last_scanned_at: now,
+      last_grade: "A",
+    }));
+    domainStore.push(...existing);
+
+    const scanFn = vi.fn(async (d: string) => okScan(d));
+    const out = await processBulkScan({
+      db: makeDb(),
+      userId: "user_1",
+      rawDomains: existing.map((d) => d.domain),
+      scanFn,
+      inBandCap: 30,
+      batchSize: 10,
+      watchlistCap: 1000,
+    });
+    if (isCapExceeded(out)) throw new Error("unexpected cap");
+
+    const scanned = out.results.filter((r) => r.status === "scanned");
+    const queued = out.results.filter((r) => r.status === "queued");
+    expect(scanned).toHaveLength(30);
+    expect(queued).toHaveLength(5);
+    expect(scanFn).toHaveBeenCalledTimes(30);
+
+    for (const q of queued) {
+      const row = domainStore.find((d) => d.domain === q.domain);
+      expect(row?.last_scanned_at).toBeNull();
+    }
+    for (const s of scanned) {
+      const row = domainStore.find((d) => d.domain === s.domain);
+      expect(row?.last_scanned_at).not.toBeNull();
+    }
   });
 
   it("queues anything beyond inBandCap and flips status=queued", async () => {
