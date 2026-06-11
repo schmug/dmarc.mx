@@ -130,6 +130,15 @@ export async function analyzeSpf(domain: string): Promise<SpfResult> {
     });
   }
 
+  // Unknown/malformed mechanism or modifier check (RFC 7208 §4.6.1)
+  const unknownTerms = tree.mechanisms.filter((t) => !isKnownSpfTerm(t));
+  if (unknownTerms.length > 0) {
+    validations.push({
+      status: "fail",
+      message: `Unknown SPF ${unknownTerms.length === 1 ? "term" : "terms"} — receivers will permerror (RFC 7208 §4.6.1): ${unknownTerms.join(", ")}`,
+    });
+  }
+
   const hasFailure = validations.some((v) => v.status === "fail");
   const hasWarn = validations.some((v) => v.status === "warn");
   const status = hasFailure ? "fail" : hasWarn ? "warn" : "pass";
@@ -258,4 +267,27 @@ function parseSpfMechanisms(record: string): string[] {
     .replace(/^v=spf1\s*/, "")
     .split(/\s+/)
     .filter((t) => t.length > 0);
+}
+
+// RFC 7208 §5 mechanisms and §6 modifiers. Strip optional qualifier prefix
+// before matching so "+all", "-all", "~all", "?all" are all recognized.
+function isKnownSpfTerm(term: string): boolean {
+  const bare = term.replace(/^[+\-~?]/, "");
+  return (
+    bare === "all" ||
+    bare.startsWith("include:") ||
+    bare === "a" ||
+    bare.startsWith("a:") ||
+    bare.startsWith("a/") ||
+    bare === "mx" ||
+    bare.startsWith("mx:") ||
+    bare.startsWith("mx/") ||
+    bare === "ptr" ||
+    bare.startsWith("ptr:") ||
+    bare.startsWith("ip4:") ||
+    bare.startsWith("ip6:") ||
+    bare.startsWith("exists:") ||
+    bare.startsWith("redirect=") ||
+    bare.startsWith("exp=")
+  );
 }
