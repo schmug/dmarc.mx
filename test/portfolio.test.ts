@@ -50,8 +50,12 @@ describe("emptyPortfolioStats", () => {
 });
 
 describe("tallyProtocolFailures", () => {
-  function row(protocols: Record<string, { status: string }> | null) {
+  function row(
+    protocols: Record<string, { status: string }> | null,
+    grade: string | null = "F",
+  ) {
     return {
+      last_grade: grade,
       protocol_results: protocols ? JSON.stringify(protocols) : null,
     };
   }
@@ -61,7 +65,9 @@ describe("tallyProtocolFailures", () => {
   });
 
   it("returns null when all rows have null protocol_results", () => {
-    expect(tallyProtocolFailures([{ protocol_results: null }])).toBeNull();
+    expect(
+      tallyProtocolFailures([{ last_grade: "F", protocol_results: null }]),
+    ).toBeNull();
   });
 
   it("returns null when no protocol has status=fail", () => {
@@ -104,7 +110,7 @@ describe("tallyProtocolFailures", () => {
 
   it("skips rows with invalid JSON gracefully", () => {
     const rows = [
-      { protocol_results: "not-json" },
+      { last_grade: "F", protocol_results: "not-json" },
       row({ dmarc: { status: "fail" } }),
     ];
     expect(tallyProtocolFailures(rows)).toEqual({
@@ -114,7 +120,10 @@ describe("tallyProtocolFailures", () => {
   });
 
   it("skips rows with null protocol_results", () => {
-    const rows = [{ protocol_results: null }, row({ spf: { status: "fail" } })];
+    const rows = [
+      { last_grade: "F", protocol_results: null },
+      row({ spf: { status: "fail" } }),
+    ];
     expect(tallyProtocolFailures(rows)).toEqual({ protocol: "spf", count: 1 });
   });
 
@@ -126,6 +135,44 @@ describe("tallyProtocolFailures", () => {
         dkim: { status: "pass" },
       }),
       row({ dmarc: { status: "warn" }, mta_sts: { status: "warn" } }),
+    ];
+    expect(tallyProtocolFailures(rows)).toBeNull();
+  });
+
+  it("ignores protocol failures on domains outside the failing bucket", () => {
+    // The 2026-06 dashboard bug: MTA-STS fails on most *healthy* domains too
+    // (no _mta-sts record → status "fail"), so a watchlist-wide tally reported
+    // "MTA-STS — 342 of 199 failing domains". Only failing-bucket rows count.
+    const result = tallyProtocolFailures([
+      row({ mta_sts: { status: "fail" } }, "A"),
+      row({ mta_sts: { status: "fail" } }, "A"),
+      row({ mta_sts: { status: "fail" } }, "B+"),
+      row({ spf: { status: "fail" } }, "C"),
+      row({ dmarc: { status: "fail" }, mta_sts: { status: "fail" } }, "F"),
+      row({ dmarc: { status: "fail" } }, "F"),
+    ]);
+    // dmarc fails on both F domains; mta_sts on only one of them. The three
+    // healthy MTA-STS failures and the drifting SPF failure are ignored.
+    expect(result).toEqual({ protocol: "dmarc", count: 2 });
+  });
+
+  it("never counts more domains than are in the failing bucket", () => {
+    const rows = [
+      ...Array.from({ length: 5 }, () =>
+        row({ mta_sts: { status: "fail" } }, "A"),
+      ),
+      row({ dmarc: { status: "fail" } }, "F"),
+    ];
+    const result = tallyProtocolFailures(rows);
+    expect(result).toEqual({ protocol: "dmarc", count: 1 });
+  });
+
+  it("returns null when failures exist only on healthy, drifting, or ungraded domains", () => {
+    const rows = [
+      row({ mta_sts: { status: "fail" } }, "A"),
+      row({ spf: { status: "fail" } }, "D"),
+      row({ dkim: { status: "fail" } }, null),
+      row({ dmarc: { status: "fail" } }, "—"),
     ];
     expect(tallyProtocolFailures(rows)).toBeNull();
   });

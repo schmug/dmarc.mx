@@ -2103,8 +2103,10 @@ export function renderDashboardPage({
   // and on-fire banner reflect the whole watchlist, not just the visible page.
   stats?: PortfolioStats;
   worst?: HeroWorst | null;
-  // Most-common failing protocol across the whole watchlist. Null when no
-  // domains are failing or no protocol_results blobs exist yet.
+  // Most-common failing protocol among the watchlist's failing-grade domains
+  // (same bucket as stats.failing, so the rendered "N of M failing domains"
+  // shares one denominator). Null when no domains are failing or no
+  // protocol_results blobs exist yet.
   topFailure?: TopFailure | null;
 }): string {
   const stats = statsOverride ?? portfolioStats(domains);

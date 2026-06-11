@@ -48,16 +48,25 @@ export interface TopFailure {
   count: number;
 }
 
-// Tallies the most-common failing protocol across the latest scans in `rows`.
+// Tallies the most-common failing protocol across the latest scans of the
+// domains in the *failing* grade bucket. Rows outside that bucket are ignored:
+// the dashboard renders the count against the "N failing domains" stat, and
+// protocols like MTA-STS report status "fail" on most healthy domains too
+// (no _mta-sts record), so a watchlist-wide tally would both exceed the
+// denominator and surface the wrong protocol.
 // Each row's `protocol_results` is a JSON blob shaped as
 // `{ [protocol]: { status: "pass"|"warn"|"fail"|"info" } }`.
-// Returns null when no protocol is failing across any row.
+// Returns null when no protocol is failing across any failing-bucket row.
 // Tie-breaking is alphabetical so output is deterministic.
 export function tallyProtocolFailures(
-  rows: Iterable<{ protocol_results: string | null }>,
+  rows: Iterable<{
+    last_grade: string | null;
+    protocol_results: string | null;
+  }>,
 ): TopFailure | null {
   const counts = new Map<string, number>();
   for (const row of rows) {
+    if (gradeBucket(row.last_grade) !== "failing") continue;
     if (!row.protocol_results) continue;
     let parsed: Record<string, { status?: unknown } | null | undefined> | null =
       null;

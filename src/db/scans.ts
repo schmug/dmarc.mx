@@ -172,16 +172,21 @@ export interface DashboardExportRow {
   protocol_results: string | null;
 }
 
-// Returns the latest protocol_results blob for every domain in the user's
-// watchlist. Used to compute per-protocol failure tallies without fresh DNS
-// lookups. Reuses the same correlated-subquery shape as getDashboardExportRows.
+// Returns the latest protocol_results blob plus the current grade for every
+// domain in the user's watchlist. Used to compute per-protocol failure tallies
+// without fresh DNS lookups; the grade lets tallyProtocolFailures scope the
+// count to the failing bucket. Reuses the same correlated-subquery shape as
+// getDashboardExportRows.
 export async function getProtocolResultsForUser(
   db: D1Database,
   userId: string,
-): Promise<Array<{ protocol_results: string | null }>> {
+): Promise<
+  Array<{ last_grade: string | null; protocol_results: string | null }>
+> {
   const result = await db
     .prepare(
       `SELECT
+         d.last_grade AS last_grade,
          (SELECT sh.protocol_results
             FROM scan_history sh
            WHERE sh.domain_id = d.id
@@ -191,7 +196,7 @@ export async function getProtocolResultsForUser(
        WHERE d.user_id = ?`,
     )
     .bind(userId)
-    .all<{ protocol_results: string | null }>();
+    .all<{ last_grade: string | null; protocol_results: string | null }>();
   return result.results;
 }
 
