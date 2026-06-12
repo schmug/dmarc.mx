@@ -4,6 +4,8 @@ import {
   lookupMxProvider,
   MX_PROVIDERS,
 } from "../src/data/mx-providers.js";
+import { renderMxProviderMarkdown } from "../src/views/markdown.js";
+import { renderMxProviderPage } from "../src/views/mx.js";
 
 describe("lookupMxProvider", () => {
   it("matches Microsoft 365 MX hostnames", () => {
@@ -133,6 +135,78 @@ describe("MX_PROVIDERS catalog", () => {
     for (const p of MX_PROVIDERS) {
       expect(p.hostnames.length).toBeGreaterThan(0);
       expect(p.hostnameExamples.length).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe("record guidance sections (#525)", () => {
+  // One verified official record string per provider — sourced from vendor
+  // docs (learn.microsoft.com, knowledge.workspace.google.com, Mimecast KB,
+  // Proofpoint Essentials getting-started guides, fastmail.help, zoho.com,
+  // docs.aws.amazon.com, developers.cloudflare.com). If one of these fails,
+  // the page no longer quotes the canonical string admins search for.
+  const EXPECTED_RECORD_STRINGS: Record<string, string[]> = {
+    outlook: [
+      "v=spf1 include:spf.protection.outlook.com -all",
+      "selector1._domainkey",
+    ],
+    google: ["v=spf1 include:_spf.google.com ~all", "google._domainkey"],
+    mimecast: ["include:us._netblocks.mimecast.com"],
+    proofpoint: ["v=spf1 a:dispatch-us.ppe-hosted.com ~all"],
+    fastmail: ["v=spf1 include:spf.messagingengine.com ?all", "fm1._domainkey"],
+    zoho: ["include:zohomail.com"],
+    "amazon-ses": ["v=spf1 include:amazonses.com ~all", "dkim.amazonses.com"],
+    cloudflare: ["v=spf1 include:_spf.mx.cloudflare.net ~all"],
+  };
+
+  it("every provider has a record-guidance section", () => {
+    for (const p of MX_PROVIDERS) {
+      const guidance = p.sections.find((s) =>
+        /SPF, DKIM, and DMARC records/i.test(s.title),
+      );
+      expect(
+        guidance,
+        `${p.slug} is missing a record-guidance section`,
+      ).toBeDefined();
+    }
+  });
+
+  it("each provider's HTML page contains its official record strings", () => {
+    for (const [slug, strings] of Object.entries(EXPECTED_RECORD_STRINGS)) {
+      const html = renderMxProviderPage(slug);
+      expect(html, `no HTML page for ${slug}`).not.toBeNull();
+      for (const s of strings) {
+        expect(html, `${slug} HTML page is missing "${s}"`).toContain(s);
+      }
+    }
+  });
+
+  it("each provider's markdown rendering contains its official record strings", () => {
+    for (const [slug, strings] of Object.entries(EXPECTED_RECORD_STRINGS)) {
+      const md = renderMxProviderMarkdown(slug);
+      expect(md, `no markdown rendering for ${slug}`).not.toBeNull();
+      for (const s of strings) {
+        expect(md, `${slug} markdown is missing "${s}"`).toContain(s);
+      }
+    }
+  });
+
+  it("no two providers share identical section prose", () => {
+    // Google demotes duplicate-shaped content (#364) — every paragraph on
+    // every provider page must be written for that provider, not stamped
+    // from a template.
+    const seen = new Map<string, string>();
+    for (const p of MX_PROVIDERS) {
+      for (const section of p.sections) {
+        for (const paragraph of section.paragraphs) {
+          const firstOwner = seen.get(paragraph);
+          expect(
+            firstOwner,
+            `paragraph shared by ${firstOwner} and ${p.slug}: "${paragraph.slice(0, 60)}..."`,
+          ).toBeUndefined();
+          seen.set(paragraph, p.slug);
+        }
+      }
     }
   });
 });
