@@ -1,3 +1,4 @@
+import { COMMON_SELECTORS } from "../analyzers/dkim.js";
 import type {
   BimiResult,
   DaneResult,
@@ -166,7 +167,7 @@ export function renderLandingPage(): string {
                    autocorrect="off"
                    spellcheck="false"
                    aria-describedby="selectors-help" />
-            <small id="selectors-help">Comma-separated. These are checked in addition to the 38 common selectors.</small>
+            <small id="selectors-help">Comma-separated. These are checked in addition to the ${COMMON_SELECTORS.length} common selectors.</small>
           </div>
         </details>
       </form>
@@ -199,7 +200,7 @@ export function renderLandingPage(): string {
     <dl class="explainer-grid">
       <div><dt><a href="/learn/dmarc">DMARC</a></dt><dd>The policy record that tells receivers how to treat unauthenticated mail and where to send aggregate reports.</dd></div>
       <div><dt><a href="/learn/spf">SPF</a></dt><dd>The list of hosts authorized to send on your behalf, including the 10-DNS-lookup budget.</dd></div>
-      <div><dt><a href="/learn/dkim">DKIM</a></dt><dd>Per-selector signing keys and their key length, checked against 38 common selectors.</dd></div>
+      <div><dt><a href="/learn/dkim">DKIM</a></dt><dd>Per-selector signing keys and their key length, checked against ${COMMON_SELECTORS.length} common selectors.</dd></div>
       <div><dt><a href="/learn/bimi">BIMI</a></dt><dd>The brand logo record that can render next to authenticated messages in supporting inboxes.</dd></div>
       <div><dt><a href="/learn/mta-sts">MTA-STS</a></dt><dd>The TLS enforcement policy that prevents downgrade attacks on inbound mail.</dd></div>
       <div><dt>MX</dt><dd>The mail exchangers that accept inbound mail for the domain, with provider detection. Informational — not part of the grade.</dd></div>

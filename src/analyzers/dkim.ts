@@ -2,7 +2,7 @@ import { queryTxt } from "../dns/client.js";
 import { parseTags } from "../shared/parse-tags.js";
 import type { DkimResult, DkimSelectorResult, Validation } from "./types.js";
 
-const COMMON_SELECTORS = [
+export const COMMON_SELECTORS = [
   "google",
   "selector1",
   "selector2",

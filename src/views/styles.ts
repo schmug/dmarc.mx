@@ -643,6 +643,7 @@ h1.domain-name, .domain-name { font-size: 1.5rem; font-weight: 700; margin: 0; }
 .bd-card-title {
   font-size: 0.75rem; font-weight: 600; text-transform: uppercase;
   letter-spacing: 1px; color: var(--clr-text-muted); padding: 14px 18px 0;
+  margin: 0;
 }
 .bd-card-body { padding: 12px 18px 16px; }
 .tier-text { font-size: 0.9rem; line-height: 1.6; color: var(--clr-text); }
