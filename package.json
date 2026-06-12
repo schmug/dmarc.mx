@@ -20,7 +20,7 @@
     "@emnapi/runtime": "^1.11.0",
     "@types/node": "^25.9.1",
     "minimatch": "^10.2.5",
-    "sharp": "^0.34.5",
+    "sharp": "^0.35.1",
     "tsx": "^4.22.3",
     "typescript": "^6.0.3",
     "vitest": "^4.1.8",
