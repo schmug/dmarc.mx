@@ -13,7 +13,12 @@ import {
   statusDot,
   themeToggle,
 } from "../src/views/components";
-import { renderError, renderLandingPage } from "../src/views/html";
+import {
+  renderError,
+  renderLandingPage,
+  renderReport,
+  renderReportHeader,
+} from "../src/views/html";
 import { CSS } from "../src/views/styles";
 
 function makeScanResult(overrides: Partial<ScanResult> = {}): ScanResult {
@@ -452,5 +457,23 @@ describe("page HTML theme integration", () => {
     const html = renderLandingPage();
     expect(html).toContain('fill="currentColor"');
     expect(html).not.toContain('fill="#71717a"');
+  });
+});
+
+describe("CSV download links", () => {
+  // Googlebot was re-crawling /check?domain=X&format=csv URLs discovered via
+  // these anchors, burning crawl budget and triggering live DNS scans (#521).
+  it("renderReport marks the CSV export anchor rel=nofollow", () => {
+    const html = renderReport(makeScanResult());
+    expect(html).toContain(
+      '<a href="/check?domain=example.com&format=csv" class="csv-download" rel="nofollow">Download CSV',
+    );
+  });
+
+  it("renderReportHeader marks the CSV export anchor rel=nofollow", () => {
+    const html = renderReportHeader(makeScanResult());
+    expect(html).toContain(
+      '<a href="/check?domain=example.com&format=csv" class="csv-download" rel="nofollow">Download CSV',
+    );
   });
 });

@@ -915,11 +915,16 @@ app.get("/llms.txt", (c) => {
 
 // Crawl guidance for search engines. Block the API namespace (Google was
 // logging `/api/check?domain=dmarc.mx` as "Crawled - currently not indexed"
-// noise) and point to the sitemap.
+// noise) and CSV export URLs (each crawl triggers a full live DNS scan; the
+// X-Robots-Tag: noindex on text/csv stops indexing but not crawling, #521),
+// and point to the sitemap. `/*format=csv` uses only Google-supported
+// wildcards and cannot match plain /check?domain=X pages because `=` is
+// rejected by normalizeDomain.
 app.get("/robots.txt", (c) => {
   const body = `User-agent: *
 Allow: /
 Disallow: /api/
+Disallow: /*format=csv
 Sitemap: https://dmarc.mx/sitemap.xml
 `;
   return c.body(body, 200, {

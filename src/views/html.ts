@@ -440,7 +440,7 @@ function reportBody(result: ScanResult): string {
   <div class="report-meta">
     <time datetime="${esc(result.timestamp)}">Scanned ${esc(new Date(result.timestamp).toUTCString())}</time> &middot;
     <a href="/api/check?domain=${encodeURIComponent(result.domain)}">View JSON &nearr;</a> &middot;
-    <a href="/check?domain=${encodeURIComponent(result.domain)}&format=csv" class="csv-download">Download CSV &darr;</a>
+    <a href="/check?domain=${encodeURIComponent(result.domain)}&format=csv" class="csv-download" rel="nofollow">Download CSV &darr;</a>
   </div>
   ${renderMxCard(mx)}
   ${renderDmarcCard(dmarc)}
@@ -486,7 +486,7 @@ export function renderReportHeader(result: ScanResult): string {
   <div class="report-meta">
     <time datetime="${esc(result.timestamp)}">Scanned ${esc(new Date(result.timestamp).toUTCString())}</time> &middot;
     <a href="/api/check?domain=${encodeURIComponent(result.domain)}">View JSON &nearr;</a> &middot;
-    <a href="/check?domain=${encodeURIComponent(result.domain)}&format=csv" class="csv-download">Download CSV &darr;</a>
+    <a href="/check?domain=${encodeURIComponent(result.domain)}&format=csv" class="csv-download" rel="nofollow">Download CSV &darr;</a>
   </div>`;
 }
 

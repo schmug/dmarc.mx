@@ -707,6 +707,15 @@ describe("SEO routes", () => {
     expect(body).toContain("Sitemap: https://dmarc.mx/sitemap.xml");
   });
 
+  it("disallows CSV export URLs without blocking plain /check pages", async () => {
+    const res = await app.request("/robots.txt");
+    const body = await res.text();
+    expect(body).toContain("Disallow: /*format=csv");
+    // Plain /check?domain=X pages are indexed and earning impressions —
+    // no rule may match them.
+    expect(body).not.toContain("Disallow: /check");
+  });
+
   it("serves /sitemap.xml listing the core URLs", async () => {
     const res = await app.request("/sitemap.xml");
     expect(res.status).toBe(200);
