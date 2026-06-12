@@ -1513,6 +1513,26 @@ export default Sentry.withSentry<Env>(
         return samplingContext.parentSampled;
       return 0.3;
     },
+    beforeSend(event) {
+      if (event.request?.headers) {
+        const scrubbedHeaders = { ...event.request.headers };
+        for (const key of Object.keys(scrubbedHeaders)) {
+          const lowerKey = key.toLowerCase();
+          if (
+            lowerKey === "cookie" ||
+            lowerKey === "authorization" ||
+            lowerKey === "stripe-signature"
+          ) {
+            scrubbedHeaders[key] = "[Filtered]";
+          }
+        }
+        event.request.headers = scrubbedHeaders;
+      }
+      if (event.request?.cookies) {
+        event.request.cookies = { filtered: "[Filtered]" };
+      }
+      return event;
+    },
   }),
   handler,
 );
