@@ -67,13 +67,20 @@ jobs:
             author_email=$(echo "$row" | jq -r '.commit.author.email')
 
             # Skip automated commits that cannot run `git commit -s`.
-            # Skip commits whose author name contains [bot] or is github-actions.
+            # Skip commits whose author name contains [bot], is github-actions,
+            # or carries a known coding-agent author email (Cursor's cloud
+            # agent authors as "Cursor Agent" with no [bot] suffix, so the
+            # name heuristics miss it — see PR #494/#513).
             if echo "$author_name" | grep -qF '[bot]'; then
               echo "SKIP $sha — bot name ($author_name)"
               continue
             fi
             if [ "$author_name" = "github-actions" ]; then
               echo "SKIP $sha — github-actions author"
+              continue
+            fi
+            if [ "$author_email" = "cursoragent@cursor.com" ]; then
+              echo "SKIP $sha — Cursor agent author"
               continue
             fi
 
