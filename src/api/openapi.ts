@@ -16,6 +16,11 @@ const validation = {
   properties: {
     status: statusEnum,
     message: { type: "string" },
+    learnAnchor: {
+      type: "string",
+      description:
+        'Site-relative link to the learn-page section explaining how to fix this finding (e.g. "/learn/spf#lookup-limit"). Present only on a curated set of findings.',
+    },
   },
 } as const;
 

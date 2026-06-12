@@ -1,4 +1,5 @@
 import { DnsLookupError, queryTxt } from "../dns/client.js";
+import { LEARN_ANCHORS, learnAnchorHref } from "../shared/learn-anchors.js";
 import type { SpfIncludeNode, SpfResult, Validation } from "./types.js";
 
 const MAX_LOOKUPS = 10;
@@ -59,6 +60,7 @@ export async function analyzeSpf(domain: string): Promise<SpfResult> {
     validations.push({
       status: "fail",
       message: `Exceeds 10-lookup limit (${ctx.lookups} used) — SPF will permerror`,
+      learnAnchor: learnAnchorHref(LEARN_ANCHORS.spfLookupLimit),
     });
   }
 

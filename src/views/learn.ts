@@ -1,4 +1,5 @@
 import { COMMON_SELECTORS } from "../analyzers/dkim.js";
+import { LEARN_ANCHORS } from "../shared/learn-anchors.js";
 import { esc, generateCreature } from "./components.js";
 import { page, SITE_ORIGIN } from "./html.js";
 
@@ -302,7 +303,7 @@ export function renderLearnDmarc(): string {
     <div class="bd-card-body">
       <ul class="learn-pitfalls">
         <li><strong>No record at all.</strong> Without <code>_dmarc.yourdomain.com</code>, receivers have no policy to apply and spoofers have a free pass. This is an automatic F in dmarcheck.</li>
-        <li><strong><code>p=none</code> left in place forever.</strong> Monitor mode is useful for a few weeks of triage, but leaving it there means you are only watching the fire, not putting it out. dmarcheck treats <code>p=none</code> as a failing grade because it provides no real protection.</li>
+        <li id="${esc(LEARN_ANCHORS.dmarcPolicyNone.id)}"><strong><code>p=none</code> left in place forever.</strong> Monitor mode is useful for a few weeks of triage, but leaving it there means you are only watching the fire, not putting it out. dmarcheck treats <code>p=none</code> as a failing grade because it provides no real protection.</li>
         <li><strong>Missing <code>rua</code>.</strong> Without aggregate reports you cannot see which third-party senders are failing authentication, which makes the move from <code>none</code> to <code>quarantine</code> or <code>reject</code> a guessing game.</li>
         <li><strong><code>pct</code> below 100.</strong> A partial rollout is fine as a transition, but the unprotected slice is still spoofable. Increase it steadily and delete the tag once you are at 100.</li>
         <li><strong>Invalid tag at <code>_dmarc</code>.</strong> A TXT record exists but does not start with <code>v=DMARC1</code>. This usually means a wildcard DNS entry is returning the wrong value — receivers will ignore it.</li>
@@ -369,7 +370,7 @@ export function renderLearnSpf(): string {
     <div class="bd-card-title">Common misconfigurations</div>
     <div class="bd-card-body">
       <ul class="learn-pitfalls">
-        <li><strong>Exceeding the 10 DNS lookup limit (RFC 7208 §4.6.4).</strong> <code>include</code>, <code>a</code>, <code>mx</code>, <code>exists</code>, and <code>redirect</code> each cost a lookup, and every include recursively spends lookups too. Once you cross 10, receivers return <code>permerror</code> and the entire policy is ignored. dmarcheck counts lookups recursively and flags this as a hard failure.</li>
+        <li id="${esc(LEARN_ANCHORS.spfLookupLimit.id)}"><strong>Exceeding the 10 DNS lookup limit (RFC 7208 §4.6.4).</strong> <code>include</code>, <code>a</code>, <code>mx</code>, <code>exists</code>, and <code>redirect</code> each cost a lookup, and every include recursively spends lookups too. Once you cross 10, receivers return <code>permerror</code> and the entire policy is ignored. dmarcheck counts lookups recursively and flags this as a hard failure.</li>
         <li><strong>Circular includes.</strong> Two SPF records including each other produce a permerror. Usually happens after a migration leaves stale entries.</li>
         <li><strong>Using <code>+all</code>.</strong> Often a copy/paste mistake. It allows any host on the internet to pass SPF for your domain, which breaks DMARC alignment and actively harms you.</li>
         <li><strong>Using <code>?all</code> (neutral).</strong> Provides no guidance to receivers. Replace with <code>~all</code> or <code>-all</code>.</li>
@@ -448,7 +449,7 @@ export function renderLearnDkim(): string {
     <div class="bd-card-title">Common misconfigurations</div>
     <div class="bd-card-body">
       <ul class="learn-pitfalls">
-        <li><strong>No selector found.</strong> If dmarcheck cannot locate a DKIM record at any of the common selectors, either you have not set DKIM up yet, the selector name is unusual, or the CNAME/TXT record is pointing at the wrong place. Try the Advanced options on the home page with your provider's selector name.</li>
+        <li id="${esc(LEARN_ANCHORS.dkimFindSelector.id)}"><strong>No selector found.</strong> If dmarcheck cannot locate a DKIM record at any of the common selectors, either you have not set DKIM up yet, the selector name is unusual, or the CNAME/TXT record is pointing at the wrong place. Try the Advanced options on the home page with your provider's selector name.</li>
         <li><strong>Weak 1024-bit RSA keys.</strong> Still legal per spec, but industry guidance is 2048 bits or larger. dmarcheck flags any key under 2048 bits and applies a grade penalty.</li>
         <li><strong>Revoked keys (empty <code>p=</code>).</strong> Usually the remnant of a rotation that never cleaned up. The record still resolves, so receivers treat signed mail from that selector as broken.</li>
         <li><strong>Stuck in testing mode.</strong> <code>t=y</code> is useful while you verify a new key, but leaving it in place permanently tells receivers to ignore DKIM failures — effectively disabling the protection.</li>
@@ -457,7 +458,7 @@ export function renderLearnDkim(): string {
     </div>
   </div>
 
-  <div class="bd-card">
+  <div class="bd-card" id="${esc(LEARN_ANCHORS.dkimKeyRotation.id)}">
     <div class="bd-card-title">What to fix first</div>
     <div class="bd-card-body">
       <ol class="learn-steps">
@@ -543,7 +544,7 @@ export function renderLearnBimi(): string {
         <li><strong>DMARC is not enforced.</strong> BIMI is explicit about this: without <code>p=quarantine</code> or <code>p=reject</code>, receivers ignore your record entirely. Fix DMARC first, then come back to BIMI.</li>
         <li><strong>Logo URL is not HTTPS.</strong> The spec requires HTTPS, and receivers will not fetch an HTTP asset.</li>
         <li><strong>Wrong SVG profile.</strong> BIMI requires <em>SVG Tiny PS</em>, a constrained subset. A regular SVG exported from Illustrator will not pass validation — use a dedicated BIMI converter or a service like Entrust or DigiCert.</li>
-        <li><strong>No <code>a=</code> tag.</strong> Without a VMC or CMC, Gmail and Apple Mail will not render your logo even if the BIMI record is otherwise valid. The logo may appear in other clients that do not require certification.</li>
+        <li id="${esc(LEARN_ANCHORS.bimiCertification.id)}"><strong>No <code>a=</code> tag.</strong> Without a VMC or CMC, Gmail and Apple Mail will not render your logo even if the BIMI record is otherwise valid. The logo may appear in other clients that do not require certification.</li>
         <li><strong>Self-signed or expired certificate.</strong> The authority evidence must chain to a trusted issuer and be currently valid. Certificates typically last one year.</li>
       </ul>
     </div>

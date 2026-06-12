@@ -197,6 +197,36 @@ describe("analyzeDmarc — pct warnings", () => {
   });
 });
 
+describe("analyzeDmarc — p=none learn link (#524)", () => {
+  it("links the p=none finding to the DMARC learn page", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=none; rua=mailto:r@mydomain.com"],
+      raw: "v=DMARC1; p=none; rua=mailto:r@mydomain.com",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    const pNone = result.validations.find(
+      (v) => v.status === "fail" && v.message.includes("Policy is set to none"),
+    );
+    expect(pNone).toBeDefined();
+    expect(pNone?.learnAnchor).toBe("/learn/dmarc#p-none");
+  });
+
+  it("does not set learnAnchor on p=reject", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=reject; rua=mailto:r@mydomain.com"],
+      raw: "v=DMARC1; p=reject; rua=mailto:r@mydomain.com",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    const reject = result.validations.find((v) =>
+      v.message.includes("Policy is set to reject"),
+    );
+    expect(reject).toBeDefined();
+    expect(reject?.learnAnchor).toBeUndefined();
+  });
+});
+
 describe("analyzeDmarc — sp=none weakness", () => {
   it("warns when sp=none overrides p=reject", async () => {
     mockQueryTxt.mockResolvedValueOnce({

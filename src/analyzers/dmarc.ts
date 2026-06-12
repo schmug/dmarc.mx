@@ -1,4 +1,5 @@
 import { DnsLookupError, queryTxt } from "../dns/client.js";
+import { LEARN_ANCHORS, learnAnchorHref } from "../shared/learn-anchors.js";
 import { parseTags } from "../shared/parse-tags.js";
 import type { DmarcResult, Validation } from "./types.js";
 
@@ -154,6 +155,7 @@ export async function analyzeDmarc(domain: string): Promise<DmarcResult> {
     validations.push({
       status: "fail",
       message: "Policy is set to none (monitoring only, no enforcement)",
+      learnAnchor: learnAnchorHref(LEARN_ANCHORS.dmarcPolicyNone),
     });
   }
 

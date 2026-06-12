@@ -25,6 +25,10 @@ describe("analyzeDkim", () => {
           v.status === "fail" && v.message.includes("No DKIM selectors found"),
       ),
     ).toBe(true);
+    const noSelector = result.validations.find((v) =>
+      v.message.includes("No DKIM selectors found"),
+    );
+    expect(noSelector?.learnAnchor).toBe("/learn/dkim#find-your-selector");
   });
 
   it("finds a single DKIM selector with RSA 2048 key", async () => {
@@ -74,6 +78,10 @@ describe("analyzeDkim", () => {
         (v) => v.status === "warn" && v.message.includes("under 2048 bits"),
       ),
     ).toBe(true);
+    const weakKey = result.validations.find((v) =>
+      v.message.includes("under 2048 bits"),
+    );
+    expect(weakKey?.learnAnchor).toBe("/learn/dkim#key-rotation");
   });
 
   it("detects revoked key (empty p= tag)", async () => {
