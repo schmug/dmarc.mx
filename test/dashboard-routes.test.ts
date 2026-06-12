@@ -613,6 +613,68 @@ describe("dashboard/routes", () => {
       expect(body).not.toMatch(/<div class="creature[^"]*creature-partying/);
     });
 
+    it("names the top failure among failing domains, not the watchlist-wide protocol tally", async () => {
+      // Regression: MTA-STS reports status "fail" on most healthy domains too
+      // (no _mta-sts record), so a watchlist-wide tally produced banners like
+      // "MTA-STS is the top issue — 342 of 199 failing domains". The numerator
+      // must come from the same failing-grade bucket as the denominator.
+      const proDomains = Array.from({ length: 30 }, (_, i) => ({
+        id: i + 1,
+        user_id: "user_pro",
+        domain: `domain-${String(i + 1).padStart(2, "0")}.com`,
+        is_free: 0,
+        scan_frequency: "weekly" as const,
+        last_scanned_at: 1700000000 + i,
+        last_grade: i < 25 ? "A" : "F",
+        created_at: 1700000000 + i,
+      }));
+      // Healthy domains fail MTA-STS only; F domains fail DMARC (and most
+      // also fail MTA-STS, like real portfolios).
+      const scanHistory = proDomains.map((d, i) => ({
+        id: i + 1,
+        domain_id: d.id,
+        grade: d.last_grade,
+        scanned_at: 1700000000 + i,
+        score_factors: null,
+        protocol_results: JSON.stringify(
+          i < 25
+            ? { dmarc: { status: "pass" }, mta_sts: { status: "fail" } }
+            : {
+                dmarc: { status: "fail" },
+                mta_sts: { status: i < 29 ? "fail" : "pass" },
+              },
+        ),
+      }));
+      const db = createMockDB({
+        users: [
+          {
+            id: "user_pro",
+            email: "pro@example.com",
+            email_domain: "example.com",
+            stripe_customer_id: "cus_x",
+            email_alerts_enabled: 1,
+            api_key_retirement_acknowledged_at: 1700000000,
+            created_at: 1700000000,
+          },
+        ],
+        subscriptions: [{ user_id: "user_pro", status: "active" }],
+        domains: proDomains,
+        scanHistory,
+      });
+      const app = createTestApp(db);
+      const cookie = await makeSessionCookie("user_pro", "pro@example.com");
+      const res = await app.request("/dashboard", {
+        headers: { Cookie: cookie },
+      });
+      const body = await res.text();
+      // DMARC fails on all 5 failing domains; MTA-STS only on 4 of them. The
+      // 25 healthy MTA-STS failures must not be counted.
+      expect(body).toContain("<strong>DMARC</strong> is the top issue");
+      expect(body).toContain("5 of 5 failing domains");
+      expect(body).not.toContain("MTA-STS</strong> is the top issue");
+      expect(body).not.toContain("29 of 5");
+    });
+
     it("filters by search query for Pro users", async () => {
       const db = createMockDB({
         users: [
