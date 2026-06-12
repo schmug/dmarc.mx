@@ -8,9 +8,14 @@ import { page, SITE_ORIGIN } from "./html.js";
 // BreadcrumbList so search engines treat them as a separate lane. Do not copy
 // prose verbatim from SCORING_JSON_LD or the /scoring page — paraphrase.
 
+// Original publication date of the learn lane. Stable — never bump this on
+// edits; search engines treat a moving datePublished as freshness gaming.
+const LEARN_PUBLISHED = "2026-04-11";
+
 // Bump when materially editing any learn page prose. It lives here rather than
-// per-function so all five stay in sync by default.
-const LEARN_PUBLISHED = "2026-06-12";
+// per-function so all pages stay in sync by default. Only this constant moves
+// on edits; LEARN_PUBLISHED stays fixed.
+const LEARN_MODIFIED = "2026-06-12";
 
 interface LearnPageOptions {
   protocol: string; // "DMARC"
@@ -35,7 +40,7 @@ function learnJsonLd(opts: {
         headline: opts.headline,
         description: opts.description,
         datePublished: LEARN_PUBLISHED,
-        dateModified: LEARN_PUBLISHED,
+        dateModified: LEARN_MODIFIED,
         author: {
           "@type": "Organization",
           name: "dmarcheck",

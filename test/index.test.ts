@@ -899,6 +899,25 @@ describe("Learn pages", () => {
     expect(html).not.toContain('"@type":"FAQPage"');
   });
 
+  it("learn JSON-LD keeps datePublished stable while dateModified moves on edits", async () => {
+    // Search engines expect datePublished to be the original publication date
+    // and only dateModified to move on edits — bumping datePublished reads as
+    // freshness gaming. The learn lane has been materially edited since the
+    // 2026-04-11 launch, so the two fields must differ.
+    const res = await app.request("/learn/dmarc");
+    const html = await res.text();
+    const match = html.match(
+      /<script type="application\/ld\+json">(.+?)<\/script>/s,
+    );
+    expect(match).not.toBeNull();
+    const graph = JSON.parse(match?.[1] ?? "{}")["@graph"];
+    const article = graph.find(
+      (node: { "@type": string }) => node["@type"] === "TechArticle",
+    );
+    expect(article.datePublished).toBe("2026-04-11");
+    expect(article.dateModified > article.datePublished).toBe(true);
+  });
+
   it("DMARC learn page explains the core tag vocabulary", async () => {
     const res = await app.request("/learn/dmarc");
     const html = await res.text();
