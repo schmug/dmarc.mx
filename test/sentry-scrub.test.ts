@@ -82,4 +82,88 @@ describe("scrubSentryEvent", () => {
     const event: Event = { message: "boom" };
     expect(scrubSentryEvent(event)).toBe(event);
   });
+
+  describe("sensitive query params", () => {
+    it("masks the unsubscribe token value in request.url", () => {
+      const event: Event = {
+        request: { url: "https://dmarc.mx/email/unsubscribe?token=abc123" },
+      };
+      expect(scrubSentryEvent(event).request?.url).toBe(
+        "https://dmarc.mx/email/unsubscribe?token=[Filtered]",
+      );
+    });
+
+    it("masks code and state in both url and query_string", () => {
+      const event: Event = {
+        request: {
+          url: "https://dmarc.mx/auth/callback?code=authcode123&state=st456",
+          query_string: "code=authcode123&state=st456",
+        },
+      };
+      const scrubbed = scrubSentryEvent(event);
+      expect(scrubbed.request?.url).toBe(
+        "https://dmarc.mx/auth/callback?code=[Filtered]&state=[Filtered]",
+      );
+      expect(scrubbed.request?.query_string).toBe(
+        "code=[Filtered]&state=[Filtered]",
+      );
+    });
+
+    it("matches param names case-insensitively", () => {
+      const event: Event = {
+        request: { query_string: "TOKEN=abc&Code=def&State=ghi" },
+      };
+      expect(scrubSentryEvent(event).request?.query_string).toBe(
+        "TOKEN=[Filtered]&Code=[Filtered]&State=[Filtered]",
+      );
+    });
+
+    it("masks params whose names contain a sensitive header snippet", () => {
+      const event: Event = {
+        request: {
+          query_string: "api_key=dmk_abc&session_id=s1&signature=sig",
+        },
+      };
+      expect(scrubSentryEvent(event).request?.query_string).toBe(
+        "api_key=[Filtered]&session_id=[Filtered]&signature=[Filtered]",
+      );
+    });
+
+    it("leaves non-sensitive params unchanged alongside masked ones", () => {
+      const event: Event = {
+        request: {
+          url: "https://dmarc.mx/check?domain=example.com&format=json&selectors=s1.s2&token=tok",
+          query_string:
+            "domain=example.com&format=json&selectors=s1.s2&token=tok",
+        },
+      };
+      const scrubbed = scrubSentryEvent(event);
+      expect(scrubbed.request?.url).toBe(
+        "https://dmarc.mx/check?domain=example.com&format=json&selectors=s1.s2&token=[Filtered]",
+      );
+      expect(scrubbed.request?.query_string).toBe(
+        "domain=example.com&format=json&selectors=s1.s2&token=[Filtered]",
+      );
+    });
+
+    it("returns a relative or malformed url unchanged without throwing", () => {
+      const relative: Event = {
+        request: { url: "/email/unsubscribe?token=abc" },
+      };
+      expect(scrubSentryEvent(relative).request?.url).toBe(
+        "/email/unsubscribe?token=abc",
+      );
+      const malformed: Event = { request: { url: "http://[bad" } };
+      expect(scrubSentryEvent(malformed).request?.url).toBe("http://[bad");
+    });
+
+    it("returns an empty query_string and a query-less url unchanged", () => {
+      const event: Event = {
+        request: { url: "https://dmarc.mx/check", query_string: "" },
+      };
+      const scrubbed = scrubSentryEvent(event);
+      expect(scrubbed.request?.url).toBe("https://dmarc.mx/check");
+      expect(scrubbed.request?.query_string).toBe("");
+    });
+  });
 });
