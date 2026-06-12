@@ -1,3 +1,4 @@
+import { COMMON_SELECTORS } from "../analyzers/dkim.js";
 import { esc, generateCreature } from "./components.js";
 import { page, SITE_ORIGIN } from "./html.js";
 
@@ -8,7 +9,7 @@ import { page, SITE_ORIGIN } from "./html.js";
 
 // Bump when materially editing any learn page prose. It lives here rather than
 // per-function so all five stay in sync by default.
-const LEARN_PUBLISHED = "2026-04-11";
+const LEARN_PUBLISHED = "2026-06-12";
 
 interface LearnPageOptions {
   protocol: string; // "DMARC"
@@ -425,7 +426,21 @@ export function renderLearnDkim(): string {
         <div><dt><code>t</code></dt><dd>Flags. <code>t=y</code> marks the selector as testing-only — receivers are expected to treat failures leniently.</dd></div>
         <div><dt>Selector</dt><dd>An arbitrary label you pick (e.g. <code>google</code>, <code>selector1</code>, <code>s1</code>) that lets you publish multiple keys simultaneously for rotation.</dd></div>
       </dl>
-      <p class="tier-text" style="margin-top:12px">dmarcheck automatically probes 38 common selectors used by major providers (Google Workspace, Microsoft 365, Proton Mail, Fastmail, Zoho, Postmark, Amazon SES, and others), and you can pass a custom selector in the Advanced options on the home page if you use something unusual.</p>
+      <p class="tier-text" style="margin-top:12px">dmarcheck automatically probes ${COMMON_SELECTORS.length} common selectors used by major providers (Google Workspace, Microsoft 365, Proton Mail, Fastmail, Zoho, Postmark, Amazon SES, and others), and you can pass a custom selector in the Advanced options on the home page if you use something unusual.</p>
+    </div>
+  </div>
+
+  <div class="bd-card">
+    <h2 class="bd-card-title" id="find-your-selector">How to find your DKIM selector</h2>
+    <div class="bd-card-body">
+      <p class="tier-text">The selector is not a secret — every signed message announces it. If a vendor doc told you to &ldquo;check your DKIM selector&rdquo; or a scan came back with no selectors found, here is where to look.</p>
+      <ol class="learn-steps">
+        <li><strong>Read it out of a message you sent.</strong> Open a message from your domain in the receiving mailbox and view the full headers (Gmail: three-dot menu &rarr; &ldquo;Show original&rdquo;; Outlook: &ldquo;View message source&rdquo;). Find the <code>DKIM-Signature</code> header — the <code>s=</code> tag is the selector and <code>d=</code> is the domain it signs for:
+        <pre class="learn-example"><code>DKIM-Signature: v=1; a=rsa-sha256; d=yourdomain.com; s=selector1; ...</code></pre>
+        Here the selector is <code>selector1</code>, so the public key lives at <code>selector1._domainkey.yourdomain.com</code> — exactly the record dmarcheck looks up.</li>
+        <li><strong>Try your provider's documented default.</strong> Google Workspace signs with <code>google</code>, Microsoft 365 rotates between <code>selector1</code> and <code>selector2</code>, Proton Mail uses <code>protonmail</code> (plus <code>protonmail2</code> and <code>protonmail3</code>), Fastmail uses <code>fm1</code> through <code>fm3</code>, and Zoho Mail uses <code>default</code>.</li>
+        <li><strong>Or skip the detective work and scan.</strong> dmarcheck probes ${COMMON_SELECTORS.length} common selectors on every scan — the provider defaults above plus the usual names from transactional senders like Postmark, Mandrill, and Amazon SES. If yours is custom, add it under Advanced options on the home page and scan again.</li>
+      </ol>
     </div>
   </div>
 
@@ -465,7 +480,7 @@ export function renderLearnDkim(): string {
       "What is DKIM? Selectors, key rotation, and 2048-bit keys — dmarcheck",
     headline: "What is DKIM? Selectors, key strength, and rotation",
     description:
-      "A plain-English guide to DKIM: how signing selectors live in DNS, why 2048-bit keys matter, how to rotate without downtime, and why dmarcheck probes 38 common selectors.",
+      "A plain-English guide to DKIM: how to find your DKIM selector from a message header or your provider's default, why 2048-bit keys matter, and how to rotate without downtime.",
     body,
   });
 }

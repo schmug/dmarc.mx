@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { COMMON_SELECTORS } from "../src/analyzers/dkim.js";
 import { app, normalizeDomain, parseSelectors } from "../src/index.js";
 import { _memoryStore } from "../src/rate-limit.js";
 
@@ -901,6 +902,33 @@ describe("Learn pages", () => {
     const html = await res.text();
     expect(html).toContain("2048");
     expect(html).toMatch(/selector/i);
+  });
+
+  it("DKIM learn page explains how to find your selector under a stable anchor", async () => {
+    const res = await app.request("/learn/dkim");
+    const html = await res.text();
+    // The anchor id is a contract: scan-report validations will deep-link to
+    // it (#524). Do not rename without checking callers.
+    expect(html).toMatch(/<h2[^>]*\bid="find-your-selector"[^>]*>/);
+    // Path 1: read the s= tag from a real DKIM-Signature header
+    expect(html).toContain("DKIM-Signature");
+    expect(html).toContain("<code>s=</code>");
+    // Path 2: provider defaults, sourced from the analyzer's probe list
+    for (const sel of ["google", "selector1", "selector2"]) {
+      expect(COMMON_SELECTORS).toContain(sel);
+      expect(html).toContain(`<code>${sel}</code>`);
+    }
+    // Path 3: the scan CTA cites the analyzer's real probe count
+    expect(html).toContain(`${COMMON_SELECTORS.length} common selectors`);
+    expect(html).not.toContain("38 common selectors");
+  });
+
+  it("DKIM learn page meta description includes selector-finding phrasing", async () => {
+    const res = await app.request("/learn/dkim");
+    const html = await res.text();
+    expect(html).toMatch(
+      /<meta name="description" content="[^"]*find your DKIM selector[^"]*"/i,
+    );
   });
 
   it("BIMI learn page mentions VMC and the DMARC requirement", async () => {
