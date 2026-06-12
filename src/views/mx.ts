@@ -11,7 +11,14 @@ import { page, SITE_ORIGIN } from "./html.js";
 // .breakdown.learn CSS shell, same bd-card body cards) but the JSON-LD,
 // breadcrumbs, and sibling lists are scoped to the /mx hub, not /learn.
 
+// Original publication date of the /mx lane. Stable — never bump this on
+// edits; search engines treat a moving datePublished as freshness gaming.
 const MX_PUBLISHED = "2026-05-24";
+
+// Bump when materially editing any /mx page prose. It lives here rather than
+// per-provider so all pages stay in sync by default. Only this constant moves
+// on edits; MX_PUBLISHED stays fixed.
+const MX_MODIFIED = "2026-05-24";
 
 const MX_FOOTER = `<div class="foss-callout">
     <a href="https://github.com/schmug/dmarcheck" class="foss-link">
@@ -91,7 +98,7 @@ function providerJsonLd(provider: MxProvider): string {
         headline: provider.headline,
         description: provider.description,
         datePublished: MX_PUBLISHED,
-        dateModified: MX_PUBLISHED,
+        dateModified: MX_MODIFIED,
         author: {
           "@type": "Organization",
           name: "dmarcheck",

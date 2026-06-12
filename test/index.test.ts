@@ -986,6 +986,28 @@ describe("Learn pages", () => {
   });
 });
 
+describe("MX provider pages", () => {
+  it("mx JSON-LD keeps datePublished stable at the 2026-05-24 launch date", async () => {
+    // Search engines expect datePublished to be the original publication date
+    // and only dateModified to move on edits — bumping datePublished reads as
+    // freshness gaming. The /mx lane has not been materially edited since the
+    // 2026-05-24 launch, so the two fields are currently equal; dateModified
+    // may move forward on edits but datePublished must never change.
+    const res = await app.request("/mx/google");
+    const html = await res.text();
+    const match = html.match(
+      /<script type="application\/ld\+json">(.+?)<\/script>/s,
+    );
+    expect(match).not.toBeNull();
+    const graph = JSON.parse(match?.[1] ?? "{}")["@graph"];
+    const article = graph.find(
+      (node: { "@type": string }) => node["@type"] === "TechArticle",
+    );
+    expect(article.datePublished).toBe("2026-05-24");
+    expect(article.dateModified >= article.datePublished).toBe(true);
+  });
+});
+
 describe("bare /check request", () => {
   it("redirects browsers to / when no domain query parameter is supplied", async () => {
     const res = await app.request("/check");
