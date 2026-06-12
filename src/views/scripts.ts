@@ -1360,6 +1360,15 @@ if (typeof navigator !== 'undefined' && navigator.modelContext && typeof navigat
       if (e.key === 'Escape') closeWizard();
       else trapFocus(wizard, e);
     });
+
+    if (form) {
+      form.addEventListener('submit', function(e) {
+        if (step < 3) {
+          e.preventDefault();
+          if (nextBtn) nextBtn.click();
+        }
+      });
+    }
   }
 })();
 `;
