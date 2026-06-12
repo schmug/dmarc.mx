@@ -595,6 +595,15 @@ describe("HTML head tags", () => {
     expect(html).toContain('<dt><a href="/learn/mta-sts">MTA-STS</a></dt>');
   });
 
+  it("landing page cites the analyzer's real selector probe count", async () => {
+    const res = await app.request("/");
+    const html = await res.text();
+    // Copy must not hardcode the probe count — it drifted to a stale "38"
+    // while COMMON_SELECTORS held 36 entries (#523).
+    expect(html).toContain(`${COMMON_SELECTORS.length} common selectors`);
+    expect(html).not.toContain("38 common selectors");
+  });
+
   it("landing explainer lists every checked protocol, not just the graded set", async () => {
     const res = await app.request("/");
     const html = await res.text();
