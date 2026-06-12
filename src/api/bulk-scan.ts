@@ -4,6 +4,7 @@ import {
   createDomains,
   findExistingDomainsForUser,
   getDomainByUserAndName,
+  queueDomainsForRescan,
 } from "../db/domains.js";
 import { recordScan } from "../db/scans.js";
 import { scan } from "../orchestrator.js";
@@ -195,6 +196,10 @@ export async function processBulkScan(
       (domain) => !existingSet.has(domain),
     );
 
+    const queuedExisting = uniqueQueued.filter((domain) =>
+      existingSet.has(domain),
+    );
+
     try {
       if (queuedToInsert.length > 0) {
         await createDomains(
@@ -206,6 +211,9 @@ export async function processBulkScan(
           })),
         );
       }
+      if (queuedExisting.length > 0) {
+        await queueDomainsForRescan(input.db, input.userId, queuedExisting);
+      }
 
       for (const domain of uniqueQueued) {
         queuedResults.push({ domain, status: "queued" });
@@ -216,6 +224,9 @@ export async function processBulkScan(
         try {
           // ensureDomainRow is idempotent and handles conflicts
           await ensureDomainRow(input.db, input.userId, domain);
+          if (existingSet.has(domain)) {
+            await queueDomainsForRescan(input.db, input.userId, [domain]);
+          }
           queuedResults.push({ domain, status: "queued" });
         } catch {
           queuedResults.push({

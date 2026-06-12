@@ -320,3 +320,22 @@ export async function updateLastScan(
     .bind(grade, scannedAt, domainId)
     .run();
 }
+
+// Marks existing watchlist rows as due for the nightly cron. Bulk scan uses
+// this for overflow domains beyond the in-band cap — new domains are inserted
+// with last_scanned_at = NULL already, but re-submitted tracked domains keep
+// their recent timestamp unless we clear it here.
+export async function queueDomainsForRescan(
+  db: D1Database,
+  userId: string,
+  domains: string[],
+): Promise<void> {
+  if (domains.length === 0) return;
+  const placeholders = domains.map(() => "?").join(",");
+  await db
+    .prepare(
+      `UPDATE domains SET last_scanned_at = NULL WHERE user_id = ? AND domain IN (${placeholders})`,
+    )
+    .bind(userId, ...domains)
+    .run();
+}
