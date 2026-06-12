@@ -85,14 +85,14 @@ describe("scrubSentryEvent", () => {
 });
 
 describe("scrubSentryEvent — URL and query_string scrubbing", () => {
-  it("masks token param in request.url", () => {
+  it("masks token param in request.url with a literal [Filtered]", () => {
     const event = scrubSentryEvent({
       request: {
         url: "https://dmarc.mx/alerts/unsubscribe?token=abc123&domain=example.com",
       },
     } as Event);
     expect(event.request?.url).toBe(
-      "https://dmarc.mx/alerts/unsubscribe?token=%5BFiltered%5D&domain=example.com",
+      "https://dmarc.mx/alerts/unsubscribe?token=[Filtered]&domain=example.com",
     );
   });
 
@@ -103,7 +103,33 @@ describe("scrubSentryEvent — URL and query_string scrubbing", () => {
       },
     } as Event);
     expect(event.request?.url).toBe(
-      "https://dmarc.mx/auth/callback?code=%5BFiltered%5D&state=%5BFiltered%5D&foo=bar",
+      "https://dmarc.mx/auth/callback?code=[Filtered]&state=[Filtered]&foo=bar",
+    );
+  });
+
+  it("masks params whose names contain a sensitive header snippet", () => {
+    const event = scrubSentryEvent({
+      request: {
+        query_string: "api_key=dmk_abc&session_id=s1&signature=sig",
+      },
+    } as Event);
+    expect(event.request?.query_string).toBe(
+      "api_key=[Filtered]&session_id=[Filtered]&signature=[Filtered]",
+    );
+  });
+
+  it("preserves the original encoding of untouched params", () => {
+    const event = scrubSentryEvent({
+      request: {
+        url: "https://dmarc.mx/check?domain=ex%2Eample.com&q=a%20b+c&token=tok",
+        query_string: "domain=ex%2Eample.com&q=a%20b+c&token=tok",
+      },
+    } as Event);
+    expect(event.request?.url).toBe(
+      "https://dmarc.mx/check?domain=ex%2Eample.com&q=a%20b+c&token=[Filtered]",
+    );
+    expect(event.request?.query_string).toBe(
+      "domain=ex%2Eample.com&q=a%20b+c&token=[Filtered]",
     );
   });
 
@@ -117,6 +143,10 @@ describe("scrubSentryEvent — URL and query_string scrubbing", () => {
     const badUrl = "/relative/path?token=abc";
     const event = scrubSentryEvent({ request: { url: badUrl } } as Event);
     expect(event.request?.url).toBe(badUrl);
+    const malformed = scrubSentryEvent({
+      request: { url: "http://[bad" },
+    } as Event);
+    expect(malformed.request?.url).toBe("http://[bad");
   });
 
   it("masks sensitive params in string query_string", () => {
@@ -127,7 +157,7 @@ describe("scrubSentryEvent — URL and query_string scrubbing", () => {
       },
     } as Event);
     expect(event.request?.query_string).toBe(
-      "token=%5BFiltered%5D&domain=example.com",
+      "token=[Filtered]&domain=example.com",
     );
   });
 
@@ -151,11 +181,11 @@ describe("scrubSentryEvent — URL and query_string scrubbing", () => {
         query_string: "CODE=xyz&State=abc&domain=ex.com",
       },
     } as Event);
-    expect(event.request?.url).toContain("CODE=%5BFiltered%5D");
-    expect(event.request?.url).toContain("State=%5BFiltered%5D");
+    expect(event.request?.url).toContain("CODE=[Filtered]");
+    expect(event.request?.url).toContain("State=[Filtered]");
     expect(event.request?.url).toContain("domain=ex.com");
-    expect(event.request?.query_string).toContain("CODE=%5BFiltered%5D");
-    expect(event.request?.query_string).toContain("State=%5BFiltered%5D");
+    expect(event.request?.query_string).toContain("CODE=[Filtered]");
+    expect(event.request?.query_string).toContain("State=[Filtered]");
     expect(event.request?.query_string).toContain("domain=ex.com");
   });
 });

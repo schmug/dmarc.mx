@@ -38,34 +38,37 @@ function isSensitiveParam(name: string): boolean {
   );
 }
 
+// Masks sensitive param values in a raw query string (no leading "?") via
+// string surgery rather than URLSearchParams: the masked value stays a literal
+// "[Filtered]" (not %5BFiltered%5D) and untouched params keep their original
+// byte-for-byte encoding instead of being re-serialized.
 function scrubQueryString(qs: string): string {
   if (!qs) return qs;
-  const params = new URLSearchParams(qs);
-  let changed = false;
-  for (const key of [...params.keys()]) {
-    if (isSensitiveParam(key)) {
-      params.set(key, "[Filtered]");
-      changed = true;
-    }
-  }
-  return changed ? params.toString() : qs;
+  return qs
+    .split("&")
+    .map((pair) => {
+      const eq = pair.indexOf("=");
+      if (eq === -1) return pair;
+      const name = pair.slice(0, eq);
+      return isSensitiveParam(name) ? `${name}=[Filtered]` : pair;
+    })
+    .join("&");
 }
 
 function scrubUrlString(raw: string): string {
-  let parsed: URL;
   try {
-    parsed = new URL(raw);
+    // Parseability check only — a relative or malformed URL is returned
+    // as-is rather than risking a throw inside a beforeSend* hook (which
+    // would drop the event). String surgery below avoids URL re-encoding.
+    new URL(raw);
   } catch {
     return raw;
   }
-  let changed = false;
-  for (const key of [...parsed.searchParams.keys()]) {
-    if (isSensitiveParam(key)) {
-      parsed.searchParams.set(key, "[Filtered]");
-      changed = true;
-    }
-  }
-  return changed ? parsed.toString() : raw;
+  const queryStart = raw.indexOf("?");
+  if (queryStart === -1) return raw;
+  return (
+    raw.slice(0, queryStart + 1) + scrubQueryString(raw.slice(queryStart + 1))
+  );
 }
 
 // Scrubs credentials from an outgoing Sentry event. Must be registered as BOTH
