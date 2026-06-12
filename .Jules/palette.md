@@ -26,3 +26,7 @@
 ## 2026-06-05 - Add data-loading-text to standard synchronous forms
 **Learning:** Using `data-loading-text` isn't just for heavy async processes; standard forms with synchronous POST operations (like settings saves, revokes, or dismissals) also benefit. It provides immediate visual feedback, confirms the click, and disables the button to prevent accidental double-submissions while the server processes the request.
 **Action:** Consistently apply `data-loading-text` to all `<button type="submit">` elements in the app (e.g., settings save buttons, destructive actions) to utilize the global form submit listener for consistent UX and protection against double-clicking.
+
+## 2026-06-06 - Multi-step Wizard Keyboard Progression
+**Learning:** Standard HTML forms will prematurely submit if a user hits "Enter" on an early step of a multi-step wizard, disrupting the user flow and potentially submitting incomplete data.
+**Action:** Intercept the `submit` event on the form and call `e.preventDefault()`. If the user is not on the final step, programmatically advance to the next step (e.g., by simulating a click on the "Next" button). This ensures smooth keyboard navigation through the wizard.
