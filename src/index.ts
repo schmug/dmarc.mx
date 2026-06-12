@@ -57,6 +57,7 @@ import {
   type RateLimitResult,
   rateLimitHeaders,
 } from "./rate-limit.js";
+import { scrubSentryEvent } from "./sentry-scrub.js";
 import { normalizeDomain } from "./shared/domain.js";
 import { listIndexableScanDomains } from "./shared/indexable-domains.js";
 import { watchlistCapFor } from "./shared/limits.js";
@@ -1513,26 +1514,10 @@ export default Sentry.withSentry<Env>(
         return samplingContext.parentSampled;
       return 0.3;
     },
-    beforeSend(event) {
-      if (event.request?.headers) {
-        const scrubbedHeaders = { ...event.request.headers };
-        for (const key of Object.keys(scrubbedHeaders)) {
-          const lowerKey = key.toLowerCase();
-          if (
-            lowerKey === "cookie" ||
-            lowerKey === "authorization" ||
-            lowerKey === "stripe-signature"
-          ) {
-            scrubbedHeaders[key] = "[Filtered]";
-          }
-        }
-        event.request.headers = scrubbedHeaders;
-      }
-      if (event.request?.cookies) {
-        event.request.cookies = { filtered: "[Filtered]" };
-      }
-      return event;
-    },
+    // Registered on both hooks: beforeSend only covers error events, and the
+    // SDK attaches request headers to transaction events too.
+    beforeSend: scrubSentryEvent,
+    beforeSendTransaction: scrubSentryEvent,
   }),
   handler,
 );
