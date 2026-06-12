@@ -957,6 +957,49 @@ describe("Learn pages", () => {
     expect(html).toContain('href="/learn/dmarc"');
   });
 
+  it("BIMI learn page has a certification section (VMC vs CMC, issuers, cost, troubleshooting)", async () => {
+    const res = await app.request("/learn/bimi");
+    const html = await res.text();
+    // Dedicated H2 targeting the "bimi certification" query cluster
+    expect(html).toMatch(/<h2[^>]*>[^<]*BIMI certification[^<]*<\/h2>/);
+    // VMC vs CMC comparison: full names and the eligibility difference
+    expect(html).toContain("Verified Mark Certificate");
+    expect(html).toContain("Common Mark Certificate");
+    expect(html).toMatch(/registered trademark/i);
+    expect(html).toMatch(/12 months/);
+    // Both certificate types require DMARC at enforcement
+    expect(html).toContain("<code>pct=100</code>");
+    // Issuers
+    expect(html).toContain("DigiCert");
+    expect(html).toContain("Entrust");
+    // Cost guidance stays approximate and dated, never precise vendor pricing
+    expect(html).toMatch(/as of 2026/);
+    // Troubleshooting subsection for the "logo still not showing" intent
+    expect(html).toMatch(/logo still not showing/i);
+    expect(html).toMatch(/expired/i);
+    expect(html).toContain("Tiny PS");
+  });
+
+  it("BIMI learn page title, meta description, and JSON-LD carry certification intent", async () => {
+    const res = await app.request("/learn/bimi");
+    const html = await res.text();
+    expect(html).toMatch(/<title>[^<]*certification[^<]*<\/title>/i);
+    expect(html).toMatch(
+      /<meta name="description" content="[^"]*certification[^"]*"/i,
+    );
+    // JSON-LD headline/description stay consistent with the visible page
+    const jsonLdMatch = html.match(
+      /<script type="application\/ld\+json">(.*?)<\/script>/s,
+    );
+    if (!jsonLdMatch) throw new Error("JSON-LD script block not found");
+    const graph = JSON.parse(jsonLdMatch[1])["@graph"];
+    const article = graph.find(
+      (n: { "@type": string }) => n["@type"] === "TechArticle",
+    );
+    expect(article.description).toMatch(/certification/i);
+    expect(html).toContain(`<h1 class="rubric-title">${article.headline}</h1>`);
+  });
+
   it("MTA-STS learn page mentions enforce/testing modes and the policy file", async () => {
     const res = await app.request("/learn/mta-sts");
     const html = await res.text();
