@@ -85,54 +85,57 @@ function learnJsonLd(opts: {
   });
 }
 
-const LEARN_SIBLINGS: Array<{ slug: string; protocol: string; blurb: string }> =
-  [
-    {
-      slug: "dmarc",
-      protocol: "DMARC",
-      blurb: "Policy records, alignment, and reporting.",
-    },
-    {
-      slug: "spf",
-      protocol: "SPF",
-      blurb: "Authorized senders and the 10-lookup budget.",
-    },
-    {
-      slug: "dkim",
-      protocol: "DKIM",
-      blurb: "Signing keys, selectors, and rotation.",
-    },
-    {
-      slug: "bimi",
-      protocol: "BIMI",
-      blurb: "Inbox logos and VMC/CMC certification.",
-    },
-    {
-      slug: "mta-sts",
-      protocol: "MTA-STS",
-      blurb: "TLS enforcement for inbound mail.",
-    },
-    {
-      slug: "security-txt",
-      protocol: "security.txt",
-      blurb: "Machine-readable security disclosure policies.",
-    },
-    {
-      slug: "tls-rpt",
-      protocol: "TLS-RPT",
-      blurb: "SMTP TLS failure reporting via DNS.",
-    },
-    {
-      slug: "dnssec",
-      protocol: "DNSSEC",
-      blurb: "Signed DNS zones and the chain of trust.",
-    },
-    {
-      slug: "dane",
-      protocol: "DANE/TLSA",
-      blurb: "TLSA records pinning MX certificates over DNSSEC.",
-    },
-  ];
+export const LEARN_SIBLINGS: Array<{
+  slug: string;
+  protocol: string;
+  blurb: string;
+}> = [
+  {
+    slug: "dmarc",
+    protocol: "DMARC",
+    blurb: "Policy records, alignment, and reporting.",
+  },
+  {
+    slug: "spf",
+    protocol: "SPF",
+    blurb: "Authorized senders and the 10-lookup budget.",
+  },
+  {
+    slug: "dkim",
+    protocol: "DKIM",
+    blurb: "Signing keys, selectors, and rotation.",
+  },
+  {
+    slug: "bimi",
+    protocol: "BIMI",
+    blurb: "Inbox logos and VMC/CMC certification.",
+  },
+  {
+    slug: "mta-sts",
+    protocol: "MTA-STS",
+    blurb: "TLS enforcement for inbound mail.",
+  },
+  {
+    slug: "security-txt",
+    protocol: "security.txt",
+    blurb: "Machine-readable security disclosure policies.",
+  },
+  {
+    slug: "tls-rpt",
+    protocol: "TLS-RPT",
+    blurb: "SMTP TLS failure reporting via DNS.",
+  },
+  {
+    slug: "dnssec",
+    protocol: "DNSSEC",
+    blurb: "Signed DNS zones and the chain of trust.",
+  },
+  {
+    slug: "dane",
+    protocol: "DANE/TLSA",
+    blurb: "TLSA records pinning MX certificates over DNSSEC.",
+  },
+];
 
 function siblingLinks(currentSlug: string): string {
   const items = LEARN_SIBLINGS.filter((s) => s.slug !== currentSlug)
@@ -261,7 +264,7 @@ export function renderLearnHub(): string {
     <span class="breadcrumb-current">Learn</span>
   </nav>
   <h1 class="rubric-title">Learn email authentication</h1>
-  <p class="rubric-intro">Nine short guides to the DNS records dmarcheck scans. Each page walks through how the record works, how to read a real example, and how to fix the misconfigurations that lower your grade.</p>
+  <p class="rubric-intro">${LEARN_SIBLINGS.length} short guides to the DNS records dmarcheck scans. Each page walks through how the record works, how to read a real example, and how to fix the misconfigurations that lower your grade.</p>
   <ul class="learn-hub-grid">${cards}</ul>
   ${learnCta("Enter a domain to scan")}
   ${LEARN_FOOTER}

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { COMMON_SELECTORS } from "../src/analyzers/dkim.js";
 import { app, normalizeDomain, parseSelectors } from "../src/index.js";
 import { _memoryStore } from "../src/rate-limit.js";
+import { LEARN_SIBLINGS } from "../src/views/learn.js";
 
 vi.mock("../src/cache.js", () => ({
   getCachedScan: vi.fn().mockResolvedValue(null),
@@ -857,6 +858,16 @@ describe("Learn pages", () => {
     for (const p of protocols) {
       expect(html).toContain(`href="/learn/${p.slug}"`);
     }
+  });
+
+  it("hub intro cites the real guide count from LEARN_SIBLINGS", async () => {
+    const res = await app.request("/learn");
+    const html = await res.text();
+    // Copy must not hardcode the guide count — the same drift the landing
+    // page's "five protocols" had (#453). Interpolating the array length
+    // keeps the prose honest when a tenth guide lands.
+    expect(html).toContain(`${LEARN_SIBLINGS.length} short guides`);
+    expect(html).not.toMatch(/\b(nine|ten|eleven|twelve)\s+short guides\b/i);
   });
 
   for (const p of protocols) {
