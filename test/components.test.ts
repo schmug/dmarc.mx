@@ -12,6 +12,7 @@ import {
   statCard,
   statusDot,
   themeToggle,
+  validationList,
 } from "../src/views/components";
 import {
   renderError,
@@ -474,6 +475,46 @@ describe("CSV download links", () => {
     const html = renderReportHeader(makeScanResult());
     expect(html).toContain(
       '<a href="/check?domain=example.com&format=csv" class="csv-download" rel="nofollow">Download CSV',
+    );
+  });
+});
+
+describe("validationList — learnAnchor links (#524)", () => {
+  it('renders a "How to fix" link when learnAnchor is set', () => {
+    const html = validationList([
+      {
+        status: "fail",
+        message: "Exceeds 10-lookup limit (12 used) — SPF will permerror",
+        learnAnchor: "/learn/spf#lookup-limit",
+      },
+    ]);
+    expect(html).toContain(
+      '<a class="validation-learn-link" href="/learn/spf#lookup-limit">How to fix &rarr;</a>',
+    );
+  });
+
+  it("escapes the learnAnchor href", () => {
+    const html = validationList([
+      {
+        status: "fail",
+        message: "x",
+        learnAnchor: '/learn/spf#"><script>alert(1)</script>',
+      },
+    ]);
+    expect(html).not.toContain("<script>");
+    expect(html).toContain("&quot;&gt;&lt;script&gt;");
+  });
+
+  it("renders byte-identical output when learnAnchor is absent", () => {
+    const html = validationList([
+      { status: "pass", message: "SPF record found" },
+      { status: "warn", message: "Something & odd" },
+    ]);
+    expect(html).toBe(
+      '<ul class="validation-list">' +
+        '<li><span class="icon-pass" aria-hidden="true">&#10003;</span> SPF record found</li>' +
+        '<li><span class="icon-warn" aria-hidden="true">&#9888;</span> Something &amp; odd</li>' +
+        "</ul>",
     );
   });
 });

@@ -3,6 +3,12 @@ export type Status = "pass" | "warn" | "fail" | "info";
 export interface Validation {
   status: Status;
   message: string;
+  /**
+   * Site-relative deep link ("/learn/spf#lookup-limit") to the learn-page
+   * section explaining how to fix this finding. Set only on the curated set
+   * in src/shared/learn-anchors.ts; rendered as a "How to fix →" link (#524).
+   */
+  learnAnchor?: string;
 }
 
 export interface DmarcResult {

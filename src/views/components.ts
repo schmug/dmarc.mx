@@ -233,7 +233,10 @@ export function validationList(validations: Validation[]): string {
           : v.status === "info"
             ? '<span class="icon-info" aria-hidden="true">&#9432;</span>'
             : '<span class="icon-fail" aria-hidden="true">&#10007;</span>';
-    items += `<li>${icon} ${esc(v.message)}</li>`;
+    const fix = v.learnAnchor
+      ? ` <a class="validation-learn-link" href="${esc(v.learnAnchor)}">How to fix &rarr;</a>`
+      : "";
+    items += `<li>${icon} ${esc(v.message)}${fix}</li>`;
   }
   return `<ul class="validation-list">${items}</ul>`;
 }

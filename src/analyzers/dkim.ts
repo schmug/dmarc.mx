@@ -1,4 +1,5 @@
 import { queryTxt } from "../dns/client.js";
+import { LEARN_ANCHORS, learnAnchorHref } from "../shared/learn-anchors.js";
 import { parseTags } from "../shared/parse-tags.js";
 import type { DkimResult, DkimSelectorResult, Validation } from "./types.js";
 
@@ -114,6 +115,7 @@ export async function analyzeDkim(
       status: "fail",
       message:
         "No DKIM selectors found among common selectors — try specifying a custom selector",
+      learnAnchor: learnAnchorHref(LEARN_ANCHORS.dkimFindSelector),
     });
   }
 
@@ -130,6 +132,7 @@ export async function analyzeDkim(
     validations.push({
       status: "warn",
       message: `${weakKeyNames.join(", ")} — RSA key under 2048 bits (weak)`,
+      learnAnchor: learnAnchorHref(LEARN_ANCHORS.dkimKeyRotation),
     });
   }
 

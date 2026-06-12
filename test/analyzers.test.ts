@@ -296,6 +296,10 @@ describe("analyzeSpf", () => {
           v.status === "fail" && v.message.includes("Exceeds 10-lookup limit"),
       ),
     ).toBe(true);
+    const overLimit = result.validations.find((v) =>
+      v.message.includes("Exceeds 10-lookup limit"),
+    );
+    expect(overLimit?.learnAnchor).toBe("/learn/spf#lookup-limit");
   });
 
   it("handles redirect modifier", async () => {

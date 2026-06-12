@@ -1,5 +1,6 @@
 import { DnsLookupError, queryTxt } from "../dns/client.js";
 import type { TxtRecord } from "../dns/types.js";
+import { LEARN_ANCHORS, learnAnchorHref } from "../shared/learn-anchors.js";
 import { parseTags } from "../shared/parse-tags.js";
 import type { BimiResult, Validation } from "./types.js";
 
@@ -271,12 +272,16 @@ export async function analyzeBimi(
     validations.push({
       status: certResult.ok ? "pass" : certResult.expired ? "fail" : "warn",
       message: certResult.message,
+      ...(certResult.ok
+        ? {}
+        : { learnAnchor: learnAnchorHref(LEARN_ANCHORS.bimiCertification) }),
     });
   } else {
     validations.push({
       status: "warn",
       message:
         "No authority certificate (a=) — add a VMC or CMC to display your logo in Gmail and Apple Mail",
+      learnAnchor: learnAnchorHref(LEARN_ANCHORS.bimiCertification),
     });
   }
 

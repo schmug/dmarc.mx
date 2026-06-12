@@ -395,6 +395,8 @@ h1.domain-name, .domain-name { font-size: 1.5rem; font-weight: 700; margin: 0; }
 .card-learn-link { margin-top: 16px; padding-top: 12px; border-top: 1px dashed var(--clr-border); font-size: 0.85rem; }
 .card-learn-link a { color: var(--clr-text-dim); text-decoration: underline; text-underline-offset: 2px; }
 .card-learn-link a:hover { color: var(--clr-accent); }
+.validation-learn-link { white-space: nowrap; font-size: 0.85rem; color: var(--clr-text-dim); text-decoration: underline; text-underline-offset: 2px; }
+.validation-learn-link:hover { color: var(--clr-accent); }
 
 /* Tag grid */
 .tag-grid {

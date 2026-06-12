@@ -253,6 +253,10 @@ describe("analyzeBimi", () => {
           v.message.includes("VMC or CMC"),
       ),
     ).toBe(true);
+    const noCert = result.validations.find((v) =>
+      v.message.includes("No authority certificate"),
+    );
+    expect(noCert?.learnAnchor).toBe("/learn/bimi#bimi-certification");
   });
 
   it("shows VMC/CMC message when authority certificate present", async () => {
@@ -452,6 +456,10 @@ describe("analyzeBimi", () => {
         (v) => v.status === "fail" && v.message.includes("expired"),
       ),
     ).toBe(true);
+    const expired = result.validations.find(
+      (v) => v.status === "fail" && v.message.includes("expired"),
+    );
+    expect(expired?.learnAnchor).toBe("/learn/bimi#bimi-certification");
   });
 
   it("passes when cert is valid PEM and not expired", async () => {
@@ -469,6 +477,10 @@ describe("analyzeBimi", () => {
         (v) => v.status === "pass" && v.message.includes("not expired"),
       ),
     ).toBe(true);
+    const validCert = result.validations.find((v) =>
+      v.message.includes("not expired"),
+    );
+    expect(validCert?.learnAnchor).toBeUndefined();
   });
 
   it("warns when cert fetch throws (network error)", async () => {
