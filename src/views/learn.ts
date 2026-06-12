@@ -8,7 +8,7 @@ import { page, SITE_ORIGIN } from "./html.js";
 
 // Bump when materially editing any learn page prose. It lives here rather than
 // per-function so all five stay in sync by default.
-const LEARN_PUBLISHED = "2026-04-11";
+const LEARN_PUBLISHED = "2026-06-12";
 
 interface LearnPageOptions {
   protocol: string; // "DMARC"
@@ -98,7 +98,7 @@ const LEARN_SIBLINGS: Array<{ slug: string; protocol: string; blurb: string }> =
     {
       slug: "bimi",
       protocol: "BIMI",
-      blurb: "Logos in the inbox and VMC/CMC certificates.",
+      blurb: "Inbox logos and VMC/CMC certification.",
     },
     {
       slug: "mta-sts",
@@ -493,6 +493,35 @@ export function renderLearnBimi(): string {
   </div>
 
   <div class="bd-card">
+    <h2 class="bd-card-title">BIMI certification: VMC vs CMC</h2>
+    <div class="bd-card-body">
+      <p class="tier-text">The certificate behind the <code>a=</code> tag is what turns BIMI from "record published" into "logo actually displays." A Mark Certificate is issued only after a certificate authority verifies you have the right to use the logo — that verification work is the product you are paying for. Two certificate types exist, and the difference comes down to the evidence you can offer:</p>
+      <dl class="explainer-grid" style="margin-top:12px">
+        <div><dt>VMC</dt><dd>A <strong>Verified Mark Certificate</strong> requires the logo to be a registered trademark with a recognized intellectual-property office (USPTO or EUIPO, among others). It is the original certificate type, the most widely honored, and the one that unlocks Gmail's blue verified checkmark.</dd></div>
+        <div><dt>CMC</dt><dd>A <strong>Common Mark Certificate</strong> drops the trademark requirement: it accepts a government-issued mark, or proof the logo has been in continuous use for at least 12 months (dated screenshots, archived pages, marketing material). The logo displays, but receivers currently reserve the verified checkmark for VMC holders.</dd></div>
+      </dl>
+      <p class="tier-text" style="margin-top:12px">Both types share the same hard prerequisite: DMARC at enforcement — <code>p=quarantine</code> or <code>p=reject</code> applied to all mail (<code>pct=100</code>). The issuing CA checks this before selling you anything, and receivers re-check it on every message.</p>
+      <p class="tier-text" style="margin-top:12px"><strong>Issuers and cost.</strong> DigiCert and Entrust are the established Mark Verifying Authorities, and both sell VMCs and CMCs. Budget roughly $1,000&ndash;$1,500 per year as of 2026 — pricing is per logo, per year, and most of it covers the human verification step rather than the certificate itself.</p>
+      <p class="tier-text" style="margin-top:12px"><strong>How issuance works:</strong></p>
+      <ol class="learn-steps">
+        <li>Get DMARC to <code>p=quarantine</code> or <code>p=reject</code> at <code>pct=100</code> first — nothing else matters until this is done.</li>
+        <li>Pick the certificate type your evidence supports: registered trademark means VMC; a government mark or 12 months of documented prior use means CMC.</li>
+        <li>Convert the exact logo you will use to SVG Tiny PS. The CA embeds the artwork in the certificate, so it must match the file your <code>l=</code> tag serves.</li>
+        <li>Apply through the CA and complete identity verification — document checks and often a recorded video call. Issuance takes days to a few weeks, not minutes.</li>
+        <li>Host the issued PEM file over HTTPS, reference it from the <code>a=</code> tag, and re-scan to confirm the record validates end to end.</li>
+      </ol>
+      <p class="tier-text" style="margin-top:14px"><strong>Logo still not showing?</strong> Certificate problems fail silently — the logo just never appears. Work through these in order:</p>
+      <ul class="learn-pitfalls">
+        <li><strong>Certificate expired.</strong> Mark Certificates last about a year and renewals are not automatic. dmarcheck fetches the certificate from your <code>a=</code> URL on every scan and flags an expired one.</li>
+        <li><strong>Chain not trusted.</strong> The PEM at your <code>a=</code> URL must include the intermediates chaining to the issuing CA's root — serving only the leaf certificate fails validation at receivers.</li>
+        <li><strong>DMARC not at enforcement.</strong> <code>p=none</code>, or a <code>pct</code> below 100, disqualifies the domain even with a perfectly valid certificate.</li>
+        <li><strong>SVG is not Tiny PS.</strong> Both the hosted logo and the artwork embedded in the certificate must use the Tiny PS profile — a standard SVG export will not render.</li>
+        <li><strong>Reputation lag.</strong> Gmail also weighs sender reputation, and logos can take days to appear after a fix. If everything validates, wait before debugging further.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="bd-card">
     <div class="bd-card-title">Common misconfigurations</div>
     <div class="bd-card-body">
       <ul class="learn-pitfalls">
@@ -524,10 +553,10 @@ export function renderLearnBimi(): string {
   return renderLearnPage({
     protocol: "BIMI",
     slug: "bimi",
-    title: "What is BIMI? Logos, VMCs, and DMARC requirements — dmarcheck",
-    headline: "What is BIMI? Brand logos, VMCs, and DMARC requirements",
+    title: "What is BIMI? Logos, VMC/CMC certification, and DMARC — dmarcheck",
+    headline: "What is BIMI? Brand logos, VMC/CMC certification, and DMARC",
     description:
-      "A plain-English guide to BIMI: how the default._bimi record works, why it requires enforced DMARC, what SVG Tiny PS is, and why Gmail and Apple Mail need a VMC or CMC certificate.",
+      "A plain-English guide to BIMI and BIMI certification: how the default._bimi record works, VMC vs CMC, what a certificate roughly costs, why enforced DMARC is required, and how to debug a logo that will not display.",
     body,
   });
 }
