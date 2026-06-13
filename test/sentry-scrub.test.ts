@@ -78,6 +78,13 @@ describe("scrubSentryEvent", () => {
     });
   });
 
+  it("scrubs request data when present", () => {
+    const event: Event = {
+      request: { data: { secret: "do-not-log" } },
+    };
+    expect(scrubSentryEvent(event).request?.data).toBe("[Filtered]");
+  });
+
   it("returns events without request data unchanged", () => {
     const event: Event = { message: "boom" };
     expect(scrubSentryEvent(event)).toBe(event);
