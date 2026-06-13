@@ -1,7 +1,11 @@
 import { DnsLookupError, queryDoh } from "../dns/client.js";
+import type { ScanBudget } from "../dns/scan-budget.js";
 import type { DnssecResult, Validation } from "./types.js";
 
-export async function analyzeDnssec(domain: string): Promise<DnssecResult> {
+export async function analyzeDnssec(
+  domain: string,
+  budget?: ScanBudget,
+): Promise<DnssecResult> {
   const validations: Validation[] = [];
 
   let response: Awaited<ReturnType<typeof queryDoh>>;
@@ -10,7 +14,7 @@ export async function analyzeDnssec(domain: string): Promise<DnssecResult> {
     // signal that the parent has signed the delegation — the presence of DS
     // records (plus the AD flag from a validating resolver) is the standard
     // way to determine DNSSEC status without doing a full chain-of-trust walk.
-    response = await queryDoh(domain, "DS");
+    response = await queryDoh(domain, "DS", budget);
   } catch (err) {
     if (err instanceof DnsLookupError) {
       validations.push({

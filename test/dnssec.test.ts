@@ -40,7 +40,7 @@ describe("analyzeDnssec", () => {
   it("queries DS records for the domain", async () => {
     mockQueryDoh.mockResolvedValue(null);
     await analyzeDnssec("example.com");
-    expect(mockQueryDoh).toHaveBeenCalledWith("example.com", "DS");
+    expect(mockQueryDoh).toHaveBeenCalledWith("example.com", "DS", undefined);
   });
 
   it("returns pass when DS records present and AD flag set", async () => {

@@ -1,6 +1,16 @@
 import dns from "node:dns";
 import * as Sentry from "@sentry/cloudflare";
+import { DnsLookupError } from "./errors.js";
+// Type-only: enforcement is a runtime `budget?.consume()` call, so no value
+// import of scan-budget.ts is emitted here.
+import type { ScanBudget } from "./scan-budget.js";
 import type { MxRecord, TxtRecord } from "./types.js";
+
+// Re-exported so existing `import { DnsLookupError } from "../dns/client.js"`
+// call sites keep working; the class itself now lives in ./errors.js so
+// scan-budget.ts can subclass it without depending on this module (which tests
+// frequently vi.mock).
+export { DnsLookupError } from "./errors.js";
 
 export function parseDnsServers(raw: string | undefined): string[] | null {
   if (!raw) return null;
@@ -9,16 +19,6 @@ export function parseDnsServers(raw: string | undefined): string[] | null {
     .map((s) => s.trim())
     .filter(Boolean);
   return servers.length > 0 ? servers : null;
-}
-
-export class DnsLookupError extends Error {
-  constructor(
-    public readonly code: string,
-    message: string,
-  ) {
-    super(message);
-    this.name = "DnsLookupError";
-  }
 }
 
 const resolver = new dns.promises.Resolver();
@@ -75,7 +75,14 @@ function toDnsLookupError(err: unknown): DnsLookupError | null {
   return null;
 }
 
-export async function queryTxt(name: string): Promise<TxtRecord | null> {
+export async function queryTxt(
+  name: string,
+  budget?: ScanBudget,
+): Promise<TxtRecord | null> {
+  // Reserve a permit from the shared per-scan pool BEFORE any outbound query.
+  // Throws (ScanBudgetError / ScanDeadlineError, both DnsLookupError) when the
+  // pool is empty or the deadline has fired, so the query is never issued.
+  budget?.consume();
   Sentry.addBreadcrumb({
     category: "dns.query",
     message: `TXT ${name}`,
@@ -137,7 +144,9 @@ export interface DohResponse {
 export async function queryDoh(
   name: string,
   type: string,
+  budget?: ScanBudget,
 ): Promise<DohResponse | null> {
+  budget?.consume();
   Sentry.addBreadcrumb({
     category: "dns.query",
     message: `DoH ${type} ${name}`,
@@ -183,7 +192,11 @@ export async function queryDoh(
   }
 }
 
-export async function queryMx(name: string): Promise<MxRecord[] | null> {
+export async function queryMx(
+  name: string,
+  budget?: ScanBudget,
+): Promise<MxRecord[] | null> {
+  budget?.consume();
   Sentry.addBreadcrumb({
     category: "dns.query",
     message: `MX ${name}`,

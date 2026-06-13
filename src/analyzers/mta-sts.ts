@@ -1,9 +1,13 @@
 import { queryTxt } from "../dns/client.js";
+import type { ScanBudget } from "../dns/scan-budget.js";
 import type { MtaStsPolicy, MtaStsResult, Validation } from "./types.js";
 
-export async function analyzeMtaSts(domain: string): Promise<MtaStsResult> {
+export async function analyzeMtaSts(
+  domain: string,
+  budget?: ScanBudget,
+): Promise<MtaStsResult> {
   const [dnsResult, policyResult] = await Promise.allSettled([
-    queryTxt(`_mta-sts.${domain}`),
+    queryTxt(`_mta-sts.${domain}`, budget),
     fetchPolicy(domain),
   ]);
 

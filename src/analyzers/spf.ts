@@ -1,10 +1,14 @@
 import { DnsLookupError, queryTxt } from "../dns/client.js";
+import type { ScanBudget } from "../dns/scan-budget.js";
 import { LEARN_ANCHORS, learnAnchorHref } from "../shared/learn-anchors.js";
 import type { SpfIncludeNode, SpfResult, Validation } from "./types.js";
 
 const MAX_LOOKUPS = 10;
 
-export async function analyzeSpf(domain: string): Promise<SpfResult> {
+export async function analyzeSpf(
+  domain: string,
+  budget?: ScanBudget,
+): Promise<SpfResult> {
   const ctx: ResolutionContext = {
     lookups: 0,
     visited: new Set(),
@@ -15,7 +19,7 @@ export async function analyzeSpf(domain: string): Promise<SpfResult> {
 
   let tree: SpfIncludeNode | null;
   try {
-    tree = await resolveSpfTree(domain, ctx, 0);
+    tree = await resolveSpfTree(domain, ctx, 0, budget);
   } catch (err) {
     if (err instanceof DnsLookupError) {
       return {
@@ -176,6 +180,7 @@ async function resolveSpfTree(
   domain: string,
   ctx: ResolutionContext,
   depth: number,
+  budget?: ScanBudget,
 ): Promise<SpfIncludeNode | null> {
   if (depth > 10) return null; // Prevent infinite recursion
   if (ctx.lookups > MAX_LOOKUPS) return null; // Prevent excessive DNS queries
@@ -187,7 +192,7 @@ async function resolveSpfTree(
   }
   ctx.visited.add(normalizedDomain);
 
-  const txt = await queryTxt(domain);
+  const txt = await queryTxt(domain, budget);
   if (!txt) {
     // NXDOMAIN/NODATA. For include:/redirect= targets (depth > 0) this is a
     // void lookup under RFC 7208 §4.6.4; the root domain returning null just
@@ -243,7 +248,7 @@ async function resolveSpfTree(
       ? []
       : await Promise.allSettled(
           includeTargets.map((target) =>
-            resolveSpfTree(target, ctx, depth + 1),
+            resolveSpfTree(target, ctx, depth + 1, budget),
           ),
         );
 
@@ -255,7 +260,7 @@ async function resolveSpfTree(
 
   // Handle redirect (processed after all mechanisms)
   if (redirect && ctx.lookups <= MAX_LOOKUPS) {
-    const redirectNode = await resolveSpfTree(redirect, ctx, depth + 1);
+    const redirectNode = await resolveSpfTree(redirect, ctx, depth + 1, budget);
     if (redirectNode) {
       includes.push(redirectNode);
     }

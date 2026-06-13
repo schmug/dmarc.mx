@@ -54,9 +54,12 @@ describe("analyzeDmarc — external rua/ruf authorization", () => {
 
     const result = await analyzeDmarc("mydomain.com");
     expect(mockQueryTxt).toHaveBeenCalledTimes(2);
+    // The trailing `undefined` is the optional per-scan ScanBudget, which is
+    // unset when an analyzer is unit-tested in isolation.
     expect(mockQueryTxt).toHaveBeenNthCalledWith(
       2,
       "mydomain.com._report._dmarc.example.com",
+      undefined,
     );
     expect(
       result.validations.some(
