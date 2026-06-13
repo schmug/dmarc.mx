@@ -4,6 +4,27 @@ import { parseTags } from "../shared/parse-tags.js";
 import type { DmarcResult, Validation } from "./types.js";
 
 /**
+ * DoS guard (GHSA-vcw3-wvwx-6fg5): the scanned domain's _dmarc record is
+ * attacker-controlled, and every external rua/ruf reporting domain becomes one
+ * serial, timeout-bounded outbound DNS lookup in checkReportingAuthorization.
+ * An unbounded list lets a single scan request fan out into tens of lookups
+ * charged against one rate-limit token. Bound the external authorization
+ * lookups per scan, shared across rua+ruf combined. 10 is generous — legitimate
+ * records carry 1-2 reporting URIs — and mirrors SPF's MAX_LOOKUPS.
+ */
+export const MAX_REPORT_AUTH_LOOKUPS = 10;
+
+/**
+ * Shared, mutable lookup budget threaded across the rua and ruf authorization
+ * passes so the cap bounds their combined external DNS fan-out, and the
+ * cap-exceeded warning is emitted at most once per scan.
+ */
+interface ReportAuthBudget {
+  remaining: number;
+  capReported: boolean;
+}
+
+/**
  * Extract the domain portion from a mailto: URI.
  * Returns null if the URI is not a mailto: or has no @ sign.
  * Does NOT use new URL() — that throws on mailto: in some runtimes.
@@ -37,6 +58,7 @@ async function checkReportingAuthorization(
   tagValue: string,
   tagName: "rua" | "ruf",
   validations: Validation[],
+  budget: ReportAuthBudget,
 ): Promise<void> {
   const uris = parseReportUris(tagValue);
   for (const uri of uris) {
@@ -44,6 +66,18 @@ async function checkReportingAuthorization(
     if (!reportingDomain) continue;
     // Same domain — no external authorization needed
     if (reportingDomain === localDomain.toLowerCase()) continue;
+    // External lookup required — enforce the shared cap before querying.
+    if (budget.remaining <= 0) {
+      if (!budget.capReported) {
+        validations.push({
+          status: "warn",
+          message: `More than ${MAX_REPORT_AUTH_LOOKUPS} external report destinations configured (rua/ruf) — additional destinations were not verified for report authorization`,
+        });
+        budget.capReported = true;
+      }
+      break;
+    }
+    budget.remaining--;
     const authName = `${localDomain}._report._dmarc.${reportingDomain}`;
     let authRecord: Awaited<ReturnType<typeof queryTxt>>;
     try {
@@ -120,6 +154,12 @@ export async function analyzeDmarc(domain: string): Promise<DmarcResult> {
 
   const tags = parseTags(dmarcRecord);
   const validations: Validation[] = [];
+  // Shared across the rua + ruf authorization passes so the cap bounds their
+  // combined external DNS fan-out (GHSA-vcw3-wvwx-6fg5).
+  const reportAuthBudget: ReportAuthBudget = {
+    remaining: MAX_REPORT_AUTH_LOOKUPS,
+    capReported: false,
+  };
 
   // v= check
   if (tags.v === "DMARC1") {
@@ -185,7 +225,13 @@ export async function analyzeDmarc(domain: string): Promise<DmarcResult> {
       status: "pass",
       message: "Aggregate reporting (rua) configured",
     });
-    await checkReportingAuthorization(domain, tags.rua, "rua", validations);
+    await checkReportingAuthorization(
+      domain,
+      tags.rua,
+      "rua",
+      validations,
+      reportAuthBudget,
+    );
   } else {
     validations.push({
       status: "warn",
@@ -199,7 +245,13 @@ export async function analyzeDmarc(domain: string): Promise<DmarcResult> {
       status: "pass",
       message: "Forensic reporting (ruf) configured",
     });
-    await checkReportingAuthorization(domain, tags.ruf, "ruf", validations);
+    await checkReportingAuthorization(
+      domain,
+      tags.ruf,
+      "ruf",
+      validations,
+      reportAuthBudget,
+    );
   }
 
   // pct check

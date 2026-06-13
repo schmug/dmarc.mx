@@ -13,7 +13,10 @@ vi.mock("../src/dns/client.js", () => ({
   },
 }));
 
-import { analyzeDmarc } from "../src/analyzers/dmarc.js";
+import {
+  analyzeDmarc,
+  MAX_REPORT_AUTH_LOOKUPS,
+} from "../src/analyzers/dmarc.js";
 import { DnsLookupError, queryTxt } from "../src/dns/client.js";
 
 const mockQueryTxt = vi.mocked(queryTxt);
@@ -130,6 +133,83 @@ describe("analyzeDmarc — external rua/ruf authorization", () => {
           v.message.includes("thirdparty.com"),
       ),
     ).toBe(true);
+  });
+});
+
+describe("analyzeDmarc — external report-authorization lookup cap", () => {
+  it("caps external report-authorization lookups at MAX_REPORT_AUTH_LOOKUPS and warns", async () => {
+    expect(MAX_REPORT_AUTH_LOOKUPS).toBe(10);
+
+    // Attacker-controlled _dmarc record stuffed with 100 distinct external
+    // reporting domains. Without a cap each becomes a serial outbound DNS
+    // lookup, charged against one rate-limit token (GHSA-vcw3-wvwx-6fg5).
+    const ruaUris = Array.from(
+      { length: 100 },
+      (_, i) => `mailto:reports@ext${i}.example`,
+    ).join(",");
+    const record = `v=DMARC1; p=reject; rua=${ruaUris}`;
+    mockQueryTxt.mockResolvedValueOnce({ entries: [record], raw: record });
+    // Every external authorization lookup resolves to "absent".
+    mockQueryTxt.mockResolvedValue(null);
+
+    const result = await analyzeDmarc("mydomain.com");
+
+    // 1 call for the _dmarc record itself + at most MAX external auth lookups.
+    expect(mockQueryTxt.mock.calls.length).toBeLessThanOrEqual(
+      MAX_REPORT_AUTH_LOOKUPS + 1,
+    );
+    expect(
+      result.validations.some(
+        (v) => v.status === "warn" && v.message.includes("not verified"),
+      ),
+    ).toBe(true);
+  });
+
+  it("shares the cap across rua and ruf combined", async () => {
+    // 6 external rua + 6 external ruf = 12 external destinations; the shared
+    // cap of 10 bounds the total at 10 external lookups, one warn.
+    const ruaUris = Array.from(
+      { length: 6 },
+      (_, i) => `mailto:agg@rua${i}.example`,
+    ).join(",");
+    const rufUris = Array.from(
+      { length: 6 },
+      (_, i) => `mailto:fbl@ruf${i}.example`,
+    ).join(",");
+    const record = `v=DMARC1; p=reject; rua=${ruaUris}; ruf=${rufUris}`;
+    mockQueryTxt.mockResolvedValueOnce({ entries: [record], raw: record });
+    mockQueryTxt.mockResolvedValue(null);
+
+    const result = await analyzeDmarc("mydomain.com");
+
+    expect(mockQueryTxt.mock.calls.length).toBeLessThanOrEqual(
+      MAX_REPORT_AUTH_LOOKUPS + 1,
+    );
+    const capWarnings = result.validations.filter(
+      (v) => v.status === "warn" && v.message.includes("not verified"),
+    );
+    expect(capWarnings).toHaveLength(1);
+  });
+
+  it("does not warn or change results for a record within the cap", async () => {
+    // Two external reporting domains — well under the cap, fully analyzed.
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: [
+        "v=DMARC1; p=reject; rua=mailto:a@one.example,mailto:b@two.example",
+      ],
+      raw: "v=DMARC1; p=reject; rua=mailto:a@one.example,mailto:b@two.example",
+    });
+    mockQueryTxt.mockResolvedValue({ entries: ["v=DMARC1"], raw: "v=DMARC1" });
+
+    const result = await analyzeDmarc("mydomain.com");
+
+    // 1 record lookup + 2 external auth lookups, no cap warning.
+    expect(mockQueryTxt).toHaveBeenCalledTimes(3);
+    expect(
+      result.validations.some(
+        (v) => v.status === "warn" && v.message.includes("not verified"),
+      ),
+    ).toBe(false);
   });
 });
 
