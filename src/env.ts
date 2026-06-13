@@ -1,5 +1,12 @@
+import type { RateLimiterDO } from "./rate-limit-do.js";
+
 export interface Env {
   DB: D1Database;
+  // Atomic per-identity rate-limit counter (GHSA-v7qc-7qh8-h69g). Optional so
+  // self-host deploys without the binding fall back to the in-memory limiter
+  // (see checkRateLimit in src/rate-limit.ts); the hosted dmarc.mx worker has
+  // it wired in wrangler.toml.
+  RATE_LIMITER?: DurableObjectNamespace<RateLimiterDO>;
   WORKOS_CLIENT_ID: string;
   WORKOS_CLIENT_SECRET: string;
   WORKOS_REDIRECT_URI: string;

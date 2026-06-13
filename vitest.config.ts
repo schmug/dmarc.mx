@@ -1,5 +1,17 @@
+import { fileURLToPath } from "node:url";
 import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
 import { defineConfig } from "vitest/config";
+
+// `src/rate-limit-do.ts` imports the `cloudflare:workers` virtual module for
+// the Durable Object base class. That module only exists inside workerd, but
+// the Node-pool tests import `src/index.ts` (which re-exports the DO class), so
+// Node needs a stub to resolve it. The Workers pool intentionally omits this
+// alias and uses the real module where the DO actually runs.
+const cloudflareWorkersShim = {
+  "cloudflare:workers": fileURLToPath(
+    new URL("./test/shims/cloudflare-workers.ts", import.meta.url),
+  ),
+};
 
 // Two-project setup: Node pool for existing fast unit tests (DNS and fetch
 // are mocked), Workers pool for runtime tests that must exercise the real
@@ -17,6 +29,7 @@ export default defineConfig({
     projects: [
       {
         extends: true,
+        resolve: { alias: cloudflareWorkersShim },
         test: {
           name: "node",
           globals: true,
@@ -29,6 +42,7 @@ export default defineConfig({
       // Workers pool exclude and the Node pool exclude don't fight each other.
       {
         extends: true,
+        resolve: { alias: cloudflareWorkersShim },
         test: {
           name: "node-integration",
           globals: true,

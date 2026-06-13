@@ -36,6 +36,21 @@ ACCESS_TEAM_DOMAIN = "coryrankin.cloudflareaccess.com"
 [triggers]
 crons = ["17 6 * * *"]
 
+# Atomic per-identity rate-limit counter (GHSA-v7qc-7qh8-h69g). The Cache API
+# offered no atomic increment, so a concurrent burst under one identity could
+# read the same stale count and collectively exceed the configured ceiling. A
+# Durable Object serializes increments per identity (its single-threaded RPC),
+# closing the race across isolates and colos. Optional at runtime:
+# checkRateLimit() falls back to the in-memory limiter when this binding is
+# absent (self-host deploys that strip it, and the Node test pool).
+[[durable_objects.bindings]]
+name = "RATE_LIMITER"
+class_name = "RateLimiterDO"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RateLimiterDO"]
+
 [[d1_databases]]
 binding = "DB"
 database_name = "dmarcheck-db"

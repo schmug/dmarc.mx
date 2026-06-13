@@ -36,7 +36,7 @@ Live at dmarc.mx | Repo: github.com/schmug/dmarcheck
 - `src/views/` — HTML generation via template literals (styles.ts, scripts.ts, components.ts, html.ts, favicon.ts)
   - `components.ts` — `generateCreature(size, mood, partyHat?)` helper and `gradeToMood()` mapping
   - `markdown.ts` — markdown renderings served when `Accept: text/markdown` (landing, /check report, /scoring, /learn, /docs/api)
-- `src/rate-limit.ts` — Cache API-based rate limiter (10 req/IP/60s)
+- `src/rate-limit.ts` — per-identity rate limiter (free 10/60s, pro 60/3600s). Primary path is an atomic Durable Object counter (`src/rate-limit-do.ts` `RateLimiterDO`, bound as `RATE_LIMITER`); its single-threaded RPC serializes increments so a concurrent burst under one identity can't exceed the ceiling (GHSA-v7qc-7qh8-h69g — replaced a non-atomic Cache-API read-modify-write). `checkRateLimit(identity, config, namespace?)` falls back to the in-memory limiter when the binding is absent (self-host deploys, Node test pool)
 
 ## Agent discovery
 
