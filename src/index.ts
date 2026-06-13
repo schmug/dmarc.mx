@@ -124,6 +124,11 @@ import { JS } from "./views/scripts.js";
 import { CSS } from "./views/styles.js";
 import { fireBulkScanWebhooks } from "./webhooks/triggers.js";
 
+// Durable Object class for the atomic rate limiter (GHSA-v7qc-7qh8-h69g).
+// Must be re-exported from the Worker entry module so the `RATE_LIMITER`
+// binding in wrangler.toml can resolve its `class_name`.
+export { RateLimiterDO } from "./rate-limit-do.js";
+
 // The Hono app is exported for tests (which call `app.request(...)`).
 // Runtime Workers use the Sentry-wrapped default export below, which adds
 // cron (`scheduled`) alongside `fetch`.
@@ -409,10 +414,12 @@ type RateLimitBlockedResponder = (
 export function rateLimitMiddleware(onBlocked: RateLimitBlockedResponder) {
   return async (c: Context, next: () => Promise<void>) => {
     const { identity, config } = await resolveRateLimitScope(c);
-    const result = await checkRateLimit(identity, config);
-    if (result.pendingWrite) {
-      c.executionCtx.waitUntil(result.pendingWrite.catch(() => {}));
-    }
+    // The Durable Object RPC is awaited end-to-end, so the counter is durably
+    // updated before the decision is used — no deferred write to drain.
+    // `c.env` is always present at runtime; the optional chain keeps the
+    // limiter working in lightweight unit tests that call `app.request(path)`
+    // without an env (falls back to the in-memory limiter).
+    const result = await checkRateLimit(identity, config, c.env?.RATE_LIMITER);
 
     const headers = rateLimitHeaders(result);
 

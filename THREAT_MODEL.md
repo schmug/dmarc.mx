@@ -53,7 +53,7 @@ flowchart LR
     end
 
     subgraph worker["dmarcheck Worker — trust boundary (Cloudflare edge)"]
-        rl["Rate limiter / cache (E9)"]
+        rl["Rate limiter (E9)"]
         scan["Scan API + orchestrator (E1, E2)"]
         auth["Auth & session (E5)"]
         dash["Dashboard / history CRUD (E6)"]
@@ -100,7 +100,7 @@ flowchart LR
 | E6 — Dashboard CRUD + history/bulk-scan APIs (D1, per-user) | Authenticated reads/writes scoped by `WHERE user_id = ?` / `getDomainByUserAndName` | authenticated session → another user's data | scan history, API keys, user/billing data |
 | E7 — Stripe webhook (`POST /webhooks/stripe`) | Raw-body HMAC-SHA256 verify, 5-min skew, event-id idempotency, then mutates subscription state | unauth internet → billing state mutation | subscription state, billing data |
 | E8 — HTML report rendering (`src/views/*`) | User/DNS-derived values interpolated into template-literal HTML | scan data → rendered HTML in a viewer's browser | viewer session, grade integrity |
-| E9 — Rate limiter / cache | Keyed on `CF-Connecting-IP` (`ip:<x>`) or `user:<id>`; Cache API store with in-memory fallback | spoofable identity / shared cache key | service availability |
+| E9 — Rate limiter | Keyed on `CF-Connecting-IP` (`ip:<x>`) or `user:<id>`; per-identity Durable Object atomic counter (`RateLimiterDO`, single-threaded RPC) with in-memory fallback when the binding is absent | spoofable identity | service availability |
 | E10 — CI/CD + deploy (GitHub Actions: ci, codeql, migrate, release, deploy-mta-sts; Cloudflare Git integration) | `pull_request` on a public repo; `main`-gated jobs hold prod D1 / deploy / release tokens | PR/main → CI runner → prod | infra tokens, prod D1, releases |
 | E11 — Autonomous-routine PR merge path | External routine identity opens + auto-merges PRs; CODEOWNERS + fail-closed gate | external automation → `main` | analyzers, orchestration, scoring, CI |
 
@@ -116,7 +116,7 @@ flowchart LR
 | T6 | Secret or PII exposure via logs or error responses | remote_unauth | E1, E5, E7 | secrets, user/billing data | high | possible | unmitigated | Sentry capture; no documented scrubbing audit | |
 | T7 | Billing privilege escalation (free → paid) via forged or replayed Stripe webhook | remote_unauth | E7 | subscription state | high | rare | partially_mitigated | raw-body HMAC-SHA256 verify, constant-time compare, 5-min skew, event-id idempotency | |
 | T8 | Supply-chain / CI compromise escalating to prod D1 write or deploy | supply_chain | E10 | prod D1, infra tokens, releases | high | rare | partially_mitigated | SHA-pinned actions, ubuntu-latest only, explicit `permissions:` blocks, secrets only on `main`-gated jobs | |
-| T9 | Rate-limit bypass → DNS amplification / scan abuse via unauthenticated, unmetered `/mcp` and non-`/check` scan routes | remote_unauth | E2, E9 | service availability, upstream DNS | medium | likely | partially_mitigated | `CF-Connecting-IP` keying on `/check`; XFF no longer trusted | #71, #123, #59 |
+| T9 | Rate-limit bypass → DNS amplification / scan abuse via unauthenticated, unmetered `/mcp` and non-`/check` scan routes | remote_unauth | E2, E9 | service availability, upstream DNS | medium | likely | partially_mitigated | `CF-Connecting-IP` keying on `/check`; XFF no longer trusted; per-identity Durable Object atomic counter closes the Cache-API read-modify-write burst-bypass window (GHSA-v7qc-7qh8-h69g) | #71, #123, #59, GHSA-v7qc-7qh8-h69g |
 | T10 | Stored/reflected XSS via unescaped scan data rendered into the HTML report | remote_unauth | E8, E1 | viewer session, grade integrity | medium | possible | partially_mitigated | `esc()` on interpolated values; per-request CSP nonce + `strict-dynamic`; `default-src 'none'` | #59, #281, 0fc81e2 |
 | T11 | Denial of service via DNS resource exhaustion or scan-abort on attacker-controlled domains | remote_unauth | E1, E3 | service availability | medium | possible | partially_mitigated | SPF lookup-limit early-exit; per-analyzer failure isolation (one analyzer error can't abort the scan); `DnsLookupError` catch on external lookups | #90, #354 |
 | T12 | Login CSRF / OAuth-flow tampering | remote_unauth | E5 | user session | medium | rare | mitigated | OAuth `state` cookie (HttpOnly/Secure/SameSite=Lax) + strict callback match | #150 |

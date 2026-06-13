@@ -1,3 +1,5 @@
+import type { RateLimiterDO } from "./rate-limit-do.js";
+
 export interface RateLimitConfig {
   limit: number;
   windowSec: number;
@@ -9,7 +11,10 @@ export interface RateLimitResult {
   limit: number;
   windowSec: number;
   resetAt: number;
-  pendingWrite?: Promise<void>;
+  // Post-increment value of the identity's counter for the current window.
+  // Not surfaced in headers; exposed for observability and to let tests assert
+  // the atomic counter reached the expected total under concurrency.
+  count: number;
 }
 
 export type PlanTier = "free" | "pro";
@@ -34,86 +39,38 @@ const SWEEP_INTERVAL = 100;
 export async function checkRateLimit(
   identity: string,
   config: RateLimitConfig,
+  namespace?: DurableObjectNamespace<RateLimiterDO>,
 ): Promise<RateLimitResult> {
-  try {
-    if (typeof caches !== "undefined" && caches.default) {
-      return await checkRateLimitCache(identity, config);
+  // Durable Object is the only atomic primitive on Workers: its single-threaded
+  // RPC serializes the read-modify-write so a concurrent burst under one
+  // identity cannot exceed the limit (GHSA-v7qc-7qh8-h69g). The Cache API
+  // counter it replaces had no atomic increment, so bursts could bypass the
+  // ceiling.
+  if (namespace) {
+    try {
+      return await checkRateLimitDO(identity, config, namespace);
+    } catch {
+      // DO unreachable (transient error, or no binding at runtime). Fall back
+      // to the in-memory limiter so requests stay bounded rather than failing
+      // open or 500ing.
     }
-  } catch {
-    // Cache API unavailable — fall through to in-memory
   }
+  // Graceful fallback for environments without the DO binding (self-host
+  // deploys that strip it, and the Node test pool). Atomic within a single
+  // isolate; not shared across isolates/colos.
   return checkRateLimitMemory(identity, config);
 }
 
-interface StoredPayload {
-  count: number;
-  resetAt: number;
-}
-
-function parseStoredPayload(raw: string): StoredPayload | null {
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (
-      parsed &&
-      typeof parsed === "object" &&
-      typeof (parsed as StoredPayload).count === "number" &&
-      typeof (parsed as StoredPayload).resetAt === "number"
-    ) {
-      return parsed as StoredPayload;
-    }
-  } catch {
-    // Legacy integer-only bodies from a previous deploy won't parse as JSON.
-    // Treat them as a fresh window — worst case a caller gets one extra
-    // quota bucket during the seconds it takes for the old entry to age out.
-  }
-  return null;
-}
-
-async function checkRateLimitCache(
+async function checkRateLimitDO(
   identity: string,
   config: RateLimitConfig,
+  namespace: DurableObjectNamespace<RateLimiterDO>,
 ): Promise<RateLimitResult> {
-  const cache = caches.default;
-  const key = new Request(
-    `https://dmarc-mx-ratelimit.internal/${encodeURIComponent(identity)}`,
-  );
-
-  const cached = await cache.match(key);
-  const nowSec = Math.floor(Date.now() / 1000);
-  let count = 0;
-  let resetAt = nowSec + config.windowSec;
-
-  if (cached) {
-    const stored = parseStoredPayload(await cached.text());
-    if (stored && stored.resetAt > nowSec) {
-      count = stored.count;
-      resetAt = stored.resetAt;
-    }
-  }
-
-  count++;
-  const allowed = count <= config.limit;
-  const remaining = Math.max(0, config.limit - count);
-  const ttl = Math.max(1, resetAt - nowSec);
-
-  const response = new Response(JSON.stringify({ count, resetAt }), {
-    headers: {
-      "Cache-Control": `s-maxage=${ttl}`,
-    },
-  });
-  // ⚡ Bolt Optimization: Do not await cache.put on the critical path.
-  // Return the promise so the caller can pass it to executionCtx.waitUntil(),
-  // removing Cache API write latency from every rate-limited request.
-  const pendingWrite = cache.put(key, response);
-
-  return {
-    allowed,
-    remaining,
-    limit: config.limit,
-    windowSec: config.windowSec,
-    resetAt,
-    pendingWrite,
-  };
+  // One DO instance per identity bucket (`ip:<x>` / `user:<id>`). `getByName`
+  // maps the identity string to a stable instance; the RPC returns the
+  // post-increment decision for the current window.
+  const stub = namespace.getByName(identity);
+  return stub.increment(config.limit, config.windowSec);
 }
 
 function checkRateLimitMemory(
@@ -156,6 +113,7 @@ function checkRateLimitMemory(
     limit: config.limit,
     windowSec: config.windowSec,
     resetAt,
+    count,
   };
 }
 
