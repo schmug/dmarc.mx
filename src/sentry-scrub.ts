@@ -90,6 +90,9 @@ export function scrubSentryEvent<E extends Event>(event: E): E {
   if (event.request?.cookies) {
     event.request.cookies = { filtered: "[Filtered]" };
   }
+  if (event.request?.data !== undefined) {
+    event.request.data = "[Filtered]";
+  }
   if (event.request?.url) {
     event.request.url = scrubUrlString(event.request.url);
   }
