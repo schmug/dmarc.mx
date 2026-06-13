@@ -1,6 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { COMMON_SELECTORS } from "../src/analyzers/dkim.js";
-import { app, normalizeDomain, parseSelectors } from "../src/index.js";
+import {
+  app,
+  MAX_SELECTOR_LENGTH,
+  MAX_SELECTORS,
+  normalizeDomain,
+  parseSelectors,
+} from "../src/index.js";
 import { _memoryStore } from "../src/rate-limit.js";
 import { LEARN_SIBLINGS } from "../src/views/learn.js";
 
@@ -123,6 +129,21 @@ describe("parseSelectors", () => {
 
   it("returns single selector", () => {
     expect(parseSelectors("google")).toEqual(["google"]);
+  });
+
+  // f27 / GHSA-6fqp-4vhc-59mf — attacker-controlled selector lists must not
+  // fan out into one DNS lookup each with no ceiling.
+  it("caps the number of selectors at MAX_SELECTORS", () => {
+    const many = Array.from({ length: 500 }, (_, i) => `s${i}`).join(",");
+    const result = parseSelectors(many);
+    expect(result.length).toBe(MAX_SELECTORS);
+    expect(result[0]).toBe("s0"); // keeps the first N, deterministically
+  });
+
+  it("drops selectors longer than MAX_SELECTOR_LENGTH", () => {
+    const tooLong = "a".repeat(MAX_SELECTOR_LENGTH + 1);
+    const ok = "b".repeat(MAX_SELECTOR_LENGTH);
+    expect(parseSelectors(`${tooLong},${ok},google`)).toEqual([ok, "google"]);
   });
 });
 

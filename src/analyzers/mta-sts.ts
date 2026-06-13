@@ -2,6 +2,12 @@ import { queryTxt } from "../dns/client.js";
 import type { ScanBudget } from "../dns/scan-budget.js";
 import type { MtaStsPolicy, MtaStsResult, Validation } from "./types.js";
 
+// Cap the fetched policy body before decoding it (GHSA-p676-gc7j-96mx). RFC 8461
+// policies are tiny, but an attacker who controls mta-sts.<domain> could
+// otherwise stream an unbounded body into the isolate. This mirrors the
+// MAX_BODY_BYTES ceiling that src/analyzers/security-txt.ts already applies.
+export const MAX_POLICY_BYTES = 64 * 1024;
+
 export async function analyzeMtaSts(
   domain: string,
   budget?: ScanBudget,
@@ -119,7 +125,18 @@ async function fetchPolicy(domain: string): Promise<MtaStsPolicy | null> {
     if ((resp.type as string) === "opaqueredirect") return null;
     if (!resp.ok) return null;
 
-    const text = await resp.text();
+    // Bound the body before decoding — reading via arrayBuffer()+slice caps
+    // memory regardless of a lying Content-Length or a slow infinite stream
+    // (the 3s AbortSignal bounds time, not bytes). Same control as security-txt.
+    const buffer = await resp.arrayBuffer();
+    const slice =
+      buffer.byteLength > MAX_POLICY_BYTES
+        ? buffer.slice(0, MAX_POLICY_BYTES)
+        : buffer;
+    const text = new TextDecoder("utf-8", {
+      fatal: false,
+      ignoreBOM: false,
+    }).decode(slice);
     return parsePolicy(text);
   } catch {
     return null;

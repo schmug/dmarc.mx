@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { MAX_SELECTORS } from "../src/index.js";
 import {
   handleMcpRequest,
   MCP_PROTOCOL_VERSION,
@@ -212,6 +213,26 @@ describe("handleMcpRequest — tools/call", () => {
     expect(result.isError).toBe(false);
     // scan was called — invalid selectors were stripped, not rejected
     expect(vi.mocked(scan)).toHaveBeenCalled();
+  });
+
+  // f27 / GHSA-6fqp-4vhc-59mf — the MCP path must enforce the selector count
+  // cap server-side (the inputSchema maxItems is advisory only).
+  it("caps dkim_selectors at MAX_SELECTORS before calling scan", async () => {
+    const { scan } = await import("../src/orchestrator.js");
+    vi.mocked(scan).mockClear();
+    const many = Array.from({ length: 500 }, (_, i) => `s${i}`);
+    const { json } = await rpc({
+      jsonrpc: "2.0",
+      id: 71,
+      method: "tools/call",
+      params: {
+        name: "scan_domain",
+        arguments: { domain: "example.com", dkim_selectors: many },
+      },
+    });
+    expect((json.result as { isError: boolean }).isError).toBe(false);
+    const selectorsArg = vi.mocked(scan).mock.calls[0]?.[1] as string[];
+    expect(selectorsArg.length).toBe(MAX_SELECTORS);
   });
 
   it("preserves JSON-RPC id across the full call", async () => {

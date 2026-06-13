@@ -11,8 +11,22 @@ import type { ScoringConfig } from "../shared/scoring.js";
 // DKIM selector charset per RFC 6376 §3.1 — mirrors VALID_SELECTOR in index.ts.
 const VALID_SELECTOR = /^[A-Za-z0-9._-]+$/;
 
-function parseSelectorsFromArray(raw: string[]): string[] {
-  return raw.filter((s) => s.length > 0 && VALID_SELECTOR.test(s));
+// Mirrors MAX_SELECTOR_LENGTH / MAX_SELECTORS in src/index.ts
+// (GHSA-6fqp-4vhc-59mf). Enforced server-side regardless of the inputSchema
+// maxItems/maxLength below, which are advisory only — handleToolCall never
+// validates arguments against the schema.
+const MAX_SELECTOR_LENGTH = 63;
+const MAX_SELECTORS = 16;
+
+export function parseSelectorsFromArray(raw: string[]): string[] {
+  return raw
+    .filter(
+      (s) =>
+        s.length > 0 &&
+        s.length <= MAX_SELECTOR_LENGTH &&
+        VALID_SELECTOR.test(s),
+    )
+    .slice(0, MAX_SELECTORS);
 }
 
 export const MCP_PROTOCOL_VERSION = "2025-03-26";
@@ -46,7 +60,12 @@ const SCAN_DOMAIN_TOOL = {
       },
       dkim_selectors: {
         type: "array",
-        items: { type: "string", pattern: "^[A-Za-z0-9._-]+$" },
+        maxItems: MAX_SELECTORS,
+        items: {
+          type: "string",
+          pattern: "^[A-Za-z0-9._-]+$",
+          maxLength: MAX_SELECTOR_LENGTH,
+        },
         description:
           "Extra DKIM selectors to probe beyond the built-in defaults.",
       },

@@ -5,7 +5,7 @@ vi.mock("../src/dns/client.js", () => ({
   queryMx: vi.fn(),
 }));
 
-import { analyzeMtaSts } from "../src/analyzers/mta-sts.js";
+import { analyzeMtaSts, MAX_POLICY_BYTES } from "../src/analyzers/mta-sts.js";
 import { queryTxt } from "../src/dns/client.js";
 
 const mockQueryTxt = vi.mocked(queryTxt);
@@ -15,11 +15,22 @@ beforeEach(() => {
   vi.restoreAllMocks();
 });
 
+// fetchPolicy reads the body via resp.arrayBuffer() (size-capped, mirroring
+// security-txt) — so the mock must expose arrayBuffer, not just text.
 function mockFetchPolicy(body: string | null, ok = true) {
   vi.spyOn(globalThis, "fetch").mockResolvedValue(
     body === null
-      ? ({ ok: false, text: async () => "" } as Response)
-      : ({ ok, text: async () => body } as Response),
+      ? ({
+          ok: false,
+          text: async () => "",
+          arrayBuffer: async () => new ArrayBuffer(0),
+        } as Response)
+      : ({
+          ok,
+          text: async () => body,
+          arrayBuffer: async () =>
+            new TextEncoder().encode(body).buffer as ArrayBuffer,
+        } as Response),
   );
 }
 
@@ -55,6 +66,28 @@ describe("analyzeMtaSts", () => {
           v.message.includes("Policy file not accessible"),
       ),
     ).toBe(true);
+  });
+
+  // f29 / GHSA-p676-gc7j-96mx — an attacker who controls mta-sts.<domain> must
+  // not be able to stream an unbounded body into memory. The fetch body is
+  // capped at MAX_POLICY_BYTES; anything past the cap is never parsed.
+  it("caps the policy body and ignores content beyond MAX_POLICY_BYTES", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=STSv1; id=20240101"],
+      raw: "v=STSv1; id=20240101",
+    });
+    // Valid directives in the first <64KB; a sentinel mx line pushed past the
+    // cap by a giant colon-less (therefore ignored-by-parser) filler line.
+    const prefix =
+      "version: STSv1\nmode: enforce\nmx: legit.example.com\nmax_age: 86400\n";
+    const filler = `${"#".repeat(MAX_POLICY_BYTES)}\n`;
+    const sentinel = "mx: sneaky.evil.example\n";
+    mockFetchPolicy(prefix + filler + sentinel);
+
+    const result = await analyzeMtaSts("example.com");
+    expect(result.policy?.mx).toContain("legit.example.com");
+    // The sentinel sits beyond the byte cap, so it must never reach the parser.
+    expect(result.policy?.mx).not.toContain("sneaky.evil.example");
   });
 
   it("passes when DNS record found with v=STSv1", async () => {
