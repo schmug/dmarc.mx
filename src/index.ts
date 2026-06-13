@@ -619,6 +619,12 @@ app.get("/api/check/stream", async (c) => {
           footerHtml: renderReportFooter(cached),
         }),
       });
+
+      // Mirror GET /api/check: persist on cache hit too so bearer scans of
+      // watched domains update scan_history even within the 5-minute TTL.
+      if (bearer) {
+        persistBearerScanIfWatched(c, bearer.userId, domain, cached);
+      }
       return;
     }
 
