@@ -114,13 +114,22 @@ function stubFetch(
   opts: { stripeStatus?: number; workosStatus?: number } = {},
 ) {
   const fetchMock = vi.fn(async (url: string) => {
-    if (url.includes("api.stripe.com/v1/subscriptions/")) {
+    // Match on the parsed host + path (not a substring) so the router can't be
+    // fooled by an arbitrary host that merely contains the API hostname.
+    const { hostname, pathname } = new URL(url);
+    if (
+      hostname === "api.stripe.com" &&
+      pathname.startsWith("/v1/subscriptions/")
+    ) {
       order.push("stripe-cancel");
       return new Response(JSON.stringify({ id: "sub_1", status: "canceled" }), {
         status: opts.stripeStatus ?? 200,
       });
     }
-    if (url.includes("api.workos.com/user_management/users/")) {
+    if (
+      hostname === "api.workos.com" &&
+      pathname.startsWith("/user_management/users/")
+    ) {
       order.push("workos-delete");
       return new Response(null, { status: opts.workosStatus ?? 200 });
     }
@@ -223,8 +232,8 @@ describe("account/deletion.deleteAccount", () => {
     const result = await deleteAccount(env, USER);
 
     expect(result.workosDeleted).toBe(true);
-    const workosCall = fetchMock.mock.calls.find((c) =>
-      String(c[0]).includes("api.workos.com"),
+    const workosCall = fetchMock.mock.calls.find(
+      (c) => new URL(String(c[0])).hostname === "api.workos.com",
     );
     expect(workosCall?.[0]).toBe(
       "https://api.workos.com/user_management/users/user_1",
