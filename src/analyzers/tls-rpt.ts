@@ -1,4 +1,5 @@
 import { DnsLookupError, queryTxt } from "../dns/client.js";
+import type { ScanBudget } from "../dns/scan-budget.js";
 import { parseTags } from "../shared/parse-tags.js";
 import type { TlsRptResult, Validation } from "./types.js";
 
@@ -7,10 +8,13 @@ import type { TlsRptResult, Validation } from "./types.js";
 // MTAs where to send TLS failure reports, but its presence or absence does
 // not change the enforcement posture.
 
-export async function analyzeTlsRpt(domain: string): Promise<TlsRptResult> {
+export async function analyzeTlsRpt(
+  domain: string,
+  budget?: ScanBudget,
+): Promise<TlsRptResult> {
   let txt: Awaited<ReturnType<typeof queryTxt>>;
   try {
-    txt = await queryTxt(`_smtp._tls.${domain}`);
+    txt = await queryTxt(`_smtp._tls.${domain}`, budget);
   } catch (err) {
     if (err instanceof DnsLookupError) {
       return {

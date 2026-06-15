@@ -51,9 +51,18 @@ describe("analyzeDane — no TLSA records", () => {
 
   it("queries _25._tcp.<exchange> for each MX host", async () => {
     await analyzeDane("example.com", ["mx1.example.com", "mx2.example.com"]);
-    // URL-parse-safe: check the full name, not a substring
-    expect(queryDoh).toHaveBeenCalledWith("_25._tcp.mx1.example.com", "TLSA");
-    expect(queryDoh).toHaveBeenCalledWith("_25._tcp.mx2.example.com", "TLSA");
+    // URL-parse-safe: check the full name, not a substring. Trailing
+    // `undefined` is the optional per-scan ScanBudget (unset in unit tests).
+    expect(queryDoh).toHaveBeenCalledWith(
+      "_25._tcp.mx1.example.com",
+      "TLSA",
+      undefined,
+    );
+    expect(queryDoh).toHaveBeenCalledWith(
+      "_25._tcp.mx2.example.com",
+      "TLSA",
+      undefined,
+    );
   });
 });
 

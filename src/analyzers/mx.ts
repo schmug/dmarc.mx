@@ -1,4 +1,5 @@
 import { DnsLookupError, queryMx } from "../dns/client.js";
+import type { ScanBudget } from "../dns/scan-budget.js";
 import type { EmailProvider, MxRecord, MxResult, Validation } from "./types.js";
 
 interface ProviderSignature {
@@ -112,10 +113,13 @@ export function detectProviders(
   return providers;
 }
 
-export async function analyzeMx(domain: string): Promise<MxResult> {
+export async function analyzeMx(
+  domain: string,
+  budget?: ScanBudget,
+): Promise<MxResult> {
   let rawRecords: Awaited<ReturnType<typeof queryMx>>;
   try {
-    rawRecords = await queryMx(domain);
+    rawRecords = await queryMx(domain, budget);
   } catch (err) {
     if (err instanceof DnsLookupError) {
       return {

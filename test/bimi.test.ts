@@ -560,6 +560,9 @@ describe("prefetchBimiDns", () => {
   it("queries the correct BIMI subdomain", async () => {
     mockQueryTxt.mockResolvedValue(null);
     await prefetchBimiDns("example.com");
-    expect(mockQueryTxt).toHaveBeenCalledWith("default._bimi.example.com");
+    expect(mockQueryTxt).toHaveBeenCalledWith(
+      "default._bimi.example.com",
+      undefined,
+    );
   });
 });

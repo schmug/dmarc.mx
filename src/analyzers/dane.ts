@@ -1,4 +1,5 @@
 import { DnsLookupError, queryDoh } from "../dns/client.js";
+import type { ScanBudget } from "../dns/scan-budget.js";
 import type {
   DaneHostResult,
   DaneResult,
@@ -54,6 +55,7 @@ function parseTlsaRecord(data: string): DaneTlsaRecord | null {
 export async function analyzeDane(
   _domain: string,
   mxExchanges: string[],
+  budget?: ScanBudget,
 ): Promise<DaneResult> {
   const validations: Validation[] = [];
 
@@ -74,7 +76,7 @@ export async function analyzeDane(
   await Promise.all(
     mxExchanges.map(async (exchange) => {
       try {
-        const response = await queryDoh(`_25._tcp.${exchange}`, "TLSA");
+        const response = await queryDoh(`_25._tcp.${exchange}`, "TLSA", budget);
         successfulQueries++;
         if (!response) {
           hosts.push({ exchange, tlsaRecords: [], dnssecValidated: false });

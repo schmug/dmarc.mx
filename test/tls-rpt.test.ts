@@ -40,7 +40,10 @@ describe("analyzeTlsRpt", () => {
   it("queries the correct DNS name (_smtp._tls.<domain>)", async () => {
     mockQueryTxt.mockResolvedValue(null);
     await analyzeTlsRpt("example.com");
-    expect(mockQueryTxt).toHaveBeenCalledWith("_smtp._tls.example.com");
+    expect(mockQueryTxt).toHaveBeenCalledWith(
+      "_smtp._tls.example.com",
+      undefined,
+    );
   });
 
   it("returns pass for a valid record with mailto rua", async () => {

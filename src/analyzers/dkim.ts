@@ -1,4 +1,5 @@
 import { queryTxt } from "../dns/client.js";
+import type { ScanBudget } from "../dns/scan-budget.js";
 import { LEARN_ANCHORS, learnAnchorHref } from "../shared/learn-anchors.js";
 import { parseTags } from "../shared/parse-tags.js";
 import type { DkimResult, DkimSelectorResult, Validation } from "./types.js";
@@ -55,6 +56,7 @@ export async function analyzeDkim(
   domain: string,
   customSelectors: string[] = [],
   providerNames: string[] = [],
+  budget?: ScanBudget,
 ): Promise<DkimResult> {
   const unique = [...new Set([...COMMON_SELECTORS, ...customSelectors])];
   const prioritized = providerNames.flatMap(
@@ -67,7 +69,7 @@ export async function analyzeDkim(
   ];
 
   const results = await Promise.allSettled(
-    allSelectors.map((sel) => probeSelector(domain, sel)),
+    allSelectors.map((sel) => probeSelector(domain, sel, budget)),
   );
 
   const selectors: Record<string, DkimSelectorResult> = {};
@@ -162,8 +164,9 @@ export async function analyzeDkim(
 async function probeSelector(
   domain: string,
   selector: string,
+  budget?: ScanBudget,
 ): Promise<DkimSelectorResult> {
-  const txt = await queryTxt(`${selector}._domainkey.${domain}`);
+  const txt = await queryTxt(`${selector}._domainkey.${domain}`, budget);
   if (!txt) return { found: false };
 
   const dkimRecord = txt.entries.find(

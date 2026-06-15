@@ -1,4 +1,5 @@
 import { DnsLookupError, queryTxt } from "../dns/client.js";
+import type { ScanBudget } from "../dns/scan-budget.js";
 import type { TxtRecord } from "../dns/types.js";
 import { LEARN_ANCHORS, learnAnchorHref } from "../shared/learn-anchors.js";
 import { parseTags } from "../shared/parse-tags.js";
@@ -17,8 +18,11 @@ const LOGO_MAX_BYTES = 1 * 1024 * 1024; // 1 MB
 const CERT_TIMEOUT_MS = 30_000;
 const CERT_MAX_BYTES = 100 * 1024; // 100 KB
 
-export function prefetchBimiDns(domain: string): Promise<TxtRecord | null> {
-  return queryTxt(`default._bimi.${domain}`).catch((err) => {
+export function prefetchBimiDns(
+  domain: string,
+  budget?: ScanBudget,
+): Promise<TxtRecord | null> {
+  return queryTxt(`default._bimi.${domain}`, budget).catch((err) => {
     if (err instanceof DnsLookupError) return null;
     throw err;
   });
@@ -183,11 +187,12 @@ export async function analyzeBimi(
   domain: string,
   dmarcPolicy: string | null,
   prefetchedDns?: TxtRecord | null,
+  budget?: ScanBudget,
 ): Promise<BimiResult> {
   const txt =
     prefetchedDns !== undefined
       ? prefetchedDns
-      : await queryTxt(`default._bimi.${domain}`);
+      : await queryTxt(`default._bimi.${domain}`, budget);
 
   if (!txt) {
     const validations: Validation[] = [

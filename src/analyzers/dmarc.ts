@@ -1,4 +1,5 @@
 import { DnsLookupError, queryTxt } from "../dns/client.js";
+import type { ScanBudget } from "../dns/scan-budget.js";
 import { LEARN_ANCHORS, learnAnchorHref } from "../shared/learn-anchors.js";
 import { parseTags } from "../shared/parse-tags.js";
 import type { DmarcResult, Validation } from "./types.js";
@@ -58,7 +59,13 @@ async function checkReportingAuthorization(
   tagValue: string,
   tagName: "rua" | "ruf",
   validations: Validation[],
-  budget: ReportAuthBudget,
+  // Two distinct budgets: `authBudget` is the per-analyzer rua/ruf cap
+  // (GHSA-vcw3-wvwx-6fg5), shared across the rua+ruf passes; `scanBudget` is the
+  // orchestrator-wide shared DNS-query pool (GHSA-f828-8wf8-vqp2) passed down to
+  // queryTxt. The auth cap bounds this analyzer's fan-out; the scan budget bounds
+  // the whole scan's combined fan-out across all analyzers.
+  authBudget: ReportAuthBudget,
+  scanBudget?: ScanBudget,
 ): Promise<void> {
   const uris = parseReportUris(tagValue);
   for (const uri of uris) {
@@ -66,22 +73,22 @@ async function checkReportingAuthorization(
     if (!reportingDomain) continue;
     // Same domain — no external authorization needed
     if (reportingDomain === localDomain.toLowerCase()) continue;
-    // External lookup required — enforce the shared cap before querying.
-    if (budget.remaining <= 0) {
-      if (!budget.capReported) {
+    // External lookup required — enforce the per-analyzer cap before querying.
+    if (authBudget.remaining <= 0) {
+      if (!authBudget.capReported) {
         validations.push({
           status: "warn",
           message: `More than ${MAX_REPORT_AUTH_LOOKUPS} external report destinations configured (rua/ruf) — additional destinations were not verified for report authorization`,
         });
-        budget.capReported = true;
+        authBudget.capReported = true;
       }
       break;
     }
-    budget.remaining--;
+    authBudget.remaining--;
     const authName = `${localDomain}._report._dmarc.${reportingDomain}`;
     let authRecord: Awaited<ReturnType<typeof queryTxt>>;
     try {
-      authRecord = await queryTxt(authName);
+      authRecord = await queryTxt(authName, scanBudget);
     } catch (err) {
       if (err instanceof DnsLookupError) {
         validations.push({
@@ -104,10 +111,13 @@ async function checkReportingAuthorization(
   }
 }
 
-export async function analyzeDmarc(domain: string): Promise<DmarcResult> {
+export async function analyzeDmarc(
+  domain: string,
+  budget?: ScanBudget,
+): Promise<DmarcResult> {
   let txt: Awaited<ReturnType<typeof queryTxt>>;
   try {
-    txt = await queryTxt(`_dmarc.${domain}`);
+    txt = await queryTxt(`_dmarc.${domain}`, budget);
   } catch (err) {
     if (err instanceof DnsLookupError) {
       return {
@@ -231,6 +241,7 @@ export async function analyzeDmarc(domain: string): Promise<DmarcResult> {
       "rua",
       validations,
       reportAuthBudget,
+      budget,
     );
   } else {
     validations.push({
@@ -251,6 +262,7 @@ export async function analyzeDmarc(domain: string): Promise<DmarcResult> {
       "ruf",
       validations,
       reportAuthBudget,
+      budget,
     );
   }
 
