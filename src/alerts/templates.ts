@@ -14,6 +14,67 @@ export interface GradeDropEmailInput {
   unsubscribeUrl: string;
 }
 
+// Account-deletion confirmation (issue #550). Sent best-effort after a user
+// erases their account so the address owner is notified — a safety signal if
+// the deletion was triggered by a hijacked session. No dashboard link (the
+// account is gone); points at support for questions.
+export interface AccountDeletedEmailInput {
+  email: string;
+}
+
+export function renderAccountDeletedSubject(): string {
+  return "dmarc.mx: your account has been deleted";
+}
+
+export function renderAccountDeletedText(
+  _input: AccountDeletedEmailInput,
+): string {
+  return [
+    "Your dmarc.mx account has been deleted.",
+    "",
+    "Everything I held — your watchlist, scan history, API keys, and login",
+    "identity — has been permanently erased. Any active subscription was",
+    "cancelled. This cannot be undone.",
+    "",
+    "If you did NOT request this, contact support@dmarc.mx right away.",
+    "",
+    "—",
+    "DMarcus, dmarc.mx",
+  ].join("\n");
+}
+
+export function renderAccountDeletedHtml(
+  input: AccountDeletedEmailInput,
+): string {
+  return `<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>dmarc.mx account deleted</title></head>
+<body style="margin:0;padding:0;background:#0a0a0f;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#e4e4e7">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#0a0a0f">
+    <tr><td align="center" style="padding:32px 16px">
+      <table role="presentation" width="560" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;width:100%">
+        <tr><td style="padding:24px;background:#18181b;border-radius:12px">
+          <h1 style="margin:0 0 16px;font-size:20px;line-height:1.3;color:#fafafa">Your account has been deleted</h1>
+          <p style="margin:0 0 16px;color:#a1a1aa;font-size:14px;line-height:1.5">
+            The dmarc.mx account for <strong>${esc(input.email)}</strong> has been
+            permanently erased — watchlist, scan history, API keys, and login
+            identity. Any active subscription was cancelled. This cannot be undone.
+          </p>
+          <p style="margin:0;color:#a1a1aa;font-size:14px;line-height:1.5">
+            If you did <strong>not</strong> request this, email
+            <a href="mailto:support@dmarc.mx" style="color:#f97316">support@dmarc.mx</a> right away.
+          </p>
+        </td></tr>
+        <tr><td style="padding:24px 8px;color:#71717a;font-size:12px;line-height:1.5">
+          DMarcus, dmarc.mx
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+}
+
 export function renderGradeDropSubject(input: GradeDropEmailInput): string {
   if (input.alertType === "grade_drop") {
     return `dmarc.mx: ${input.domain} dropped from ${input.previousValue} to ${input.newValue}`;

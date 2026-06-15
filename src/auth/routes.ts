@@ -2,7 +2,8 @@ import { Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { createDomain } from "../db/domains.js";
 import { createUser, getUserByEmail } from "../db/users.js";
-import { createSessionToken } from "./session.js";
+import { createReauthProof } from "./reauth.js";
+import { createSessionToken, validateSessionToken } from "./session.js";
 
 export const authRoutes = new Hono();
 
@@ -77,6 +78,35 @@ authRoutes.get("/callback", async (c) => {
     user: { id: string; email: string };
   };
   const { id, email } = data.user;
+
+  // Step-up re-auth branch for account deletion (issue #550). The state was
+  // minted as `delete:<nonce>` by POST /dashboard/account/delete/reauth and has
+  // already passed the oauth_state CSRF match above. We do NOT create or
+  // refresh a session here — we only mint a short-lived, subject-bound deletion
+  // proof, and only when the freshly re-authenticated identity matches the
+  // current session subject (so a forced login into a *different* WorkOS
+  // account can't yield a proof for this session).
+  if (queryState.startsWith("delete:")) {
+    const sessionToken = getCookie(c, "session");
+    const sessionPayload = sessionToken
+      ? await validateSessionToken(sessionToken, env.SESSION_SECRET)
+      : null;
+    if (!sessionPayload || sessionPayload.sub !== id) {
+      return c.redirect("/dashboard/settings");
+    }
+    const proof = await createReauthProof(
+      sessionPayload.sub,
+      env.SESSION_SECRET,
+    );
+    setCookie(c, "delete_proof", proof, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "Lax",
+      path: "/",
+      maxAge: 10 * 60, // 10 minutes — matches the proof TTL
+    });
+    return c.redirect("/dashboard/account/delete");
+  }
 
   // Create or find user (handle race condition on duplicate signups)
   let user = await getUserByEmail(env.DB, email);

@@ -142,6 +142,18 @@ describe("privacy policy", () => {
     expect(html).toContain('href="mailto:support@dmarc.mx"');
   });
 
+  it("'Delete your account' promise matches shipped behavior: immediate hard-delete + identity removal", async () => {
+    const res = await app.request("/legal/privacy");
+    const html = await res.text();
+    expect(html).toContain("Delete your account");
+    // v1 is immediate hard-delete, not a 30-day window, and the WorkOS login
+    // identity is erased too (issue #550).
+    expect(html.toLowerCase()).toContain("immediately");
+    expect(html.toLowerCase()).toContain("login identity");
+    // The step-up re-auth gate is disclosed.
+    expect(html.toLowerCase()).toContain("re-confirm");
+  });
+
   it("markdown rendering honors Accept: text/markdown", async () => {
     const res = await app.request("/legal/privacy", {
       headers: { Accept: "text/markdown" },

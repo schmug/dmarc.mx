@@ -1,6 +1,10 @@
 import * as Sentry from "@sentry/cloudflare";
 import {
+  type AccountDeletedEmailInput,
   type GradeDropEmailInput,
+  renderAccountDeletedHtml,
+  renderAccountDeletedSubject,
+  renderAccountDeletedText,
   renderGradeDropHtml,
   renderGradeDropSubject,
   renderGradeDropText,
@@ -34,6 +38,36 @@ export async function sendGradeDropEmail(
       subject: renderGradeDropSubject(input),
       html: renderGradeDropHtml(input),
       text: renderGradeDropText(input),
+    });
+    return { sent: true, messageId: response?.messageId };
+  } catch (err) {
+    Sentry.captureException(err);
+    return { sent: false, reason: "send_error" };
+  }
+}
+
+// Account-deletion confirmation (issue #550). Same binding + failure-handling
+// contract as sendGradeDropEmail: optional binding (self-host safety), errors
+// captured to Sentry and surfaced as `send_error` rather than thrown — the
+// deletion already succeeded, so a failed confirmation email must never abort
+// or roll anything back.
+export async function sendAccountDeletedEmail(
+  email: SendEmail | undefined,
+  toAddress: string,
+  fromAddress: string,
+  input: AccountDeletedEmailInput,
+): Promise<SendOutcome> {
+  if (!email) {
+    return { sent: false, reason: "no_binding" };
+  }
+
+  try {
+    const response = await email.send({
+      to: toAddress,
+      from: fromAddress,
+      subject: renderAccountDeletedSubject(),
+      html: renderAccountDeletedHtml(input),
+      text: renderAccountDeletedText(input),
     });
     return { sent: true, messageId: response?.messageId };
   } catch (err) {

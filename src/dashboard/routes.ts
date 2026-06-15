@@ -1,4 +1,7 @@
+import * as Sentry from "@sentry/cloudflare";
 import { Hono } from "hono";
+import { deleteCookie, getCookie, setCookie } from "hono/cookie";
+import { deleteAccount } from "../account/deletion.js";
 import {
   BULK_IN_BAND_CAP,
   BULK_TOTAL_CAP,
@@ -7,6 +10,7 @@ import {
 } from "../api/bulk-scan.js";
 import { generateApiKey } from "../auth/api-key.js";
 import { requireAuth } from "../auth/middleware.js";
+import { validateReauthProof } from "../auth/reauth.js";
 import type { SessionPayload } from "../auth/session.js";
 import { dashboardBillingRoutes } from "../billing/routes.js";
 import { escapeCsvField } from "../csv.js";
@@ -50,6 +54,7 @@ import {
   setNotifyOnChangeOnly,
 } from "../db/users.js";
 import { getRecentDeliveriesForUser } from "../db/webhook-deliveries.js";
+import type { Env } from "../env.js";
 import { scan } from "../orchestrator.js";
 import { normalizeDomain } from "../shared/domain.js";
 import { PRO_WATCHLIST_CAP, watchlistCapFor } from "../shared/limits.js";
@@ -65,6 +70,7 @@ import {
   renderApiKeysPage,
   renderBulkScanPage,
   renderDashboardPage,
+  renderDeleteAccountPage,
   renderDomainDetailPage,
   renderDomainHistoryPage,
   renderDomainPanel,
@@ -1070,6 +1076,122 @@ dashboardRoutes.post("/domain/:domain/delete", async (c) => {
   const domainName = c.req.param("domain");
   await deleteDomain(db, session.sub, domainName);
   return c.redirect("/dashboard", 303);
+});
+
+// ---------------------------------------------------------------------------
+// Account deletion (issue #550). Irreversible, destructive, high-value — gated
+// by BOTH a step-up re-auth (fresh WorkOS login) and a typed confirmation. The
+// target is ALWAYS session.sub; no user id is ever read from request input.
+// ---------------------------------------------------------------------------
+
+// Step 1 — begin step-up re-auth. POST-only (behind the dashboard csrf() +
+// SameSite=Lax session cookie), forces a fresh WorkOS login (prompt=login)
+// carrying the delete intent in `state`. The /auth/callback mints the proof.
+dashboardRoutes.post("/account/delete/reauth", (c) => {
+  const env = c.env as {
+    WORKOS_CLIENT_ID: string;
+    WORKOS_REDIRECT_URI: string;
+  };
+  const state = `delete:${crypto.randomUUID()}`;
+  // Reuse the login flow's oauth_state CSRF cookie + strict callback match.
+  setCookie(c, "oauth_state", state, {
+    httpOnly: true,
+    secure: true,
+    sameSite: "Lax",
+    path: "/",
+    maxAge: 10 * 60,
+  });
+  const params = new URLSearchParams({
+    client_id: env.WORKOS_CLIENT_ID,
+    redirect_uri: env.WORKOS_REDIRECT_URI,
+    response_type: "code",
+    provider: "authkit",
+    prompt: "login", // force credential re-entry, not silent SSO
+    state,
+  });
+  return c.redirect(
+    `https://api.workos.com/user_management/authorize?${params}`,
+  );
+});
+
+// Step 2 — final confirmation page, reachable only with a valid fresh re-auth
+// proof bound to this session. Without one we bounce back to settings to start
+// the step-up flow.
+dashboardRoutes.get("/account/delete", async (c) => {
+  const session = c.get("user" as never) as SessionPayload;
+  const env = c.env as { SESSION_SECRET: string; DB: D1Database };
+  const proof = getCookie(c, "delete_proof");
+  if (
+    !proof ||
+    !(await validateReauthProof(proof, env.SESSION_SECRET, session.sub))
+  ) {
+    return c.redirect("/dashboard/settings");
+  }
+  const user = await getUserById(env.DB, session.sub);
+  if (!user) {
+    // Valid session but the row is already gone — treat as logged out.
+    return c.redirect("/auth/logout");
+  }
+  return c.html(renderDeleteAccountPage({ email: user.email }));
+});
+
+// Step 3 — execute. Requires (a) a valid fresh re-auth proof bound to
+// session.sub AND (b) a typed confirmation matching the account email or the
+// literal "DELETE". On success: hard-delete + cascade, clear the session and
+// proof cookies, send a confirmation email. The target is session.sub only.
+dashboardRoutes.post("/account/delete", async (c) => {
+  const session = c.get("user" as never) as SessionPayload;
+  const env = c.env as Env;
+  const proof = getCookie(c, "delete_proof");
+  if (
+    !proof ||
+    !(await validateReauthProof(proof, env.SESSION_SECRET, session.sub))
+  ) {
+    return c.redirect("/dashboard/settings");
+  }
+
+  const user = await getUserById(env.DB, session.sub);
+  if (!user) {
+    // Already deleted (retained cookie) — clear the proof and log them out.
+    deleteCookie(c, "delete_proof", { path: "/" });
+    return c.redirect("/auth/logout");
+  }
+
+  const body = await c.req.parseBody();
+  const typed = typeof body.confirm === "string" ? body.confirm.trim() : "";
+  const confirmed =
+    typed === "DELETE" ||
+    typed.toLowerCase() === user.email.trim().toLowerCase();
+  if (!confirmed) {
+    return c.html(
+      renderDeleteAccountPage({
+        email: user.email,
+        error:
+          "That didn't match. Type your account email or the word DELETE to confirm.",
+      }),
+      400,
+    );
+  }
+
+  try {
+    await deleteAccount(env, { id: user.id, email: user.email });
+  } catch (err) {
+    // A pre-local step (Stripe cancel) failed → nothing was deleted. Keep the
+    // proof so the user can retry within its TTL.
+    Sentry.captureException(err);
+    return c.html(
+      renderDeleteAccountPage({
+        email: user.email,
+        error:
+          "We couldn't cancel your subscription, so your account was NOT deleted. Please try again, or email support@dmarc.mx.",
+      }),
+      502,
+    );
+  }
+
+  deleteCookie(c, "delete_proof", { path: "/" });
+  deleteCookie(c, "session", { path: "/" });
+  return c.redirect("/");
 });
 
 // Settings page

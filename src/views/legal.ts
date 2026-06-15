@@ -5,7 +5,7 @@ import { page } from "./html.js";
 // placeholder until the LLC is formed; at that point "DMarcus"/"I" flip to
 // the entity name and "we".
 
-const LAST_UPDATED = "2026-04-24";
+const LAST_UPDATED = "2026-06-15";
 
 export function renderPrivacyPage(): string {
   const body = `<main class="breakdown">
@@ -58,7 +58,7 @@ export function renderPrivacyPage(): string {
     <div class="bd-card-body">
       <ul>
         <li><strong>Free, anonymous scans:</strong> not stored after the scan completes.</li>
-        <li><strong>Pro scan history and watchlist:</strong> kept while your account is active. Deleted within 30 days of account closure or on request.</li>
+        <li><strong>Pro scan history and watchlist:</strong> kept while your account is active. Deleted immediately when you close your account, or within 30 days on request.</li>
         <li><strong>Account email:</strong> same as above.</li>
         <li><strong>Stripe billing records:</strong> Stripe retains these to comply with US financial-record law (typically 7 years). I delete my local copy on account closure.</li>
         <li><strong>Error telemetry:</strong> 90 days, then purged by Sentry.</li>
@@ -87,7 +87,7 @@ export function renderPrivacyPage(): string {
     <div class="bd-card-body">
       <ul>
         <li><strong>Export your data</strong> &mdash; email <a href="mailto:support@dmarc.mx">support@dmarc.mx</a> and I'll send your scan history and watchlist as JSON within 30 days.</li>
-        <li><strong>Delete your account</strong> &mdash; one click from the dashboard. Everything I hold gets removed within 30 days. Stripe keeps its own billing records per law.</li>
+        <li><strong>Delete your account</strong> &mdash; from your dashboard settings. After you re-confirm your login and type a confirmation, I erase everything I hold <strong>immediately</strong>: your watchlist, scan history, alerts, API keys, webhooks, and your WorkOS login identity. Any active subscription is cancelled. There is no grace period &mdash; it cannot be undone. Stripe keeps its own billing records per law.</li>
         <li><strong>Stop getting emails</strong> &mdash; unsubscribe from any email footer, or toggle alerts off in your dashboard.</li>
         <li><strong>Ask a question</strong> &mdash; <a href="mailto:support@dmarc.mx">support@dmarc.mx</a>.</li>
       </ul>

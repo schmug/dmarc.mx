@@ -464,7 +464,7 @@ When you use ${MD_SITE}:
 ## How long I keep it
 
 - **Free, anonymous scans:** not stored after the scan completes.
-- **Pro scan history and watchlist:** kept while your account is active. Deleted within 30 days of account closure or on request.
+- **Pro scan history and watchlist:** kept while your account is active. Deleted immediately when you close your account, or within 30 days on request.
 - **Account email:** same as above.
 - **Stripe billing records:** Stripe retains these to comply with US financial-record law (typically 7 years). I delete my local copy on account closure.
 - **Error telemetry:** 90 days, then purged by Sentry.
@@ -485,7 +485,7 @@ If I add or swap a subprocessor, I'll update this list and email Pro users at le
 ## Your rights
 
 - **Export your data** — email support@dmarc.mx and I'll send your scan history and watchlist as JSON within 30 days.
-- **Delete your account** — one click from the dashboard. Everything I hold gets removed within 30 days. Stripe keeps its own billing records per law.
+- **Delete your account** — from your dashboard settings. After you re-confirm your login and type a confirmation, I erase everything I hold **immediately**: your watchlist, scan history, alerts, API keys, webhooks, and your WorkOS login identity. Any active subscription is cancelled. There is no grace period — it cannot be undone. Stripe keeps its own billing records per law.
 - **Stop getting emails** — unsubscribe from any email footer, or toggle alerts off in your dashboard.
 - **Ask a question** — support@dmarc.mx.
 
