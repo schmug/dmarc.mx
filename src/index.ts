@@ -626,6 +626,12 @@ app.get("/api/check/stream", async (c) => {
           footerHtml: renderReportFooter(cached),
         }),
       });
+      // Parity with GET /api/check: cache hits still persist for watched
+      // domains when a bearer is present — otherwise dashboard grades and
+      // scan_history stay stale for up to the cache TTL.
+      if (bearer) {
+        persistBearerScanIfWatched(c, bearer.userId, domain, cached);
+      }
       return;
     }
 
