@@ -2908,6 +2908,12 @@ ${retirementBanner}
 <div class="settings-section">
   <h2>Billing</h2>
   ${billingSection}
+</div>
+
+<div class="settings-section" style="border-color:#ef4444;background:rgba(239,68,68,0.05)">
+  <h2 style="color:#ef4444">Danger Zone</h2>
+  <p>Permanently delete your account and all associated data — domains, scan history, API keys, and webhooks. This <strong>cannot be undone</strong>.</p>
+  <a href="/dashboard/account/delete" class="btn" style="background:#ef4444;border-color:#ef4444">Delete Account</a>
 </div>`;
 
   return dashboardPage("Settings — dmarc.mx", body, email);
@@ -3088,4 +3094,86 @@ ${justCreatedBanner}
 </div>`;
 
   return dashboardPage("API Keys — dmarc.mx", body, email);
+}
+
+// Renders the typed-confirmation form for account deletion (step 1 of 3).
+export function renderDeleteAccountPage(
+  email: string,
+  validationError?: string,
+): string {
+  const errorHtml = validationError
+    ? `<p style="color:#ef4444;font-size:0.875rem;margin-bottom:0.75rem">${esc(validationError)}</p>`
+    : "";
+  const body = `<h1 class="dashboard-title">Delete Account</h1>
+<div class="settings-section" style="border-color:#ef4444">
+  <h2 style="color:#ef4444">Permanently delete your account</h2>
+  <p>This will immediately and permanently remove:</p>
+  <ul style="margin:0.5rem 0 0.75rem 1.25rem;font-size:0.875rem">
+    <li>Your account and profile</li>
+    <li>All monitored domains and scan history</li>
+    <li>All API keys and webhooks</li>
+    <li>Your active subscription (if any)</li>
+  </ul>
+  <p><strong>This cannot be undone.</strong></p>
+  ${errorHtml}
+  <form method="POST" action="/dashboard/account/delete">
+    <label for="delete-confirm" style="display:block;font-size:0.875rem;color:var(--clr-text-muted);margin-bottom:0.4rem">
+      Type your account email address (<code>${esc(email)}</code>) or the word <code>DELETE</code> to confirm:
+    </label>
+    <input
+      id="delete-confirm"
+      class="settings-input"
+      type="text"
+      name="confirmation"
+      placeholder="${esc(email)}"
+      autocomplete="off"
+      autocapitalize="none"
+      autocorrect="off"
+      spellcheck="false"
+      required
+    >
+    <div class="action-row" style="margin-top:0.75rem">
+      <button type="submit" class="btn" style="background:#ef4444;border-color:#ef4444">Continue to re-authenticate</button>
+      <a href="/dashboard/settings" class="btn btn-secondary">Cancel</a>
+    </div>
+  </form>
+</div>`;
+  return dashboardPage("Delete Account — dmarc.mx", body, email);
+}
+
+// Renders the final confirmation page shown after step-up re-auth (step 3 of 3).
+export function renderDeleteExecutePage(
+  email: string,
+  error: string | null,
+): string {
+  const errorMessages: Record<string, string> = {
+    no_proof: "Re-authentication proof is missing. Please start over.",
+    invalid_proof:
+      "Re-authentication proof is invalid or expired. Please start over.",
+    stripe:
+      "Could not cancel your active subscription. Your account was not deleted. Please try again or contact support.",
+  };
+  const errorHtml = error
+    ? `<p style="color:#ef4444;font-size:0.875rem;margin-bottom:0.75rem">${esc(errorMessages[error] ?? "An unexpected error occurred. Please start over.")}</p>`
+    : "";
+  const retryLink =
+    error && error !== "stripe"
+      ? `<a href="/dashboard/account/delete" class="btn btn-secondary">Start over</a>`
+      : "";
+  const confirmForm =
+    !error || error === "stripe"
+      ? `<form method="POST" action="/dashboard/account/delete/execute">
+    <button type="submit" class="btn" style="background:#ef4444;border-color:#ef4444" data-loading-text="Deleting…">Permanently Delete My Account</button>
+    <a href="/dashboard/settings" class="btn btn-secondary" style="margin-left:0.5rem">Cancel</a>
+  </form>`
+      : "";
+  const body = `<h1 class="dashboard-title">Confirm Account Deletion</h1>
+<div class="settings-section" style="border-color:#ef4444">
+  <h2 style="color:#ef4444">Final confirmation</h2>
+  <p>You have re-authenticated. Clicking the button below will <strong>permanently and immediately</strong> delete your account (<strong>${esc(email)}</strong>) and all associated data.</p>
+  ${errorHtml}
+  ${confirmForm}
+  ${retryLink}
+</div>`;
+  return dashboardPage("Confirm Deletion — dmarc.mx", body, email);
 }

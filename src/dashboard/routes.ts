@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { deleteCookie, getCookie } from "hono/cookie";
 import {
   BULK_IN_BAND_CAP,
   BULK_TOTAL_CAP,
@@ -7,8 +8,11 @@ import {
 } from "../api/bulk-scan.js";
 import { generateApiKey } from "../auth/api-key.js";
 import { requireAuth } from "../auth/middleware.js";
+import { REAUTH_PROOF_COOKIE, validateReauthProof } from "../auth/routes.js";
 import type { SessionPayload } from "../auth/session.js";
+import type { BillingEnv } from "../billing/feature-flag.js";
 import { dashboardBillingRoutes } from "../billing/routes.js";
+import { stripeRequest } from "../billing/stripe.js";
 import { escapeCsvField } from "../csv.js";
 import {
   acknowledgeAlert,
@@ -41,9 +45,14 @@ import {
   getScanHistoryWithProtocols,
   recordScan,
 } from "../db/scans.js";
-import { getPlanForUser } from "../db/subscriptions.js";
+import {
+  getPlanForUser,
+  getSubscriptionByUserId,
+  statusToPlan,
+} from "../db/subscriptions.js";
 import {
   acknowledgeApiKeyRetirement,
+  deleteUser,
   getMaxDomainsOverrideForUser,
   getUserById,
   setEmailAlertsEnabled,
@@ -65,6 +74,8 @@ import {
   renderApiKeysPage,
   renderBulkScanPage,
   renderDashboardPage,
+  renderDeleteAccountPage,
+  renderDeleteExecutePage,
   renderDomainDetailPage,
   renderDomainHistoryPage,
   renderDomainPanel,
@@ -1283,4 +1294,113 @@ dashboardRoutes.post("/settings/webhook", async (c) => {
       .run();
   }
   return c.redirect("/dashboard/settings");
+});
+
+// ---- Account deletion flow (3 steps) ----
+//
+// Step 1: GET /account/delete — typed-confirmation form
+// Step 2: POST /account/delete — validate confirmation, redirect to step-up re-auth
+// Step 3a: GET /account/delete/execute — final confirmation (reached after re-auth)
+// Step 3b: POST /account/delete/execute — validate proof, execute deletion
+
+dashboardRoutes.get("/account/delete", (c) => {
+  const session = c.get("user" as never) as SessionPayload;
+  return c.html(renderDeleteAccountPage(session.email));
+});
+
+dashboardRoutes.post("/account/delete", async (c) => {
+  const session = c.get("user" as never) as SessionPayload;
+  const body = await c.req.parseBody();
+  const confirmation =
+    typeof body.confirmation === "string" ? body.confirmation.trim() : "";
+  if (confirmation !== session.email && confirmation !== "DELETE") {
+    return c.html(
+      renderDeleteAccountPage(
+        session.email,
+        "Type your account email address or DELETE to confirm.",
+      ),
+      400,
+    );
+  }
+  return c.redirect("/auth/reauth", 303);
+});
+
+dashboardRoutes.get("/account/delete/execute", (c) => {
+  const session = c.get("user" as never) as SessionPayload;
+  const error = c.req.query("error") ?? null;
+  return c.html(renderDeleteExecutePage(session.email, error));
+});
+
+// Execute the deletion. Validates the re-auth proof cookie, cancels any active
+// Stripe subscription (aborting on failure), hard-deletes the user row (which
+// cascades all related data), issues a best-effort WorkOS identity delete, then
+// clears the session cookie.
+dashboardRoutes.post("/account/delete/execute", async (c) => {
+  const session = c.get("user" as never) as SessionPayload;
+  const db = (c.env as { DB: D1Database }).DB;
+  const env = c.env as {
+    SESSION_SECRET: string;
+    STRIPE_SECRET_KEY?: string;
+    WORKOS_API_KEY?: string;
+  };
+
+  // Validate and consume the re-auth proof cookie.
+  const proofToken = getCookie(c, REAUTH_PROOF_COOKIE);
+  if (!proofToken) {
+    return c.redirect("/dashboard/account/delete/execute?error=no_proof", 303);
+  }
+  const proof = await validateReauthProof(
+    proofToken,
+    session.sub,
+    "account_delete",
+    env.SESSION_SECRET,
+  );
+  if (!proof) {
+    return c.redirect(
+      "/dashboard/account/delete/execute?error=invalid_proof",
+      303,
+    );
+  }
+  // Consume the proof cookie so normal browser flow cannot replay it.
+  // Server-side single-use nonce hardening is in issue #553.
+  deleteCookie(c, REAUTH_PROOF_COOKIE, { path: "/dashboard/account" });
+
+  // Cancel any active Stripe subscription before touching local data.
+  // A Stripe failure aborts the deletion entirely — better to leave the
+  // account intact than to silently orphan an active paid subscription.
+  const sub = await getSubscriptionByUserId(db, session.sub);
+  if (sub && statusToPlan(sub.status) === "pro" && env.STRIPE_SECRET_KEY) {
+    try {
+      await stripeRequest<{ id: string }>(
+        env as unknown as BillingEnv,
+        `/subscriptions/${sub.stripe_subscription_id}/cancel`,
+        {},
+      );
+    } catch {
+      return c.redirect("/dashboard/account/delete/execute?error=stripe", 303);
+    }
+  }
+
+  // Hard-delete the user row — ON DELETE CASCADE handles all related data.
+  await deleteUser(db, session.sub);
+
+  // Best-effort WorkOS identity delete. Failure does NOT roll back local
+  // erasure — the WorkOS identity is orphaned but non-functional (no local
+  // row means no successful login). Orphans are reconciled by issue #552.
+  if (env.WORKOS_API_KEY) {
+    c.executionCtx.waitUntil(
+      fetch(`https://api.workos.com/user_management/users/${session.sub}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${env.WORKOS_API_KEY}` },
+      }).catch(() => {}),
+    );
+  }
+
+  // Clear the session cookie. The JWT stays cryptographically valid until
+  // its exp, but clearing it prevents inadvertent browser replay. Existing
+  // dashboard routes already handle "valid JWT, no user row" by redirecting
+  // to /auth/logout (see requireAuth + getUserById null checks).
+  deleteCookie(c, "session", { path: "/" });
+
+  return c.redirect("/?account_deleted=1", 303);
 });

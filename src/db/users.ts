@@ -110,3 +110,13 @@ export async function acknowledgeApiKeyRetirement(
     .bind(Math.floor(Date.now() / 1000), userId)
     .run();
 }
+
+// Hard-deletes a user row. All related data cascades via ON DELETE CASCADE:
+// domains → (scan_history, alerts), api_keys, webhooks → webhook_deliveries,
+// subscriptions. stripe_events is a non-user idempotency ledger and is left.
+export async function deleteUser(
+  db: D1Database,
+  userId: string,
+): Promise<void> {
+  await db.prepare("DELETE FROM users WHERE id = ?").bind(userId).run();
+}
