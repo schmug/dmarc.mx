@@ -184,6 +184,7 @@ These unlock the same Pro features the hosted tier at `dmarc.mx` offers — see 
 | `STRIPE_SECRET_KEY` | Stripe API key for Checkout + Portal calls |
 | `STRIPE_WEBHOOK_SECRET` | Signing secret for the `/webhooks/stripe` endpoint |
 | `STRIPE_PRICE_ID_PRO` | Price ID for the Pro plan offered via Checkout |
+| `WORKOS_API_KEY` | WorkOS Management API key (Bearer). Used by self-serve account deletion to erase the WorkOS login identity. If unset, account deletion still erases all local D1 data and cancels any Stripe subscription — only the WorkOS identity-delete step is skipped. |
 | `CF_ANALYTICS_TOKEN` | Cloudflare Web Analytics beacon token (32-char lowercase hex). Injects a cookieless beacon on public HTML pages; skipped on `/dashboard/*`, `/auth/*`, `/webhooks/*`. Leave unset to disable. |
 
 If any of the three Stripe secrets are missing, `isBillingEnabled` returns false and all

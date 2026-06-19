@@ -2908,9 +2908,62 @@ ${retirementBanner}
 <div class="settings-section">
   <h2>Billing</h2>
   ${billingSection}
+</div>
+
+<div class="settings-section" style="border-color:#ef4444">
+  <h2 style="color:#ef4444">Danger Zone</h2>
+  <p>Permanently delete your account and everything I hold — your watchlist, scan history, alerts, API keys, webhooks, and login identity. Any active subscription is cancelled first. <strong>This is immediate and cannot be undone.</strong></p>
+  <p style="font-size:0.875rem;color:var(--clr-text-muted)">For your safety you'll be asked to re-confirm your login, then type a confirmation, before anything is deleted.</p>
+  <form method="POST" action="/dashboard/account/delete/reauth">
+    <button type="submit" class="btn" style="background:#ef4444;color:#fff" data-loading-text="Redirecting…">Delete my account…</button>
+  </form>
 </div>`;
 
   return dashboardPage("Settings — dmarc.mx", body, email);
+}
+
+// Final account-deletion confirmation page (issue #550). Only rendered after a
+// successful step-up re-auth (valid delete_proof). Collects the typed
+// confirmation that the destructive POST re-validates server-side.
+export function renderDeleteAccountPage({
+  email,
+  error,
+}: {
+  email: string;
+  error?: string;
+}): string {
+  const errorBanner = error
+    ? `<div class="settings-section" style="border-color:#ef4444">
+  <p style="color:#ef4444;margin:0">${esc(error)}</p>
+</div>`
+    : "";
+  const body = `<h1 class="dashboard-title">Delete your account</h1>
+${errorBanner}
+<div class="settings-section" style="border-color:#ef4444">
+  <h2 style="color:#ef4444">This is permanent</h2>
+  <p>Deleting your account immediately and permanently erases everything I hold: your watchlist, scan history, alerts, API keys, webhooks, and your WorkOS login identity. Any active subscription is cancelled. <strong>This cannot be undone — there is no grace period.</strong></p>
+  <p>To confirm, type your account email (<strong>${esc(email)}</strong>) or the word <code>DELETE</code> below.</p>
+  <form method="POST" action="/dashboard/account/delete">
+    <input
+      class="settings-input"
+      type="text"
+      name="confirm"
+      autocomplete="off"
+      autocapitalize="none"
+      autocorrect="off"
+      spellcheck="false"
+      placeholder="${esc(email)} or DELETE"
+      aria-label="Type your account email or DELETE to confirm"
+      required
+    >
+    <div style="margin-top:0.75rem;display:flex;gap:0.5rem;flex-wrap:wrap">
+      <button type="submit" class="btn" style="background:#ef4444;color:#fff" data-loading-text="Deleting…">Permanently delete my account</button>
+      <a href="/dashboard/settings" class="btn btn-secondary">Cancel</a>
+    </div>
+  </form>
+</div>`;
+
+  return dashboardPage("Delete Account — dmarc.mx", body, email);
 }
 
 function renderWebhookTestFlash(flash: WebhookTestFlash | null): string {

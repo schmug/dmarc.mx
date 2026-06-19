@@ -10,6 +10,12 @@ export interface Env {
   WORKOS_CLIENT_ID: string;
   WORKOS_CLIENT_SECRET: string;
   WORKOS_REDIRECT_URI: string;
+  // WorkOS Management API key (Bearer), distinct from the OAuth client
+  // secret. Used to delete the WorkOS identity record on account deletion
+  // (issue #550). Optional: self-host deploys without it skip the WorkOS
+  // delete step. Also doubles as the "is this the hosted prod worker"
+  // sentinel that gates the /_dev/dashboard fixture route in src/index.ts.
+  WORKOS_API_KEY?: string;
   SESSION_SECRET: string;
   SENTRY_DSN?: string;
   // Cloudflare Email Sending binding. Optional so self-host deploys without

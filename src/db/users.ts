@@ -33,6 +33,21 @@ export async function getUserById(
   return db.prepare("SELECT * FROM users WHERE id = ?").bind(id).first<User>();
 }
 
+// Hard-deletes a user and everything they own. The single DELETE cascades via
+// ON DELETE CASCADE (see migrations/0004_api_keys.sql): domains →
+// (scan_history, alerts), api_keys, webhooks → webhook_deliveries,
+// subscriptions. `stripe_events` is a non-user idempotency ledger and is left
+// intact. The target id MUST come from the verified session (session.sub),
+// never request input — this is the cross-tenant-erasure (IDOR) guard, the
+// same posture as deleteDomain's `WHERE user_id = ?`. There is deliberately no
+// soft-delete: account deletion is immediate and permanent (issue #550).
+export async function deleteUser(
+  db: D1Database,
+  userId: string,
+): Promise<void> {
+  await db.prepare("DELETE FROM users WHERE id = ?").bind(userId).run();
+}
+
 export async function getUserByEmail(
   db: D1Database,
   email: string,

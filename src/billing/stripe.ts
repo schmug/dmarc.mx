@@ -97,15 +97,20 @@ function parseSignatureHeader(header: string): ParsedSignature {
   return out;
 }
 
-// Thin POST helper for Checkout / Portal / Customer calls.
+// Thin helper for Checkout / Portal / Customer / subscription calls. Defaults
+// to POST (Stripe's form-encoded create/update convention); pass `method:
+// "DELETE"` for resource deletion (e.g. immediate subscription cancellation),
+// in which case no body is sent.
 export async function stripeRequest<T>(
   env: BillingEnv,
   path: string,
   form: Record<string, string>,
+  method: "POST" | "DELETE" = "POST",
 ): Promise<T> {
-  const body = new URLSearchParams(form).toString();
+  const body =
+    method === "DELETE" ? undefined : new URLSearchParams(form).toString();
   const res = await fetch(`https://api.stripe.com/v1${path}`, {
-    method: "POST",
+    method,
     headers: {
       Authorization: `Bearer ${env.STRIPE_SECRET_KEY}`,
       "Content-Type": "application/x-www-form-urlencoded",
@@ -170,6 +175,28 @@ export async function createCheckoutSession(
     // handler cross-check the user_id matches the customer lookup.
     "subscription_data[metadata][user_id]": input.userId,
   });
+}
+
+interface StripeSubscription {
+  id: string;
+  status: string;
+}
+
+// Cancels a subscription immediately (not at period end). Used by account
+// deletion (issue #550): we must stop billing a card for a service the user is
+// erasing. `DELETE /v1/subscriptions/{id}` is Stripe's immediate-cancel verb.
+// Throws (via stripeRequest) on any non-2xx so the caller can ABORT the
+// deletion rather than orphan an active subscription.
+export async function cancelSubscription(
+  env: BillingEnv,
+  subscriptionId: string,
+): Promise<StripeSubscription> {
+  return stripeRequest<StripeSubscription>(
+    env,
+    `/subscriptions/${encodeURIComponent(subscriptionId)}`,
+    {},
+    "DELETE",
+  );
 }
 
 interface StripePortalSession {

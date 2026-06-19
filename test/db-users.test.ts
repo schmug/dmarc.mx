@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   acknowledgeApiKeyRetirement,
   createUser,
+  deleteUser,
   getUserByEmail,
   getUserById,
   type User,
@@ -42,6 +43,9 @@ function makeD1Mock(): D1Database {
                   api_key_retirement_acknowledged_at: ackAt,
                 });
               }
+            } else if (/^DELETE FROM users WHERE id = \?/i.test(sql)) {
+              const [userId] = params as [string];
+              store.delete(userId);
             }
             return { success: true };
           },
@@ -124,6 +128,27 @@ describe("db/users", () => {
     it("returns null for a non-existent id", async () => {
       const user = await getUserById(db, "does-not-exist");
       expect(user).toBeNull();
+    });
+  });
+
+  describe("deleteUser", () => {
+    it("hard-deletes the user row by id (no soft-delete)", async () => {
+      await createUser(db, { id: "user-del", email: "del@example.com" });
+      expect(await getUserById(db, "user-del")).not.toBeNull();
+
+      await deleteUser(db, "user-del");
+
+      expect(await getUserById(db, "user-del")).toBeNull();
+    });
+
+    it("only deletes the targeted id, leaving other users intact", async () => {
+      await createUser(db, { id: "victim", email: "victim@example.com" });
+      await createUser(db, { id: "target", email: "target@example.com" });
+
+      await deleteUser(db, "target");
+
+      expect(await getUserById(db, "target")).toBeNull();
+      expect(await getUserById(db, "victim")).not.toBeNull();
     });
   });
 
