@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createReauthProof } from "../src/auth/reauth.js";
+import { createReauthProof, extractReauthJti } from "../src/auth/reauth.js";
 import { authRoutes } from "../src/auth/routes.js";
 import { createSessionToken } from "../src/auth/session.js";
 import { dashboardRoutes } from "../src/dashboard/routes.js";
@@ -336,6 +336,109 @@ describe("account deletion — execute (POST /dashboard/account/delete)", () => 
     expect(del?.bindings).toEqual(["user_1"]);
     // The victim's row is untouched; only the session subject was deleted.
     expect(users.map((u) => u.id)).toEqual(["victim"]);
+  });
+});
+
+// Minimal mock for DurableObjectNamespace<RateLimiterDO> used by nonce tests.
+function makeNonceStore() {
+  const consumed = new Set<string>();
+  return {
+    idFromName: (_name: string) =>
+      ({ toString: () => _name }) as DurableObjectId,
+    get: (_id: DurableObjectId) =>
+      ({
+        tryConsumeNonce: async (jti: string, _expiresAt: number) => {
+          if (consumed.has(jti)) return false;
+          consumed.add(jti);
+          return true;
+        },
+      }) as unknown as DurableObjectStub,
+  } as unknown as DurableObjectNamespace;
+}
+
+describe("account deletion — server-side single-use nonce (#553)", () => {
+  it("replayed proof is rejected after nonce is consumed on first use", async () => {
+    const writes: Array<{ sql: string; bindings: unknown[] }> = [];
+    const users = [user("user_1", "a@b.com")];
+    const db = makeDB({ users, writes });
+    const rateLimiter = makeNonceStore();
+    const app = makeApp(db, { RATE_LIMITER: rateLimiter });
+    const proof = await createReauthProof("user_1", SECRET);
+
+    // First POST — succeeds; nonce is consumed.
+    const first = await app.request("/dashboard/account/delete", {
+      ...form({ confirm: "DELETE" }),
+      headers: {
+        ...(form({}).headers as Record<string, string>),
+        Cookie: `${await sessionCookie("user_1", "a@b.com")}; delete_proof=${proof}`,
+      },
+    });
+    expect(first.status).toBe(302);
+    expect(first.headers.get("Location")).toBe("/");
+
+    // Restore user row so the replay isn't deflected by the missing-row path.
+    users.push(user("user_1", "a@b.com"));
+
+    // Second POST with the same proof — nonce already consumed, must be rejected.
+    const replay = await app.request("/dashboard/account/delete", {
+      ...form({ confirm: "DELETE" }),
+      headers: {
+        ...(form({}).headers as Record<string, string>),
+        Cookie: `${await sessionCookie("user_1", "a@b.com")}; delete_proof=${proof}`,
+      },
+    });
+    expect(replay.status).toBe(302);
+    expect(replay.headers.get("Location")).toBe("/dashboard/settings");
+  });
+
+  it("deletion succeeds when RATE_LIMITER is absent (graceful fallback)", async () => {
+    const writes: Array<{ sql: string; bindings: unknown[] }> = [];
+    const users = [user("user_1", "a@b.com")];
+    const db = makeDB({ users, writes });
+    // No RATE_LIMITER in env — nonce check must be skipped, not block deletion.
+    const app = makeApp(db);
+    const proof = await createReauthProof("user_1", SECRET);
+    const res = await app.request("/dashboard/account/delete", {
+      ...form({ confirm: "DELETE" }),
+      headers: {
+        ...(form({}).headers as Record<string, string>),
+        Cookie: `${await sessionCookie("user_1", "a@b.com")}; delete_proof=${proof}`,
+      },
+    });
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("/");
+    expect(users).toHaveLength(0);
+  });
+
+  it("extractReauthJti is consistent: the jti in the proof matches what the store sees", async () => {
+    const consumed: string[] = [];
+    const rateLimiter = {
+      idFromName: (_n: string) => ({}) as DurableObjectId,
+      get: (_id: DurableObjectId) =>
+        ({
+          tryConsumeNonce: async (jti: string, _exp: number) => {
+            consumed.push(jti);
+            return true;
+          },
+        }) as unknown as DurableObjectStub,
+    } as unknown as DurableObjectNamespace;
+
+    const writes: Array<{ sql: string; bindings: unknown[] }> = [];
+    const users = [user("user_1", "a@b.com")];
+    const db = makeDB({ users, writes });
+    const app = makeApp(db, { RATE_LIMITER: rateLimiter });
+    const proof = await createReauthProof("user_1", SECRET);
+    const expectedJti = extractReauthJti(proof);
+
+    await app.request("/dashboard/account/delete", {
+      ...form({ confirm: "DELETE" }),
+      headers: {
+        ...(form({}).headers as Record<string, string>),
+        Cookie: `${await sessionCookie("user_1", "a@b.com")}; delete_proof=${proof}`,
+      },
+    });
+    expect(consumed).toHaveLength(1);
+    expect(consumed[0]).toBe(expectedJti);
   });
 });
 

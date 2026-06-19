@@ -25,10 +25,14 @@ const ENCODER = new TextEncoder();
 const PROOF_PURPOSE = "account-deletion";
 const DEFAULT_PROOF_TTL_SECONDS = 10 * 60;
 
+// Exported so callers can use it as the nonce store TTL.
+export const PROOF_TTL_SECONDS = DEFAULT_PROOF_TTL_SECONDS;
+
 interface ReauthProofPayload {
   sub: string;
   purpose: string;
   exp: number;
+  jti: string;
 }
 
 function base64UrlEncode(data: ArrayBuffer | Uint8Array): string {
@@ -72,6 +76,7 @@ export async function createReauthProof(
     sub,
     purpose: PROOF_PURPOSE,
     exp: Math.floor(Date.now() / 1000) + ttlSeconds,
+    jti: crypto.randomUUID(),
   };
   const payloadEncoded = base64UrlEncode(
     ENCODER.encode(JSON.stringify(payload)),
@@ -83,6 +88,22 @@ export async function createReauthProof(
     ENCODER.encode(payloadEncoded),
   );
   return `${payloadEncoded}.${base64UrlEncode(signature)}`;
+}
+
+// Decodes the payload portion of a proof token without verifying the
+// signature and returns the jti claim, or null if the token is malformed.
+// Only call after validateReauthProof confirms the token is genuine.
+export function extractReauthJti(token: string): string | null {
+  const parts = token.split(".");
+  if (parts.length !== 2) return null;
+  try {
+    const payload: Partial<ReauthProofPayload> = JSON.parse(
+      new TextDecoder().decode(base64UrlDecode(parts[0])),
+    );
+    return typeof payload.jti === "string" ? payload.jti : null;
+  } catch {
+    return null;
+  }
 }
 
 // Returns true only when the token is a structurally-valid, correctly-signed,

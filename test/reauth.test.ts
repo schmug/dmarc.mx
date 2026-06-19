@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { createReauthProof, validateReauthProof } from "../src/auth/reauth.js";
+import {
+  createReauthProof,
+  extractReauthJti,
+  validateReauthProof,
+} from "../src/auth/reauth.js";
 
 const SECRET = "test-session-secret";
 
@@ -61,5 +65,34 @@ describe("auth/reauth proof token", () => {
     expect(await validateReauthProof(sessionToken, SECRET, "user_1")).toBe(
       false,
     );
+  });
+});
+
+describe("auth/reauth jti (single-use nonce, #553)", () => {
+  it("createReauthProof embeds a non-empty jti in the payload", async () => {
+    const token = await createReauthProof("user_1", SECRET);
+    const jti = extractReauthJti(token);
+    expect(typeof jti).toBe("string");
+    expect(jti?.length).toBeGreaterThan(0);
+  });
+
+  it("each createReauthProof call produces a distinct jti", async () => {
+    const t1 = await createReauthProof("user_1", SECRET);
+    const t2 = await createReauthProof("user_1", SECRET);
+    expect(extractReauthJti(t1)).not.toBe(extractReauthJti(t2));
+  });
+
+  it("extractReauthJti returns null for a malformed token", () => {
+    expect(extractReauthJti("garbage")).toBeNull();
+    expect(extractReauthJti("a.b.c")).toBeNull();
+  });
+
+  it("extractReauthJti returns null for a token whose payload is not valid JSON", () => {
+    // Encode non-JSON bytes as the payload segment.
+    const bad = btoa("not-json")
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+    expect(extractReauthJti(`${bad}.sig`)).toBeNull();
   });
 });

@@ -10,7 +10,11 @@ import {
 } from "../api/bulk-scan.js";
 import { generateApiKey } from "../auth/api-key.js";
 import { requireAuth } from "../auth/middleware.js";
-import { validateReauthProof } from "../auth/reauth.js";
+import {
+  extractReauthJti,
+  PROOF_TTL_SECONDS,
+  validateReauthProof,
+} from "../auth/reauth.js";
 import type { SessionPayload } from "../auth/session.js";
 import { dashboardBillingRoutes } from "../billing/routes.js";
 import { escapeCsvField } from "../csv.js";
@@ -1148,6 +1152,26 @@ dashboardRoutes.post("/account/delete", async (c) => {
     !(await validateReauthProof(proof, env.SESSION_SECRET, session.sub))
   ) {
     return c.redirect("/dashboard/settings");
+  }
+
+  // Server-side single-use nonce check (#553). Atomically consumes the jti on
+  // first use; a replayed proof within its TTL is rejected here. Skipped
+  // gracefully when RATE_LIMITER is absent (self-host / test environments) so
+  // erasure never depends on an optional binding.
+  const jti = extractReauthJti(proof);
+  if (jti && env.RATE_LIMITER) {
+    try {
+      const expiresAt = Math.floor(Date.now() / 1000) + PROOF_TTL_SECONDS;
+      const stub = env.RATE_LIMITER.get(
+        env.RATE_LIMITER.idFromName(`nonce:${jti}`),
+      );
+      const fresh = await stub.tryConsumeNonce(jti, expiresAt);
+      if (!fresh) {
+        return c.redirect("/dashboard/settings");
+      }
+    } catch {
+      // DO unavailable — degrade gracefully, allow the deletion to proceed.
+    }
   }
 
   const user = await getUserById(env.DB, session.sub);
