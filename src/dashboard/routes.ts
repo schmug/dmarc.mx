@@ -10,7 +10,7 @@ import {
 } from "../api/bulk-scan.js";
 import { generateApiKey } from "../auth/api-key.js";
 import { requireAuth } from "../auth/middleware.js";
-import { validateReauthProof } from "../auth/reauth.js";
+import { extractReauthProofJti, validateReauthProof } from "../auth/reauth.js";
 import type { SessionPayload } from "../auth/session.js";
 import { dashboardBillingRoutes } from "../billing/routes.js";
 import { escapeCsvField } from "../csv.js";
@@ -1148,6 +1148,33 @@ dashboardRoutes.post("/account/delete", async (c) => {
     !(await validateReauthProof(proof, env.SESSION_SECRET, session.sub))
   ) {
     return c.redirect("/dashboard/settings");
+  }
+
+  // Server-side single-use guarantee (issue #553): consume the proof nonce in
+  // D1 so a captured cookie cannot be replayed within the ~10-minute TTL. On
+  // any D1 error (table absent in self-host, transient failure) we warn and
+  // continue — erasure must never be blocked by the nonce store.
+  const parsed = extractReauthProofJti(proof);
+  if (parsed) {
+    try {
+      const nowSec = Math.floor(Date.now() / 1000);
+      await env.DB.prepare("DELETE FROM delete_proofs WHERE expires_at < ?")
+        .bind(nowSec)
+        .run();
+      const { meta } = await env.DB.prepare(
+        "INSERT INTO delete_proofs (jti, expires_at) VALUES (?, ?) ON CONFLICT(jti) DO NOTHING",
+      )
+        .bind(parsed.jti, parsed.exp)
+        .run();
+      if (meta.changes === 0) {
+        return c.redirect("/dashboard/settings");
+      }
+    } catch (err) {
+      console.warn(
+        "[reauth] nonce store unavailable, skipping replay check:",
+        err,
+      );
+    }
   }
 
   const user = await getUserById(env.DB, session.sub);

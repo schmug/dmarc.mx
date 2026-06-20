@@ -103,6 +103,13 @@ CREATE TABLE IF NOT EXISTS webhook_deliveries (
   attempted_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
 
+-- Consumed re-auth proof nonces (server-side single-use guarantee, issue #553).
+-- Rows expire with the proof TTL; lazy GC at consume time keeps this tiny.
+CREATE TABLE IF NOT EXISTS delete_proofs (
+  jti TEXT PRIMARY KEY,
+  expires_at INTEGER NOT NULL
+);
+
 -- Indexes for common queries
 CREATE INDEX IF NOT EXISTS idx_domains_user_id ON domains(user_id);
 CREATE INDEX IF NOT EXISTS idx_scan_history_domain_id ON scan_history(domain_id);

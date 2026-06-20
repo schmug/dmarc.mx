@@ -34,13 +34,17 @@ function user(id: string, email: string): UserRow {
 }
 
 // Minimal D1 mock: resolves user lookups, records every write, and applies the
-// DELETE FROM users so we can assert the row is (or is not) gone. Everything
-// else returns empty so unrelated dashboard queries don't throw.
+// DELETE FROM users so we can assert the row is (or is not) gone. Tracks
+// consumed nonces for the delete_proofs table so replay tests work.
 function makeDB(opts: {
   users: UserRow[];
   writes: Array<{ sql: string; bindings: unknown[] }>;
+  nonceStore?: Set<string>;
+  nonceStoreThrows?: boolean;
 }) {
   const { users, writes } = opts;
+  const nonceStore = opts.nonceStore ?? new Set<string>();
+  const nonceStoreThrows = opts.nonceStoreThrows ?? false;
   const make = (sql: string, bindings: unknown[]) => ({
     bind: (...args: unknown[]) => make(sql, args),
     first: async <T>() => {
@@ -55,6 +59,17 @@ function makeDB(opts: {
       if (/^DELETE FROM users WHERE id = \?/i.test(sql)) {
         const idx = users.findIndex((u) => u.id === bindings[0]);
         if (idx >= 0) users.splice(idx, 1);
+      }
+      if (/INSERT INTO delete_proofs/i.test(sql)) {
+        if (nonceStoreThrows) throw new Error("table not found");
+        const jti = bindings[0] as string;
+        if (nonceStore.has(jti)) return { success: true, meta: { changes: 0 } };
+        nonceStore.add(jti);
+        return { success: true, meta: { changes: 1 } };
+      }
+      if (/DELETE FROM delete_proofs/i.test(sql)) {
+        if (nonceStoreThrows) throw new Error("table not found");
+        return { success: true, meta: { changes: 0 } };
       }
       return { success: true, meta: { changes: 1 } };
     },
@@ -336,6 +351,56 @@ describe("account deletion — execute (POST /dashboard/account/delete)", () => 
     expect(del?.bindings).toEqual(["user_1"]);
     // The victim's row is untouched; only the session subject was deleted.
     expect(users.map((u) => u.id)).toEqual(["victim"]);
+  });
+
+  it("rejects a replayed proof (same jti presented a second time)", async () => {
+    const nonceStore = new Set<string>();
+    const writes: Array<{ sql: string; bindings: unknown[] }> = [];
+    const users = [user("user_1", "a@b.com")];
+    const db = makeDB({ users, writes, nonceStore });
+    const app = makeApp(db);
+    const proof = await createReauthProof("user_1", SECRET);
+
+    // First submission succeeds.
+    const first = await app.request("/dashboard/account/delete", {
+      ...form({ confirm: "DELETE" }),
+      headers: {
+        ...(form({}).headers as Record<string, string>),
+        Cookie: `${await sessionCookie("user_1", "a@b.com")}; delete_proof=${proof}`,
+      },
+    });
+    expect(first.status).toBe(302);
+    expect(first.headers.get("Location")).toBe("/");
+
+    // Second submission with the same proof is rejected.
+    const second = await app.request("/dashboard/account/delete", {
+      ...form({ confirm: "DELETE" }),
+      headers: {
+        ...(form({}).headers as Record<string, string>),
+        Cookie: `${await sessionCookie("user_1", "a@b.com")}; delete_proof=${proof}`,
+      },
+    });
+    expect(second.status).toBe(302);
+    expect(second.headers.get("Location")).toBe("/dashboard/settings");
+  });
+
+  it("completes deletion even when the nonce store is unavailable (graceful fallback)", async () => {
+    const writes: Array<{ sql: string; bindings: unknown[] }> = [];
+    const users = [user("user_1", "a@b.com")];
+    const db = makeDB({ users, writes, nonceStoreThrows: true });
+    const app = makeApp(db);
+    const proof = await createReauthProof("user_1", SECRET);
+    const res = await app.request("/dashboard/account/delete", {
+      ...form({ confirm: "DELETE" }),
+      headers: {
+        ...(form({}).headers as Record<string, string>),
+        Cookie: `${await sessionCookie("user_1", "a@b.com")}; delete_proof=${proof}`,
+      },
+    });
+    // Deletion must succeed even though the nonce store threw.
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("/");
+    expect(users).toHaveLength(0);
   });
 });
 

@@ -7,16 +7,14 @@
 // attacker also re-authenticating as the victim at WorkOS.
 //
 // The proof is a compact HMAC-signed token (same primitive as session.ts /
-// unsubscribe.ts, keyed on SESSION_SECRET) carrying { sub, purpose, exp }.
+// unsubscribe.ts, keyed on SESSION_SECRET) carrying { sub, purpose, exp, jti }.
 // It is:
 //   - short-lived  — default 10-minute TTL (`exp`), enforced on validate;
-//   - effectively single-use — the deletion handler clears the cookie on
-//                    success so the legitimate flow consumes it exactly once;
-//                    there is no server-side nonce store, so a replay of a
-//                    leaked proof value is bounded only by the short TTL — but
-//                    the cookie is HttpOnly/Secure/SameSite=Lax (so JS/cross-
-//                    site can't read or resend it) and deletion is idempotent
-//                    (a replay targets an already-erased user and no-ops);
+//   - cryptographically single-use — the `jti` (UUID nonce) is recorded in the
+//                    `delete_proofs` D1 table on first use (issue #553); a
+//                    second presentation of the same token is rejected even
+//                    within the TTL. If the table is unavailable the handler
+//                    falls back to cookie-cleared-on-use + idempotent target;
 //   - purpose-scoped — the `purpose` claim prevents a plain session JWT (which
 //                    has no such claim, and a different token shape) from being
 //                    presented as a deletion proof.
@@ -29,6 +27,7 @@ interface ReauthProofPayload {
   sub: string;
   purpose: string;
   exp: number;
+  jti: string;
 }
 
 function base64UrlEncode(data: ArrayBuffer | Uint8Array): string {
@@ -72,6 +71,7 @@ export async function createReauthProof(
     sub,
     purpose: PROOF_PURPOSE,
     exp: Math.floor(Date.now() / 1000) + ttlSeconds,
+    jti: crypto.randomUUID(),
   };
   const payloadEncoded = base64UrlEncode(
     ENCODER.encode(JSON.stringify(payload)),
@@ -83,6 +83,26 @@ export async function createReauthProof(
     ENCODER.encode(payloadEncoded),
   );
   return `${payloadEncoded}.${base64UrlEncode(signature)}`;
+}
+
+// Decodes the jti and exp from a proof token without verifying the signature.
+// Safe to call only after validateReauthProof has returned true. Returns null
+// if the token cannot be parsed (which cannot happen after a passing validate,
+// but guards against programming errors).
+export function extractReauthProofJti(
+  token: string,
+): { jti: string; exp: number } | null {
+  const parts = token.split(".");
+  if (parts.length !== 2) return null;
+  try {
+    const payload: ReauthProofPayload = JSON.parse(
+      new TextDecoder().decode(base64UrlDecode(parts[0])),
+    );
+    if (typeof payload.jti !== "string" || !payload.jti) return null;
+    return { jti: payload.jti, exp: payload.exp };
+  } catch {
+    return null;
+  }
 }
 
 // Returns true only when the token is a structurally-valid, correctly-signed,

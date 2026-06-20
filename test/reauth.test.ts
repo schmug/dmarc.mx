@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { createReauthProof, validateReauthProof } from "../src/auth/reauth.js";
+import {
+  createReauthProof,
+  extractReauthProofJti,
+  validateReauthProof,
+} from "../src/auth/reauth.js";
 
 const SECRET = "test-session-secret";
 
@@ -61,5 +65,26 @@ describe("auth/reauth proof token", () => {
     expect(await validateReauthProof(sessionToken, SECRET, "user_1")).toBe(
       false,
     );
+  });
+
+  it("embeds a non-empty jti in every minted proof", async () => {
+    const token = await createReauthProof("user_1", SECRET);
+    const parsed = extractReauthProofJti(token);
+    expect(parsed).not.toBeNull();
+    expect(typeof parsed?.jti).toBe("string");
+    expect(parsed?.jti.length).toBeGreaterThan(0);
+  });
+
+  it("mints a distinct jti on each call (not re-used across proofs)", async () => {
+    const t1 = await createReauthProof("user_1", SECRET);
+    const t2 = await createReauthProof("user_1", SECRET);
+    const j1 = extractReauthProofJti(t1);
+    const j2 = extractReauthProofJti(t2);
+    expect(j1?.jti).not.toBe(j2?.jti);
+  });
+
+  it("extractReauthProofJti returns null for malformed tokens", () => {
+    expect(extractReauthProofJti("garbage")).toBeNull();
+    expect(extractReauthProofJti("a.b.c")).toBeNull();
   });
 });
