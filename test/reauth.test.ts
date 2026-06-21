@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { createReauthProof, validateReauthProof } from "../src/auth/reauth.js";
+import {
+  createReauthProof,
+  type NonceConsumer,
+  validateReauthProof,
+} from "../src/auth/reauth.js";
 
 const SECRET = "test-session-secret";
 
@@ -61,5 +65,39 @@ describe("auth/reauth proof token", () => {
     expect(await validateReauthProof(sessionToken, SECRET, "user_1")).toBe(
       false,
     );
+  });
+
+  it("rejects a replayed proof when a nonce store is present", async () => {
+    const consumed = new Set<string>();
+    const consumeNonce: NonceConsumer = (jti, _expSec) => {
+      if (consumed.has(jti)) return false;
+      consumed.add(jti);
+      return true;
+    };
+    const token = await createReauthProof("user_1", SECRET);
+    expect(
+      await validateReauthProof(token, SECRET, "user_1", consumeNonce),
+    ).toBe(true);
+    expect(
+      await validateReauthProof(token, SECRET, "user_1", consumeNonce),
+    ).toBe(false);
+  });
+
+  it("allows deletion when the nonce store binding is absent (graceful fallback)", async () => {
+    const token = await createReauthProof("user_1", SECRET);
+    // No consumeNonce passed — self-host / test without DO binding.
+    expect(await validateReauthProof(token, SECRET, "user_1")).toBe(true);
+    // Second call also passes (no nonce store to reject the replay).
+    expect(await validateReauthProof(token, SECRET, "user_1")).toBe(true);
+  });
+
+  it("allows deletion when the nonce store throws (transient DO error)", async () => {
+    const failingStore: NonceConsumer = () => {
+      throw new Error("DO unavailable");
+    };
+    const token = await createReauthProof("user_1", SECRET);
+    expect(
+      await validateReauthProof(token, SECRET, "user_1", failingStore),
+    ).toBe(true);
   });
 });
