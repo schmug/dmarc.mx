@@ -185,18 +185,33 @@ interface StripeSubscription {
 // Cancels a subscription immediately (not at period end). Used by account
 // deletion (issue #550): we must stop billing a card for a service the user is
 // erasing. `DELETE /v1/subscriptions/{id}` is Stripe's immediate-cancel verb.
-// Throws (via stripeRequest) on any non-2xx so the caller can ABORT the
-// deletion rather than orphan an active subscription.
+// Throws on any non-2xx except 404 — a missing subscription is already gone,
+// so deletion can proceed (mirrors deleteWorkosUser's idempotent 404 handling).
+// Other failures still propagate so the caller can ABORT rather than orphan an
+// active subscription.
 export async function cancelSubscription(
   env: BillingEnv,
   subscriptionId: string,
 ): Promise<StripeSubscription> {
-  return stripeRequest<StripeSubscription>(
-    env,
-    `/subscriptions/${encodeURIComponent(subscriptionId)}`,
-    {},
-    "DELETE",
-  );
+  const path = `/subscriptions/${encodeURIComponent(subscriptionId)}`;
+  const res = await fetch(`https://api.stripe.com/v1${path}`, {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${env.STRIPE_SECRET_KEY}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+  });
+  if (res.status === 404) {
+    return { id: subscriptionId, status: "canceled" };
+  }
+  const json = (await res.json()) as
+    | StripeSubscription
+    | { error: { message: string } };
+  if (!res.ok) {
+    const err = (json as { error?: { message?: string } }).error;
+    throw new Error(`Stripe API ${res.status}: ${err?.message ?? "unknown"}`);
+  }
+  return json as StripeSubscription;
 }
 
 interface StripePortalSession {

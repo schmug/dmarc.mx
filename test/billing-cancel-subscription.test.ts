@@ -31,7 +31,7 @@ describe("billing/stripe.cancelSubscription", () => {
     );
   });
 
-  it("throws when Stripe returns an error (so the caller can abort)", async () => {
+  it("treats 404 as idempotent canceled (sub already gone in Stripe)", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(
         JSON.stringify({ error: { message: "No such subscription" } }),
@@ -41,8 +41,20 @@ describe("billing/stripe.cancelSubscription", () => {
       ),
     );
 
-    await expect(cancelSubscription(ENV, "sub_missing")).rejects.toThrow(
-      /Stripe API 404/,
+    const result = await cancelSubscription(ENV, "sub_missing");
+
+    expect(result).toEqual({ id: "sub_missing", status: "canceled" });
+  });
+
+  it("throws on non-404 Stripe errors (so the caller can abort)", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ error: { message: "Internal error" } }), {
+        status: 500,
+      }),
+    );
+
+    await expect(cancelSubscription(ENV, "sub_1")).rejects.toThrow(
+      /Stripe API 500/,
     );
   });
 });
