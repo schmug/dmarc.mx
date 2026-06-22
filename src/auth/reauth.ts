@@ -7,16 +7,16 @@
 // attacker also re-authenticating as the victim at WorkOS.
 //
 // The proof is a compact HMAC-signed token (same primitive as session.ts /
-// unsubscribe.ts, keyed on SESSION_SECRET) carrying { sub, purpose, exp }.
+// unsubscribe.ts, keyed on SESSION_SECRET) carrying { sub, purpose, exp, jti }.
 // It is:
 //   - short-lived  — default 10-minute TTL (`exp`), enforced on validate;
-//   - effectively single-use — the deletion handler clears the cookie on
-//                    success so the legitimate flow consumes it exactly once;
-//                    there is no server-side nonce store, so a replay of a
-//                    leaked proof value is bounded only by the short TTL — but
-//                    the cookie is HttpOnly/Secure/SameSite=Lax (so JS/cross-
-//                    site can't read or resend it) and deletion is idempotent
-//                    (a replay targets an already-erased user and no-ops);
+//   - cryptographically single-use — each proof embeds a unique `jti` nonce;
+//                    the deletion handler records it in the RATE_LIMITER Durable
+//                    Object on first use so a replayed proof is rejected even
+//                    within its TTL. The cookie is also cleared on success.
+//                    When the DO binding is absent (self-host), the nonce check
+//                    is skipped and the short TTL + idempotent deletion remain
+//                    as the backstop;
 //   - purpose-scoped — the `purpose` claim prevents a plain session JWT (which
 //                    has no such claim, and a different token shape) from being
 //                    presented as a deletion proof.
@@ -29,6 +29,7 @@ interface ReauthProofPayload {
   sub: string;
   purpose: string;
   exp: number;
+  jti: string;
 }
 
 function base64UrlEncode(data: ArrayBuffer | Uint8Array): string {
@@ -72,6 +73,7 @@ export async function createReauthProof(
     sub,
     purpose: PROOF_PURPOSE,
     exp: Math.floor(Date.now() / 1000) + ttlSeconds,
+    jti: crypto.randomUUID(),
   };
   const payloadEncoded = base64UrlEncode(
     ENCODER.encode(JSON.stringify(payload)),
@@ -85,15 +87,15 @@ export async function createReauthProof(
   return `${payloadEncoded}.${base64UrlEncode(signature)}`;
 }
 
-// Returns true only when the token is a structurally-valid, correctly-signed,
-// unexpired deletion proof whose subject equals `expectedSub`. Any deviation
-// (bad shape, bad signature, wrong purpose, expired, wrong subject) returns
-// false — never throws.
+// Returns { jti, exp } when the token is a structurally-valid, correctly-signed,
+// unexpired deletion proof with a jti nonce whose subject equals `expectedSub`.
+// Any deviation (bad shape, bad signature, wrong purpose, expired, missing jti,
+// wrong subject) returns false — never throws.
 export async function validateReauthProof(
   token: string,
   secret: string,
   expectedSub: string,
-): Promise<boolean> {
+): Promise<{ jti: string; exp: number } | false> {
   const parts = token.split(".");
   if (parts.length !== 2) return false;
   const [payloadEncoded, signatureStr] = parts;
@@ -113,7 +115,9 @@ export async function validateReauthProof(
     if (payload.purpose !== PROOF_PURPOSE) return false;
     if (payload.exp < Math.floor(Date.now() / 1000)) return false;
     if (payload.sub !== expectedSub) return false;
-    return true;
+    if (typeof payload.jti !== "string" || payload.jti.length === 0)
+      return false;
+    return { jti: payload.jti, exp: payload.exp };
   } catch {
     return false;
   }

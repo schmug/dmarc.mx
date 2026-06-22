@@ -6,7 +6,18 @@ const SECRET = "test-session-secret";
 describe("auth/reauth proof token", () => {
   it("validates a fresh proof for the matching subject", async () => {
     const token = await createReauthProof("user_1", SECRET);
-    expect(await validateReauthProof(token, SECRET, "user_1")).toBe(true);
+    expect(await validateReauthProof(token, SECRET, "user_1")).toBeTruthy();
+  });
+
+  it("returns a unique jti nonce in the validation result", async () => {
+    const t1 = await createReauthProof("user_1", SECRET);
+    const t2 = await createReauthProof("user_1", SECRET);
+    const r1 = await validateReauthProof(t1, SECRET, "user_1");
+    const r2 = await validateReauthProof(t2, SECRET, "user_1");
+    expect(r1).not.toBe(false);
+    expect(r2).not.toBe(false);
+    expect((r1 as { jti: string }).jti).toBeTruthy();
+    expect((r1 as { jti: string }).jti).not.toBe((r2 as { jti: string }).jti);
   });
 
   it("rejects a proof minted for a different subject (no cross-account reuse)", async () => {

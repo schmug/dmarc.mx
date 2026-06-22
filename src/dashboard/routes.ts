@@ -1143,11 +1143,29 @@ dashboardRoutes.post("/account/delete", async (c) => {
   const session = c.get("user" as never) as SessionPayload;
   const env = c.env as Env;
   const proof = getCookie(c, "delete_proof");
-  if (
-    !proof ||
-    !(await validateReauthProof(proof, env.SESSION_SECRET, session.sub))
-  ) {
+  const proofResult = proof
+    ? await validateReauthProof(proof, env.SESSION_SECRET, session.sub)
+    : false;
+  if (!proofResult) {
     return c.redirect("/dashboard/settings");
+  }
+
+  // Server-side single-use nonce: consume the jti in the RATE_LIMITER DO so
+  // a captured proof cannot be replayed within its TTL. Degrades gracefully
+  // when the binding is absent (self-host) — erasure must never be blocked by
+  // an optional binding.
+  if (env.RATE_LIMITER) {
+    try {
+      const consumed = await env.RATE_LIMITER.getByName("nonces").consumeNonce(
+        proofResult.jti,
+        proofResult.exp,
+      );
+      if (!consumed) {
+        return c.redirect("/dashboard/settings");
+      }
+    } catch {
+      // DO unreachable — skip nonce check rather than blocking erasure.
+    }
   }
 
   const user = await getUserById(env.DB, session.sub);

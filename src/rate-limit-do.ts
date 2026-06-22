@@ -26,6 +26,12 @@ export class RateLimiterDO extends DurableObject {
           reset_at INTEGER NOT NULL
         )`,
       );
+      this.ctx.storage.sql.exec(
+        `CREATE TABLE IF NOT EXISTS consumed_nonces (
+          jti TEXT PRIMARY KEY,
+          expires_at INTEGER NOT NULL
+        )`,
+      );
     });
   }
 
@@ -67,5 +73,22 @@ export class RateLimiterDO extends DurableObject {
       resetAt,
       count,
     };
+  }
+
+  // Records a proof nonce as consumed. Returns true on first use; false if the
+  // nonce was already recorded (replay detected). Expired nonces are pruned on
+  // each call to keep storage bounded within the proof TTL.
+  consumeNonce(jti: string, expSec: number): boolean {
+    const nowSec = Math.floor(Date.now() / 1000);
+    this.ctx.storage.sql.exec(
+      "DELETE FROM consumed_nonces WHERE expires_at <= ?",
+      nowSec,
+    );
+    const result = this.ctx.storage.sql.exec(
+      "INSERT OR IGNORE INTO consumed_nonces (jti, expires_at) VALUES (?, ?)",
+      jti,
+      expSec,
+    );
+    return result.rowsWritten === 1;
   }
 }

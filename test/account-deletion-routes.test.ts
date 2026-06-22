@@ -339,6 +339,68 @@ describe("account deletion — execute (POST /dashboard/account/delete)", () => 
   });
 });
 
+describe("account deletion — server-side single-use nonce", () => {
+  it("rejects a replayed proof when the nonce store is present", async () => {
+    const consumed = new Set<string>();
+    const mockRateLimiter = {
+      getByName: (_: string) => ({
+        consumeNonce: (jti: string, _expSec: number) => {
+          if (consumed.has(jti)) return false;
+          consumed.add(jti);
+          return true;
+        },
+      }),
+    };
+
+    const users = [user("user_1", "a@b.com")];
+    const writes: Array<{ sql: string; bindings: unknown[] }> = [];
+    const db = makeDB({ users, writes });
+    const app = makeApp(db, { RATE_LIMITER: mockRateLimiter });
+    const proof = await createReauthProof("user_1", SECRET);
+    const cookieHdr = `${await sessionCookie("user_1", "a@b.com")}; delete_proof=${proof}`;
+
+    // First use: succeeds and consumes the nonce.
+    const res1 = await app.request("/dashboard/account/delete", {
+      ...form({ confirm: "DELETE" }),
+      headers: {
+        ...(form({}).headers as Record<string, string>),
+        Cookie: cookieHdr,
+      },
+    });
+    expect(res1.status).toBe(302);
+    expect(res1.headers.get("Location")).toBe("/");
+
+    // Second use: same proof, nonce already consumed — rejected before DB.
+    const res2 = await app.request("/dashboard/account/delete", {
+      ...form({ confirm: "DELETE" }),
+      headers: {
+        ...(form({}).headers as Record<string, string>),
+        Cookie: cookieHdr,
+      },
+    });
+    expect(res2.status).toBe(302);
+    expect(res2.headers.get("Location")).toBe("/dashboard/settings");
+  });
+
+  it("still deletes when the nonce store binding is absent (graceful fallback)", async () => {
+    const writes: Array<{ sql: string; bindings: unknown[] }> = [];
+    const users = [user("user_1", "a@b.com")];
+    const db = makeDB({ users, writes });
+    const app = makeApp(db); // no RATE_LIMITER
+    const proof = await createReauthProof("user_1", SECRET);
+    const res = await app.request("/dashboard/account/delete", {
+      ...form({ confirm: "DELETE" }),
+      headers: {
+        ...(form({}).headers as Record<string, string>),
+        Cookie: `${await sessionCookie("user_1", "a@b.com")}; delete_proof=${proof}`,
+      },
+    });
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("/");
+    expect(users).toHaveLength(0);
+  });
+});
+
 describe("account deletion — stale session after deletion", () => {
   it("a retained valid cookie for a deleted user does not 500 on /dashboard", async () => {
     const writes: Array<{ sql: string; bindings: unknown[] }> = [];
