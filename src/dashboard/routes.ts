@@ -10,7 +10,7 @@ import {
 } from "../api/bulk-scan.js";
 import { generateApiKey } from "../auth/api-key.js";
 import { requireAuth } from "../auth/middleware.js";
-import { validateReauthProof } from "../auth/reauth.js";
+import { type NonceConsumer, validateReauthProof } from "../auth/reauth.js";
 import type { SessionPayload } from "../auth/session.js";
 import { dashboardBillingRoutes } from "../billing/routes.js";
 import { escapeCsvField } from "../csv.js";
@@ -1143,9 +1143,18 @@ dashboardRoutes.post("/account/delete", async (c) => {
   const session = c.get("user" as never) as SessionPayload;
   const env = c.env as Env;
   const proof = getCookie(c, "delete_proof");
+  const rl = env.RATE_LIMITER;
+  const consumeNonce: NonceConsumer | undefined = rl
+    ? (jti, expSec) => rl.getByName("__nonces__").consumeNonce(jti, expSec)
+    : undefined;
   if (
     !proof ||
-    !(await validateReauthProof(proof, env.SESSION_SECRET, session.sub))
+    !(await validateReauthProof(
+      proof,
+      env.SESSION_SECRET,
+      session.sub,
+      consumeNonce,
+    ))
   ) {
     return c.redirect("/dashboard/settings");
   }

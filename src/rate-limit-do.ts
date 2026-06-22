@@ -15,6 +15,9 @@ import type { RateLimitResult } from "./rate-limit.js";
 // `getByName("user:<id>")`, so each instance owns exactly one bucket (a single
 // row). The whole `increment` body is synchronous SQL — it runs to completion
 // without yielding, so overlapping RPCs cannot interleave their read and write.
+//
+// A singleton instance routed as `getByName("__nonces__")` also hosts the
+// consumed-nonce store for account-deletion re-auth proofs (issue #553).
 export class RateLimiterDO extends DurableObject {
   constructor(ctx: DurableObjectState, env: Cloudflare.Env) {
     super(ctx, env);
@@ -24,6 +27,12 @@ export class RateLimiterDO extends DurableObject {
           id INTEGER PRIMARY KEY,
           count INTEGER NOT NULL,
           reset_at INTEGER NOT NULL
+        )`,
+      );
+      this.ctx.storage.sql.exec(
+        `CREATE TABLE IF NOT EXISTS nonces (
+          jti TEXT PRIMARY KEY,
+          exp_sec INTEGER NOT NULL
         )`,
       );
     });
@@ -67,5 +76,20 @@ export class RateLimiterDO extends DurableObject {
       resetAt,
       count,
     };
+  }
+
+  // Records a deletion-proof nonce on first presentation. Returns true if newly
+  // recorded (first use), false if the jti was already consumed. Expired nonces
+  // are pruned opportunistically. Routed via `getByName("__nonces__")` so the
+  // single-threaded DO execution serializes concurrent replay attempts.
+  consumeNonce(jti: string, expSec: number): boolean {
+    const nowSec = Math.floor(Date.now() / 1000);
+    this.ctx.storage.sql.exec("DELETE FROM nonces WHERE exp_sec < ?", nowSec);
+    const result = this.ctx.storage.sql.exec(
+      "INSERT OR IGNORE INTO nonces (jti, exp_sec) VALUES (?, ?)",
+      jti,
+      expSec,
+    );
+    return result.rowsWritten === 1;
   }
 }
