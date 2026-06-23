@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  consumeReauthProofNonce,
   createReauthProof,
   type NonceConsumer,
   validateReauthProof,
@@ -75,12 +76,8 @@ describe("auth/reauth proof token", () => {
       return true;
     };
     const token = await createReauthProof("user_1", SECRET);
-    expect(
-      await validateReauthProof(token, SECRET, "user_1", consumeNonce),
-    ).toBe(true);
-    expect(
-      await validateReauthProof(token, SECRET, "user_1", consumeNonce),
-    ).toBe(false);
+    expect(await consumeReauthProofNonce(token, consumeNonce)).toBe(true);
+    expect(await consumeReauthProofNonce(token, consumeNonce)).toBe(false);
   });
 
   it("allows deletion when the nonce store binding is absent (graceful fallback)", async () => {
@@ -91,13 +88,11 @@ describe("auth/reauth proof token", () => {
     expect(await validateReauthProof(token, SECRET, "user_1")).toBe(true);
   });
 
-  it("allows deletion when the nonce store throws (transient DO error)", async () => {
+  it("allows nonce consumption when the nonce store throws (transient DO error)", async () => {
     const failingStore: NonceConsumer = () => {
       throw new Error("DO unavailable");
     };
     const token = await createReauthProof("user_1", SECRET);
-    expect(
-      await validateReauthProof(token, SECRET, "user_1", failingStore),
-    ).toBe(true);
+    expect(await consumeReauthProofNonce(token, failingStore)).toBe(true);
   });
 });
