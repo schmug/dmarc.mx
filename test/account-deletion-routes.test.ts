@@ -339,6 +339,159 @@ describe("account deletion — execute (POST /dashboard/account/delete)", () => 
   });
 });
 
+describe("account deletion — nonce is not burned before erasure succeeds", () => {
+  function makeNonceStore() {
+    const consumed = new Set<string>();
+    return {
+      getByName: (name: string) => {
+        expect(name).toBe("__nonces__");
+        return {
+          consumeNonce: (jti: string, _expSec: number) => {
+            if (consumed.has(jti)) return false;
+            consumed.add(jti);
+            return true;
+          },
+        };
+      },
+      consumed,
+    };
+  }
+
+  function makeBillingDB(opts: {
+    users: UserRow[];
+    writes: Array<{ sql: string; bindings: unknown[] }>;
+    subscription?: { stripe_subscription_id: string; status: string };
+  }) {
+    const { users, writes, subscription } = opts;
+    const make = (sql: string, bindings: unknown[]) => ({
+      bind: (...args: unknown[]) => make(sql, args),
+      first: async <T>() => {
+        if (/SELECT \* FROM users WHERE id = \?/i.test(sql)) {
+          return (users.find((u) => u.id === bindings[0]) ?? null) as T | null;
+        }
+        if (/SELECT \* FROM subscriptions WHERE user_id = \?/i.test(sql)) {
+          return (
+            subscription ? { user_id: bindings[0], ...subscription } : null
+          ) as T | null;
+        }
+        return null as T | null;
+      },
+      all: async <T>() => ({ results: [] as T[] }),
+      run: async () => {
+        writes.push({ sql, bindings });
+        if (/^DELETE FROM users WHERE id = \?/i.test(sql)) {
+          const idx = users.findIndex((u) => u.id === bindings[0]);
+          if (idx >= 0) users.splice(idx, 1);
+        }
+        return { success: true, meta: { changes: 1 } };
+      },
+    });
+    return {
+      prepare: (sql: string) => make(sql, []),
+    } as unknown as D1Database;
+  }
+
+  it("keeps the proof reusable after a mistyped confirmation when a nonce store is present", async () => {
+    const writes: Array<{ sql: string; bindings: unknown[] }> = [];
+    const users = [user("user_1", "a@b.com")];
+    const db = makeDB({ users, writes });
+    const nonceStore = makeNonceStore();
+    const app = makeApp(db, { RATE_LIMITER: nonceStore });
+    const proof = await createReauthProof("user_1", SECRET);
+    const cookie = `${await sessionCookie("user_1", "a@b.com")}; delete_proof=${proof}`;
+
+    const bad = await app.request("/dashboard/account/delete", {
+      ...form({ confirm: "typo" }),
+      headers: {
+        ...(form({}).headers as Record<string, string>),
+        Cookie: cookie,
+      },
+    });
+    expect(bad.status).toBe(400);
+    expect(users).toHaveLength(1);
+    expect(nonceStore.consumed.size).toBe(0);
+
+    const good = await app.request("/dashboard/account/delete", {
+      ...form({ confirm: "DELETE" }),
+      headers: {
+        ...(form({}).headers as Record<string, string>),
+        Cookie: cookie,
+      },
+    });
+    expect(good.status).toBe(302);
+    expect(users).toHaveLength(0);
+    expect(nonceStore.consumed.size).toBe(1);
+  });
+
+  it("keeps the proof reusable after a Stripe cancel failure when a nonce store is present", async () => {
+    const writes: Array<{ sql: string; bindings: unknown[] }> = [];
+    const users = [user("user_1", "a@b.com")];
+    const db = makeBillingDB({
+      users,
+      writes,
+      subscription: { stripe_subscription_id: "sub_1", status: "active" },
+    });
+    const nonceStore = makeNonceStore();
+    const app = makeApp(db, {
+      RATE_LIMITER: nonceStore,
+      STRIPE_SECRET_KEY: "sk_test_x",
+      STRIPE_WEBHOOK_SECRET: "whsec_x",
+      STRIPE_PRICE_ID_PRO: "price_pro_test",
+    });
+    const proof = await createReauthProof("user_1", SECRET);
+    const cookie = `${await sessionCookie("user_1", "a@b.com")}; delete_proof=${proof}`;
+
+    let stripeCalls = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => {
+      const { hostname, pathname } = new URL(String(url));
+      if (
+        hostname === "api.stripe.com" &&
+        pathname.startsWith("/v1/subscriptions/")
+      ) {
+        stripeCalls++;
+        if (stripeCalls === 1) {
+          return new Response("error", { status: 500 });
+        }
+        return new Response(
+          JSON.stringify({ id: "sub_1", status: "canceled" }),
+          {
+            status: 200,
+          },
+        );
+      }
+      if (
+        hostname === "api.workos.com" &&
+        pathname.startsWith("/user_management/users/")
+      ) {
+        return new Response(null, { status: 200 });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+
+    const failed = await app.request("/dashboard/account/delete", {
+      ...form({ confirm: "DELETE" }),
+      headers: {
+        ...(form({}).headers as Record<string, string>),
+        Cookie: cookie,
+      },
+    });
+    expect(failed.status).toBe(502);
+    expect(users).toHaveLength(1);
+    expect(nonceStore.consumed.size).toBe(0);
+
+    const succeeded = await app.request("/dashboard/account/delete", {
+      ...form({ confirm: "DELETE" }),
+      headers: {
+        ...(form({}).headers as Record<string, string>),
+        Cookie: cookie,
+      },
+    });
+    expect(succeeded.status).toBe(302);
+    expect(users).toHaveLength(0);
+    expect(nonceStore.consumed.size).toBe(1);
+  });
+});
+
 describe("account deletion — stale session after deletion", () => {
   it("a retained valid cookie for a deleted user does not 500 on /dashboard", async () => {
     const writes: Array<{ sql: string; bindings: unknown[] }> = [];

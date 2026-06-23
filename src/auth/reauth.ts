@@ -10,13 +10,10 @@
 // unsubscribe.ts, keyed on SESSION_SECRET) carrying { sub, purpose, exp }.
 // It is:
 //   - short-lived  — default 10-minute TTL (`exp`), enforced on validate;
-//   - effectively single-use — the deletion handler clears the cookie on
-//                    success so the legitimate flow consumes it exactly once;
-//                    there is no server-side nonce store, so a replay of a
-//                    leaked proof value is bounded only by the short TTL — but
-//                    the cookie is HttpOnly/Secure/SameSite=Lax (so JS/cross-
-//                    site can't read or resend it) and deletion is idempotent
-//                    (a replay targets an already-erased user and no-ops);
+//   - single-use when the RateLimiterDO binding is present — the deletion
+//                    handler records the jti in the DO nonce store after a
+//                    successful erasure (issue #553); without the binding the
+//                    proof is bounded by TTL + idempotent-target only;
 //   - purpose-scoped — the `purpose` claim prevents a plain session JWT (which
 //                    has no such claim, and a different token shape) from being
 //                    presented as a deletion proof.
@@ -99,21 +96,16 @@ export async function createReauthProof(
 }
 
 // Returns true only when the token is a structurally-valid, correctly-signed,
-// unexpired deletion proof whose subject equals `expectedSub`, AND the nonce
-// (jti) can be atomically consumed for the first time. Any deviation returns
-// false — never throws.
+// unexpired deletion proof whose subject equals `expectedSub`. Any deviation
+// returns false — never throws.
 //
-// `consumeNonce` is optional: when absent (self-host deploys, tests without a
-// DO binding) the nonce check is skipped and the existing TTL + idempotent-
-// target guarantees apply. When present, a second presentation of the same
-// proof within the TTL is rejected. If consumeNonce throws (transient DO
-// error), the error is swallowed and validation proceeds — erasure must never
-// depend on an optional binding.
+// Nonce consumption is intentionally separate ({@link consumeReauthProofNonce})
+// so a mistyped confirmation or a pre-local failure (e.g. Stripe cancel) does
+// not burn the proof before erasure actually succeeds.
 export async function validateReauthProof(
   token: string,
   secret: string,
   expectedSub: string,
-  consumeNonce?: NonceConsumer,
 ): Promise<boolean> {
   const parts = token.split(".");
   if (parts.length !== 2) return false;
@@ -135,16 +127,34 @@ export async function validateReauthProof(
     if (payload.exp < Math.floor(Date.now() / 1000)) return false;
     if (payload.sub !== expectedSub) return false;
 
-    if (consumeNonce && payload.jti) {
-      try {
-        const consumed = await consumeNonce(payload.jti, payload.exp);
-        if (!consumed) return false;
-      } catch {
-        // DO unavailable — degrade to TTL-only protection rather than blocking.
-      }
-    }
-
     return true;
+  } catch {
+    return false;
+  }
+}
+
+// Atomically records the proof nonce on first use. Call only after signature
+// validation and immediately before (or after successful) erasure. Returns
+// false if the jti was already consumed. If consumeNonce throws (transient DO
+// error), the error is swallowed and true is returned — erasure must never
+// depend on an optional binding.
+export async function consumeReauthProofNonce(
+  token: string,
+  consumeNonce: NonceConsumer,
+): Promise<boolean> {
+  const parts = token.split(".");
+  if (parts.length !== 2) return false;
+  const [payloadEncoded] = parts;
+  try {
+    const payload: ReauthProofPayload = JSON.parse(
+      new TextDecoder().decode(base64UrlDecode(payloadEncoded)),
+    );
+    if (!payload.jti) return true;
+    try {
+      return await consumeNonce(payload.jti, payload.exp);
+    } catch {
+      return true;
+    }
   } catch {
     return false;
   }

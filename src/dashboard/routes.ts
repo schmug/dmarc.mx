@@ -10,7 +10,11 @@ import {
 } from "../api/bulk-scan.js";
 import { generateApiKey } from "../auth/api-key.js";
 import { requireAuth } from "../auth/middleware.js";
-import { type NonceConsumer, validateReauthProof } from "../auth/reauth.js";
+import {
+  consumeReauthProofNonce,
+  type NonceConsumer,
+  validateReauthProof,
+} from "../auth/reauth.js";
 import type { SessionPayload } from "../auth/session.js";
 import { dashboardBillingRoutes } from "../billing/routes.js";
 import { escapeCsvField } from "../csv.js";
@@ -1149,12 +1153,7 @@ dashboardRoutes.post("/account/delete", async (c) => {
     : undefined;
   if (
     !proof ||
-    !(await validateReauthProof(
-      proof,
-      env.SESSION_SECRET,
-      session.sub,
-      consumeNonce,
-    ))
+    !(await validateReauthProof(proof, env.SESSION_SECRET, session.sub))
   ) {
     return c.redirect("/dashboard/settings");
   }
@@ -1196,6 +1195,12 @@ dashboardRoutes.post("/account/delete", async (c) => {
       }),
       502,
     );
+  }
+
+  // Single-use nonce: consume only after erasure succeeds so a mistyped
+  // confirmation or Stripe cancel failure does not burn the proof.
+  if (consumeNonce) {
+    await consumeReauthProofNonce(proof, consumeNonce);
   }
 
   deleteCookie(c, "delete_proof", { path: "/" });
