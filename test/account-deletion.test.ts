@@ -184,6 +184,28 @@ describe("account/deletion.deleteAccount", () => {
     expect(state.users).toHaveLength(1);
   });
 
+  it("proceeds when Stripe cancel returns 404 (stale local sub id)", async () => {
+    const state = emptyState();
+    state.users.push({ ...USER });
+    state.subscriptions.push({
+      user_id: "user_1",
+      stripe_subscription_id: "sub_gone",
+      status: "active",
+    });
+    const order: string[] = [];
+    stubFetch(order, { stripeStatus: 404 });
+    const env = makeEnv(state, order, BILLING_ENV);
+
+    const result = await deleteAccount(env, USER);
+
+    expect(result.stripeCancelled).toBe(true);
+    expect(order).toContain("stripe-cancel");
+    expect(order.indexOf("stripe-cancel")).toBeLessThan(
+      order.indexOf("delete-users"),
+    );
+    expect(state.users).toHaveLength(0);
+  });
+
   it("skips Stripe when there is no active subscription", async () => {
     const state = emptyState();
     state.users.push({ ...USER });
