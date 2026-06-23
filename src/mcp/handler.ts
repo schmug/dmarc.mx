@@ -109,7 +109,11 @@ function rpcError(
 }
 
 export interface McpEnv {
-  executionCtx: ExecutionContext;
+  // Only waitUntil is used (to flush the scan-cache write), so narrow to that
+  // surface rather than the full ExecutionContext. Newer @cloudflare/workers-types
+  // make ExecutionContext.tracing required, which Hono's c.executionCtx type does
+  // not carry; depending on the whole shape here breaks the call site in index.ts.
+  executionCtx: Pick<ExecutionContext, "waitUntil">;
   // Self-host scoring rubric override, forwarded to scan() (issue #25).
   scoringConfig: Partial<ScoringConfig>;
 }
