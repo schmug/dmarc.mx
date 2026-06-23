@@ -103,6 +103,15 @@ CREATE TABLE IF NOT EXISTS webhook_deliveries (
   attempted_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
 
+-- Durable retry queue for WorkOS identity deletions that fail during account
+-- deletion (#552). Persists only the opaque WorkOS user id + retry metadata.
+CREATE TABLE IF NOT EXISTS workos_identity_retry (
+  workos_user_id  TEXT    PRIMARY KEY,
+  attempt_count   INTEGER NOT NULL DEFAULT 0,
+  next_attempt_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  enqueued_at     INTEGER NOT NULL DEFAULT (unixepoch())
+);
+
 -- Indexes for common queries
 CREATE INDEX IF NOT EXISTS idx_domains_user_id ON domains(user_id);
 CREATE INDEX IF NOT EXISTS idx_scan_history_domain_id ON scan_history(domain_id);

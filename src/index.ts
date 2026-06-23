@@ -3,6 +3,7 @@ import { type Context, Hono } from "hono";
 import { cors } from "hono/cors";
 import { csrf } from "hono/csrf";
 import { streamSSE } from "hono/streaming";
+import { sweepWorkosRetries } from "./account/workos-retry.js";
 import { dispatchPendingAlerts } from "./alerts/dispatcher.js";
 import { validateUnsubscribeToken } from "./alerts/unsubscribe.js";
 import type {
@@ -1509,6 +1510,12 @@ async function scheduled(
     scope.setTag("cron.emails_sent", String(dispatchResult.sent));
     scope.setTag("cron.emails_skipped", String(dispatchResult.skipped));
     scope.setTag("cron.emails_errors", String(dispatchResult.errors));
+
+    // Retry any WorkOS identity deletions that failed during account deletion.
+    const workosResult = await sweepWorkosRetries(env.DB, env.WORKOS_API_KEY);
+    scope.setTag("cron.workos_retried", String(workosResult.retried));
+    scope.setTag("cron.workos_cleared", String(workosResult.cleared));
+    scope.setTag("cron.workos_given_up", String(workosResult.givenUp));
   })().catch((err) => {
     Sentry.captureException(err);
   });
