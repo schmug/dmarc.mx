@@ -17,7 +17,7 @@
     "@cloudflare/vitest-pool-workers": "^0.16.15",
     "@cloudflare/workers-types": "^4.20260611.1",
     "@emnapi/core": "^1.11.1",
-    "@emnapi/runtime": "^1.11.0",
+    "@emnapi/runtime": "^1.11.1",
     "@types/node": "^25.9.1",
     "minimatch": "^10.2.5",
     "sharp": "^0.35.1",
