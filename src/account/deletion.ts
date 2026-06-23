@@ -6,6 +6,7 @@ import { cancelSubscription } from "../billing/stripe.js";
 import { getSubscriptionByUserId, statusToPlan } from "../db/subscriptions.js";
 import { deleteUser } from "../db/users.js";
 import type { Env } from "../env.js";
+import { enqueueWorkosRetry } from "./workos-retry.js";
 
 // Confirmation emails are sent from the same verified sender as alerts. A
 // distinct "support@" identity would need its own Cloudflare Email Sending
@@ -70,12 +71,7 @@ export async function deleteAccount(
     } catch (err) {
       workosFailed = true;
       Sentry.captureException(err);
-      // Breadcrumb the orphaned identity so a retry sweep / on-call can find
-      // it; the user can't log in (no local row to provision against), so this
-      // is non-functional, just incomplete erasure of the WorkOS record.
-      console.error(
-        `WorkOS identity deletion failed for user ${user.id}; flagged for retry`,
-      );
+      await enqueueWorkosRetry(env.DB, user.id);
     }
   } else {
     workosSkipped = true;
