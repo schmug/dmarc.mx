@@ -24,8 +24,12 @@ interface RetryRow {
   enqueued_at: number;
 }
 
-function makeRetryDB(initialRows: RetryRow[] = []) {
+function makeRetryDB(
+  initialRows: RetryRow[] = [],
+  activeUserIds: string[] = [],
+) {
   const store: RetryRow[] = [...initialRows];
+  const users = new Set(activeUserIds);
 
   const db = {
     prepare(sql: string) {
@@ -102,6 +106,10 @@ function makeRetryDB(initialRows: RetryRow[] = []) {
               };
             },
             async first<T>() {
+              if (/SELECT 1 AS exists FROM users WHERE id = \?/i.test(sql)) {
+                const userId = args[0] as string;
+                return (users.has(userId) ? { exists: 1 } : null) as T | null;
+              }
               return null as T | null;
             },
           };
@@ -110,7 +118,7 @@ function makeRetryDB(initialRows: RetryRow[] = []) {
     },
   } as unknown as D1Database;
 
-  return { store, db };
+  return { store, db, users };
 }
 
 // ---------------------------------------------------------------------------
@@ -285,6 +293,30 @@ describe("sweepWorkosRetries", () => {
 
     expect(result.givenUp).toBe(1);
     expect(result.errors).toBe(0);
+    expect(store).toHaveLength(0);
+  });
+
+  it("skips WorkOS delete when the user re-registered locally", async () => {
+    const now = 2000;
+    const { store, db } = makeRetryDB(
+      [
+        {
+          workos_user_id: "user_reregistered",
+          attempt_count: 0,
+          next_attempt_at: now - 1,
+          enqueued_at: 1000,
+        },
+      ],
+      ["user_reregistered"],
+    );
+
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    const result = await sweepWorkosRetries(db, "sk_workos", now);
+
+    expect(result.retried).toBe(0);
+    expect(result.cleared).toBe(1);
+    expect(fetchSpy).not.toHaveBeenCalled();
     expect(store).toHaveLength(0);
   });
 

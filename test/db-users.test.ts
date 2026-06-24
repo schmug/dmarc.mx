@@ -9,6 +9,7 @@ import {
 } from "../src/db/users.js";
 
 let store: Map<string, User>;
+let workosRetryIds: Set<string>;
 
 function makeD1Mock(): D1Database {
   const prepare = (sql: string) => {
@@ -32,6 +33,13 @@ function makeD1Mock(): D1Database {
                 api_key_retirement_acknowledged_at: ackAt,
                 created_at: Math.floor(Date.now() / 1000),
               });
+            } else if (
+              /^DELETE FROM workos_identity_retry WHERE workos_user_id = \?/i.test(
+                sql,
+              )
+            ) {
+              const [userId] = params as [string];
+              workosRetryIds.delete(userId);
             } else if (
               /^UPDATE users SET api_key_retirement_acknowledged_at/i.test(sql)
             ) {
@@ -76,10 +84,17 @@ describe("db/users", () => {
 
   beforeEach(() => {
     store = new Map();
+    workosRetryIds = new Set();
     db = makeD1Mock();
   });
 
   describe("createUser + getUserById", () => {
+    it("clears a stale WorkOS identity retry row on signup", async () => {
+      workosRetryIds.add("user-1");
+      await createUser(db, { id: "user-1", email: "alice@example.com" });
+      expect(workosRetryIds.has("user-1")).toBe(false);
+    });
+
     it("creates a user and retrieves it by id", async () => {
       await createUser(db, { id: "user-1", email: "alice@example.com" });
       const user = await getUserById(db, "user-1");
