@@ -24,6 +24,12 @@ export async function createUser(
     )
     .bind(input.id, input.email, emailDomain, nowSeconds)
     .run();
+  // Clear any stale WorkOS-deletion retry from a prior account erasure that
+  // failed at the identity-provider step — the user is signing up again.
+  await db
+    .prepare("DELETE FROM workos_identity_retry WHERE workos_user_id = ?")
+    .bind(input.id)
+    .run();
 }
 
 export async function getUserById(
