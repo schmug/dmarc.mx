@@ -14,20 +14,20 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.16",
-    "@cloudflare/vitest-pool-workers": "^0.16.15",
+    "@cloudflare/vitest-pool-workers": "^0.16.19",
     "@cloudflare/workers-types": "^4.20260611.1",
     "@emnapi/core": "^1.11.1",
     "@emnapi/runtime": "^1.11.1",
-    "@types/node": "^25.9.1",
+    "@types/node": "^26.0.1",
     "minimatch": "^10.2.5",
-    "sharp": "^0.35.1",
+    "sharp": "^0.35.2",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.8",
-    "wrangler": "^4.97.0"
+    "vitest": "^4.1.9",
+    "wrangler": "^4.104.0"
   },
   "dependencies": {
-    "@sentry/cloudflare": "^10.59.0",
+    "@sentry/cloudflare": "^10.61.0",
     "hono": "^4.12.25",
     "jose": "^6.2.3"
   }
