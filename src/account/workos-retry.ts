@@ -17,6 +17,17 @@ interface RetryRow {
   enqueued_at: number;
 }
 
+async function localUserExists(
+  db: D1Database,
+  workosUserId: string,
+): Promise<boolean> {
+  const row = await db
+    .prepare("SELECT 1 AS exists FROM users WHERE id = ?")
+    .bind(workosUserId)
+    .first();
+  return row !== null;
+}
+
 // Persists a failed WorkOS deletion so the nightly sweep can retry it.
 // INSERT OR IGNORE is idempotent — a second enqueue for the same id is a no-op.
 export async function enqueueWorkosRetry(
@@ -62,11 +73,7 @@ export async function sweepWorkosRetries(
     // A user may re-register with the same WorkOS id after a prior erasure left
     // a stale retry row (local delete succeeded, WorkOS delete failed). Never
     // delete a live identity — drop the obsolete queue entry instead.
-    const localUser = await db
-      .prepare("SELECT 1 AS exists FROM users WHERE id = ?")
-      .bind(row.workos_user_id)
-      .first();
-    if (localUser) {
+    if (await localUserExists(db, row.workos_user_id)) {
       await db
         .prepare("DELETE FROM workos_identity_retry WHERE workos_user_id = ?")
         .bind(row.workos_user_id)
@@ -75,8 +82,19 @@ export async function sweepWorkosRetries(
       continue;
     }
 
-    retried += 1;
     try {
+      // Re-check before the external delete — OAuth signup can complete between
+      // the guard above and this await while the sweep row is still in flight.
+      if (await localUserExists(db, row.workos_user_id)) {
+        await db
+          .prepare("DELETE FROM workos_identity_retry WHERE workos_user_id = ?")
+          .bind(row.workos_user_id)
+          .run();
+        cleared += 1;
+        continue;
+      }
+
+      retried += 1;
       await deleteWorkosUser(apiKey, row.workos_user_id);
       await db
         .prepare("DELETE FROM workos_identity_retry WHERE workos_user_id = ?")
