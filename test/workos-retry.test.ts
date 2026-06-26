@@ -320,6 +320,71 @@ describe("sweepWorkosRetries", () => {
     expect(store).toHaveLength(0);
   });
 
+  it("re-checks local user immediately before WorkOS delete (signup race)", async () => {
+    const now = 2000;
+    let userSelectCount = 0;
+    const store: RetryRow[] = [
+      {
+        workos_user_id: "user_signup_race",
+        attempt_count: 0,
+        next_attempt_at: now - 1,
+        enqueued_at: 1000,
+      },
+    ];
+    const db = {
+      prepare(sql: string) {
+        return {
+          bind(...args: unknown[]) {
+            return {
+              async run() {
+                if (/DELETE FROM workos_identity_retry/i.test(sql)) {
+                  const userId = args[0] as string;
+                  const idx = store.findIndex(
+                    (r) => r.workos_user_id === userId,
+                  );
+                  if (idx >= 0) store.splice(idx, 1);
+                }
+                return { success: true, meta: { changes: 1 } };
+              },
+              async all<T>() {
+                if (/SELECT .* FROM workos_identity_retry/i.test(sql)) {
+                  const threshold = args[0] as number;
+                  return {
+                    results: store.filter(
+                      (r) => r.next_attempt_at <= threshold,
+                    ) as unknown as T[],
+                  };
+                }
+                return { results: [] as T[] };
+              },
+              async first<T>() {
+                if (/SELECT 1 AS exists FROM users WHERE id = \?/i.test(sql)) {
+                  userSelectCount += 1;
+                  // First check: no user yet. Second check (pre-delete): signup
+                  // completed during the sweep iteration.
+                  return (
+                    userSelectCount >= 2 ? { exists: 1 } : null
+                  ) as T | null;
+                }
+                return null as T | null;
+              },
+            };
+          },
+        };
+      },
+    } as unknown as D1Database;
+
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    const result = await sweepWorkosRetries(db, "sk_workos", now);
+
+    expect(result.retried).toBe(0);
+    expect(result.cleared).toBe(1);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(store).toHaveLength(0);
+    expect(userSelectCount).toBeGreaterThanOrEqual(2);
+  });
+
   it("skips rows whose next_attempt_at is in the future", async () => {
     const now = 2000;
     const { store, db } = makeRetryDB([
