@@ -59,6 +59,22 @@ export async function sweepWorkosRetries(
   let errors = 0;
 
   for (const row of results) {
+    // A user may re-register with the same WorkOS id after a prior erasure left
+    // a stale retry row (local delete succeeded, WorkOS delete failed). Never
+    // delete a live identity — drop the obsolete queue entry instead.
+    const localUser = await db
+      .prepare("SELECT 1 AS exists FROM users WHERE id = ?")
+      .bind(row.workos_user_id)
+      .first();
+    if (localUser) {
+      await db
+        .prepare("DELETE FROM workos_identity_retry WHERE workos_user_id = ?")
+        .bind(row.workos_user_id)
+        .run();
+      cleared += 1;
+      continue;
+    }
+
     retried += 1;
     try {
       await deleteWorkosUser(apiKey, row.workos_user_id);
