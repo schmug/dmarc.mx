@@ -74,11 +74,9 @@ allowed_sender_addresses = ["alerts@dmarc.mx"]
 # Top-level binding only — NEVER add an [env.<name>] block here (doing so
 # detached dmarc.mx on 2026-04-26, PRs #203 → #206).
 #
-# OWNER/ZONE-ADMIN STEP (not committable): create the namespace and paste its
-# id below before this is deployed —
-#   wrangler kv namespace create INBOX_TOKENS
-# The id below is a placeholder so local dev + the Workers test pool boot; it
-# is NOT a real namespace.
+# Namespace created by the owner via `wrangler kv namespace create INBOX_TOKENS`.
+# The remaining owner/zone-admin step (not committable) is onboarding
+# `inbox.dmarc.mx` to Email Routing and pointing its catch-all at this Worker.
 [[kv_namespaces]]
 binding = "INBOX_TOKENS"
-id = "0000000000000000000000000000000a"
+id = "9194395b3f804f01bbbd14160b2a13bb"
