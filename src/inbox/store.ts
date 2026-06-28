@@ -259,11 +259,12 @@ export function parseVerdict(
 // ---------------------------------------------------------------------------
 
 /**
- * Handle one inbound message routed by the `inbox.dmarc.mx` catch-all.
+ * Handle one inbound message routed by the `inbox@dmarc.mx` subaddressing rule.
  *
- * No-op (no write, no throw) when KV is unbound, the address is not on our
- * subdomain / malformed, or the token is unknown/expired. For a known token we
- * read the verdict from the headers and store it under the same token.
+ * No-op (no write, no throw) when KV is unbound, the address is not our
+ * `inbox+<token>@dmarc.mx` shape / malformed, or the token is unknown/expired.
+ * For a known token we read the verdict from the headers and store it under the
+ * same token.
  */
 export async function handleInboundEmail(
   message: ForwardableEmailMessage,

@@ -75,8 +75,10 @@ allowed_sender_addresses = ["alerts@dmarc.mx"]
 # detached dmarc.mx on 2026-04-26, PRs #203 → #206).
 #
 # Namespace created by the owner via `wrangler kv namespace create INBOX_TOKENS`.
-# The remaining owner/zone-admin step (not committable) is onboarding
-# `inbox.dmarc.mx` to Email Routing and pointing its catch-all at this Worker.
+# Remaining owner/zone-admin step (not committable): in Email Routing for
+# dmarc.mx, create one rule `inbox@dmarc.mx` → "Send to a Worker" → dmarcheck and
+# enable Subaddressing (Settings). Addresses are `inbox+<token>@dmarc.mx`; the
+# specific rule outranks PhishSOC's zone catch-all, so only `inbox+*` reaches us.
 [[kv_namespaces]]
 binding = "INBOX_TOKENS"
 id = "9194395b3f804f01bbbd14160b2a13bb"

@@ -1644,7 +1644,7 @@ app.get("/alerts/unsubscribe", async (c) => {
 const handler: ExportedHandler<Env> = {
   fetch: app.fetch.bind(app),
   scheduled,
-  // Email Worker entry point for the `inbox.dmarc.mx` catch-all (issue #417).
+  // Email Worker entry point for the `inbox@dmarc.mx` subaddressing rule (#417).
   // Reads the authentication verdict from the inbound message's headers and
   // stores it under the address token. Unknown/expired tokens and a message off
   // our subdomain are silent no-ops (handled in handleInboundEmail). Errors are

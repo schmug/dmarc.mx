@@ -218,7 +218,7 @@ describe("inbox store — handleInboundEmail", () => {
     const kv = new FakeKV();
     await putPending(kv.asKv(), TOKEN);
     await handleInboundEmail(
-      mockMessage(`${TOKEN}@inbox.dmarc.mx`, {
+      mockMessage(`inbox+${TOKEN}@dmarc.mx`, {
         "Authentication-Results": "mx; spf=pass; dkim=pass; dmarc=pass",
       }),
       kv.asKv(),
@@ -238,7 +238,7 @@ describe("inbox store — handleInboundEmail", () => {
     const kv = new FakeKV();
     const putSpy = vi.spyOn(kv, "put");
     await handleInboundEmail(
-      mockMessage(`${TOKEN}@inbox.dmarc.mx`, {
+      mockMessage(`inbox+${TOKEN}@dmarc.mx`, {
         "Authentication-Results": "mx; spf=pass",
       }),
       kv.asKv(),
@@ -247,7 +247,7 @@ describe("inbox store — handleInboundEmail", () => {
     expect(await getRecord(kv.asKv(), TOKEN)).toBeNull();
   });
 
-  it("is a no-op for an address off our subdomain", async () => {
+  it("is a no-op for an address without the inbox+ prefix (catch-all space)", async () => {
     const kv = new FakeKV();
     await putPending(kv.asKv(), TOKEN);
     const putSpy = vi.spyOn(kv, "put");
@@ -262,7 +262,7 @@ describe("inbox store — handleInboundEmail", () => {
 
   it("does not throw when KV is unbound", async () => {
     await expect(
-      handleInboundEmail(mockMessage(`${TOKEN}@inbox.dmarc.mx`, {}), undefined),
+      handleInboundEmail(mockMessage(`inbox+${TOKEN}@dmarc.mx`, {}), undefined),
     ).resolves.toBeUndefined();
   });
 });

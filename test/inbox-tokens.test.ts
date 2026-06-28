@@ -43,42 +43,49 @@ describe("inbox tokens — isValidToken", () => {
 });
 
 describe("inbox tokens — inboxAddress", () => {
-  it("builds <token>@inbox.dmarc.mx", () => {
+  it("builds inbox+<token>@dmarc.mx (subaddressing)", () => {
     const t = "0123456789abcdef0123456789abcdef";
-    expect(inboxAddress(t)).toBe(`${t}@${INBOX_DOMAIN}`);
-    expect(INBOX_DOMAIN).toBe("inbox.dmarc.mx");
+    expect(inboxAddress(t)).toBe(`inbox+${t}@dmarc.mx`);
+    expect(INBOX_DOMAIN).toBe("dmarc.mx");
   });
 });
 
 describe("inbox tokens — tokenFromAddress", () => {
   const token = "0123456789abcdef0123456789abcdef";
 
-  it("extracts the token from a well-formed address", () => {
-    expect(tokenFromAddress(`${token}@inbox.dmarc.mx`)).toBe(token);
+  it("extracts the token from a well-formed subaddress", () => {
+    expect(tokenFromAddress(`inbox+${token}@dmarc.mx`)).toBe(token);
   });
 
-  it("is case-insensitive on the domain + uppercased token", () => {
-    expect(tokenFromAddress(`${token.toUpperCase()}@INBOX.DMARC.MX`)).toBe(
+  it("is case-insensitive on the local part, tag, and domain", () => {
+    expect(tokenFromAddress(`INBOX+${token.toUpperCase()}@DMARC.MX`)).toBe(
       token,
     );
   });
 
   it("trims surrounding whitespace", () => {
-    expect(tokenFromAddress(`  ${token}@inbox.dmarc.mx  `)).toBe(token);
+    expect(tokenFromAddress(`  inbox+${token}@dmarc.mx  `)).toBe(token);
   });
 
-  it("rejects the apex domain (PhishSOC coexistence)", () => {
+  it("rejects the bare apex address with no +tag (PhishSOC catch-all space)", () => {
     expect(tokenFromAddress(`${token}@dmarc.mx`)).toBeNull();
+    expect(tokenFromAddress("inbox@dmarc.mx")).toBeNull();
   });
 
-  it("rejects a different subdomain", () => {
-    expect(tokenFromAddress(`${token}@scan.dmarc.mx`)).toBeNull();
-    expect(tokenFromAddress(`${token}@inbox.evil.com`)).toBeNull();
+  it("rejects a different base local part", () => {
+    expect(tokenFromAddress(`notinbox+${token}@dmarc.mx`)).toBeNull();
+    expect(tokenFromAddress(`support+${token}@dmarc.mx`)).toBeNull();
   });
 
-  it("rejects a non-token local part", () => {
-    expect(tokenFromAddress("scan@inbox.dmarc.mx")).toBeNull();
-    expect(tokenFromAddress("../x@inbox.dmarc.mx")).toBeNull();
+  it("rejects a different domain (incl. the old subdomain shape)", () => {
+    expect(tokenFromAddress(`inbox+${token}@inbox.dmarc.mx`)).toBeNull();
+    expect(tokenFromAddress(`inbox+${token}@evil.com`)).toBeNull();
+    expect(tokenFromAddress(`${token}@inbox.dmarc.mx`)).toBeNull();
+  });
+
+  it("rejects a non-token +tag", () => {
+    expect(tokenFromAddress("inbox+scan@dmarc.mx")).toBeNull();
+    expect(tokenFromAddress("inbox+../x@dmarc.mx")).toBeNull();
   });
 
   it("rejects null / empty / malformed input", () => {
@@ -86,6 +93,6 @@ describe("inbox tokens — tokenFromAddress", () => {
     expect(tokenFromAddress(undefined)).toBeNull();
     expect(tokenFromAddress("")).toBeNull();
     expect(tokenFromAddress("no-at-sign")).toBeNull();
-    expect(tokenFromAddress("@inbox.dmarc.mx")).toBeNull();
+    expect(tokenFromAddress("@dmarc.mx")).toBeNull();
   });
 });

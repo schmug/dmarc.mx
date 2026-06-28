@@ -6,7 +6,7 @@
 // including the fully attacker-controlled message headers — goes through esc().
 
 import type { VerdictRecord } from "../inbox/store.js";
-import { INBOX_DOMAIN, inboxAddress } from "../inbox/tokens.js";
+import { inboxAddress } from "../inbox/tokens.js";
 import { esc, generateCreature, navLoginButton } from "./components.js";
 import { page } from "./html.js";
 
@@ -152,7 +152,7 @@ export function renderInboxScanPage(token: string): string {
   <div id="inbox-result"></div>
   <div class="inbox-note">
     <p><strong>Heads up:</strong> ${INBOX_BOUNCE_NOTE}</p>
-    <p>Inbound messages are used only to read the authentication verdict, then expire within 30 minutes. We never publish or index them. The <code>${esc(INBOX_DOMAIN)}</code> address is a capability — don't share it.</p>
+    <p>Inbound messages are used only to read the authentication verdict, then expire within 30 minutes. We never publish or index them. This address is a one-time capability — don't share it.</p>
   </div>
 </main>
 <script>${INBOX_STREAM_SCRIPT}</script>`;

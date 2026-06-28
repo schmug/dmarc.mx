@@ -33,7 +33,7 @@ describe("GET /check/email", () => {
     const match = html.match(/data-inbox-token="([0-9a-f]{32})"/);
     expect(match).not.toBeNull();
     const token = match?.[1] as string;
-    expect(html).toContain(`${token}@inbox.dmarc.mx`);
+    expect(html).toContain(`inbox+${token}@dmarc.mx`);
 
     // A pending record landed in KV under the minted token.
     const stored = kv.store.get(`tok:${token}`);
