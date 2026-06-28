@@ -237,6 +237,7 @@ describe("scanStreaming() bounds fan-out and streams every protocol once", () =>
       "tls_rpt",
       "dnssec",
       "dane",
+      "dnsbl",
     ]) {
       expect(counts.get(id)).toBe(1);
     }

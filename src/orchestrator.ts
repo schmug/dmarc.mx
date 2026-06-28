@@ -3,6 +3,7 @@ import { analyzeBimi, prefetchBimiDns } from "./analyzers/bimi.js";
 import { analyzeDane } from "./analyzers/dane.js";
 import { analyzeDkim } from "./analyzers/dkim.js";
 import { analyzeDmarc } from "./analyzers/dmarc.js";
+import { analyzeDnsbl } from "./analyzers/dnsbl.js";
 import { analyzeDnssec } from "./analyzers/dnssec.js";
 import { analyzeMtaSts } from "./analyzers/mta-sts.js";
 import { analyzeMx } from "./analyzers/mx.js";
@@ -15,6 +16,7 @@ import type {
   DaneResult,
   DkimResult,
   DmarcResult,
+  DnsblResult,
   DnssecResult,
   MtaStsResult,
   MxResult,
@@ -42,7 +44,8 @@ export type ProtocolId =
   | "security_txt"
   | "tls_rpt"
   | "dnssec"
-  | "dane";
+  | "dane"
+  | "dnsbl";
 export type ProtocolResult =
   | MxResult
   | DmarcResult
@@ -53,7 +56,8 @@ export type ProtocolResult =
   | SecurityTxtResult
   | TlsRptResult
   | DnssecResult
-  | DaneResult;
+  | DaneResult
+  | DnsblResult;
 
 export const PROTOCOL_LABEL: Record<ProtocolId, string> = {
   mx: "MX",
@@ -66,6 +70,7 @@ export const PROTOCOL_LABEL: Record<ProtocolId, string> = {
   tls_rpt: "TLS-RPT",
   dnssec: "DNSSEC",
   dane: "DANE/TLSA",
+  dnsbl: "DNSBL/Spamhaus",
 };
 
 function analyzerErrorValidation(id: ProtocolId, message: string): Validation {
@@ -146,6 +151,13 @@ const ERROR_RESULTS = {
     status: "fail",
     hosts: [],
     validations: [analyzerErrorValidation("dane", m)],
+    lookup_error: { code: "analyzer_error", message: m },
+  }),
+  dnsbl: (m: string): DnsblResult => ({
+    status: "fail",
+    checked: 0,
+    listed: [],
+    validations: [analyzerErrorValidation("dnsbl", m)],
     lookup_error: { code: "analyzer_error", message: m },
   }),
 } as const;
@@ -265,8 +277,10 @@ export async function scan(
   domain: string,
   customSelectors: string[],
   config: Partial<ScoringConfig>,
-  limits: ScanLimits = DEFAULT_SCAN_LIMITS,
+  limits?: ScanLimits,
+  dqsKey?: string,
 ): Promise<ScanResult> {
+  const { maxDnsQueries, deadlineMs } = limits ?? DEFAULT_SCAN_LIMITS;
   // GHSA-f828-8wf8-vqp2 — bound the whole scan with one deadline + one shared
   // DNS-query pool, so neither total outbound queries nor wall-clock can scale
   // with attacker-controlled input (huge selector lists, rua/ruf-stuffed
@@ -274,8 +288,8 @@ export async function scan(
   // ScanBudget from issuing any further query once it trips.
   const controller = new AbortController();
   const { signal } = controller;
-  const deadlineTimer = setTimeout(() => controller.abort(), limits.deadlineMs);
-  const budget = new ScanBudget(limits.maxDnsQueries, signal);
+  const deadlineTimer = setTimeout(() => controller.abort(), deadlineMs);
+  const budget = new ScanBudget(maxDnsQueries, signal);
 
   // settle (isolate one analyzer's rejection, #378) THEN race the deadline:
   // a slow analyzer yields its synthetic fallback instead of stalling the scan.
@@ -319,6 +333,12 @@ export async function scan(
       ),
     );
 
+    // Chain DNSBL off MX + SPF — IPs come from SPF include tree and MX A records
+    const dnsblPromise = Promise.all([mxPromise, spfPromise]).then(
+      ([mxResult, spfResult]) =>
+        analyzeDnsbl(domain, mxResult, spfResult, dqsKey, budget),
+    );
+
     const bimiPromise = Promise.all([dmarcPromise, bimiDnsPromise]).then(
       ([dmarcResult, bimiDns]) => {
         const dmarcPolicy = dmarcResult.tags?.p?.toLowerCase() ?? null;
@@ -340,6 +360,7 @@ export async function scan(
       tlsRptResult,
       dnssecResult,
       daneResult,
+      dnsblResult,
     ] = await Promise.all([
       bounded("dmarc", dmarcPromise, ERROR_RESULTS.dmarc),
       bounded("spf", spfPromise, ERROR_RESULTS.spf),
@@ -351,6 +372,7 @@ export async function scan(
       bounded("tls_rpt", tlsRptPromise, ERROR_RESULTS.tls_rpt),
       bounded("dnssec", dnssecPromise, ERROR_RESULTS.dnssec),
       bounded("dane", danePromise, ERROR_RESULTS.dane),
+      bounded("dnsbl", dnsblPromise, ERROR_RESULTS.dnsbl),
     ]);
 
     Sentry.addBreadcrumb({
@@ -407,6 +429,12 @@ export async function scan(
       data: { protocol: "dane", status: daneResult.status },
       level: "info",
     });
+    Sentry.addBreadcrumb({
+      category: "analyzer.complete",
+      message: `dnsbl: ${dnsblResult.status}`,
+      data: { protocol: "dnsbl", status: dnsblResult.status },
+      level: "info",
+    });
 
     return await buildScanResult(
       domain,
@@ -421,6 +449,7 @@ export async function scan(
         tls_rpt: tlsRptResult,
         dnssec: dnssecResult,
         dane: daneResult,
+        dnsbl: dnsblResult,
       },
       config,
       budget,
@@ -437,8 +466,10 @@ export async function scanStreaming(
   customSelectors: string[],
   onResult: (id: ProtocolId, result: ProtocolResult) => void,
   config: Partial<ScoringConfig>,
-  limits: ScanLimits = DEFAULT_SCAN_LIMITS,
+  limits?: ScanLimits,
+  dqsKey?: string,
 ): Promise<ScanResult> {
+  const { maxDnsQueries, deadlineMs } = limits ?? DEFAULT_SCAN_LIMITS;
   // GHSA-f828-8wf8-vqp2 — same deadline + shared DNS-query pool as scan() (see
   // there). The SSE contract is preserved under the deadline: protocols that
   // settled early already streamed; any still in flight when the deadline fires
@@ -446,8 +477,8 @@ export async function scanStreaming(
   // and the client never waits past the deadline.
   const controller = new AbortController();
   const { signal } = controller;
-  const deadlineTimer = setTimeout(() => controller.abort(), limits.deadlineMs);
-  const budget = new ScanBudget(limits.maxDnsQueries, signal);
+  const deadlineTimer = setTimeout(() => controller.abort(), deadlineMs);
+  const budget = new ScanBudget(maxDnsQueries, signal);
 
   // Emit each protocol's card at most once, and never after the scan has been
   // finalized — guards against both a deadline-fallback/real-result double emit
@@ -515,6 +546,12 @@ export async function scanStreaming(
       ),
     );
 
+    // Chain DNSBL off MX + SPF — IPs come from SPF include tree and MX A records
+    const dnsblPromise = Promise.all([mxPromise, spfPromise]).then(
+      ([mxResult, spfResult]) =>
+        analyzeDnsbl(domain, mxResult, spfResult, dqsKey, budget),
+    );
+
     // Chain BIMI off DMARC and BIMI DNS
     const bimiPromise = Promise.all([dmarcPromise, bimiDnsPromise]).then(
       ([dmarcResult, bimiDns]) => {
@@ -545,6 +582,7 @@ export async function scanStreaming(
       tlsRptResult,
       dnssecResult,
       daneResult,
+      dnsblResult,
     ] = await Promise.all([
       streamBounded("dmarc", dmarcPromise, ERROR_RESULTS.dmarc),
       streamBounded("spf", spfPromise, ERROR_RESULTS.spf),
@@ -564,6 +602,7 @@ export async function scanStreaming(
       streamBounded("tls_rpt", tlsRptPromise, ERROR_RESULTS.tls_rpt),
       streamBounded("dnssec", dnssecPromise, ERROR_RESULTS.dnssec),
       streamBounded("dane", danePromise, ERROR_RESULTS.dane),
+      streamBounded("dnsbl", dnsblPromise, ERROR_RESULTS.dnsbl),
     ]);
 
     const result = await buildScanResult(
@@ -579,6 +618,7 @@ export async function scanStreaming(
         tls_rpt: tlsRptResult,
         dnssec: dnssecResult,
         dane: daneResult,
+        dnsbl: dnsblResult,
       },
       config,
       budget,

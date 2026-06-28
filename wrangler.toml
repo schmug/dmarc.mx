@@ -33,6 +33,11 @@ ACCESS_TEAM_DOMAIN = "coryrankin.cloudflareaccess.com"
 # Example (self-hosters uncomment and edit):
 # SCORING_CONFIG = '{"requireBimiForAPlus":false,"dkimKeyMinBits":4096}'
 
+# Spamhaus DQS key for DNSBL/IP-reputation checks (issue #587). Optional:
+# when absent, the DNSBL card shows "not configured" and no DNS queries are
+# issued. Set via: wrangler secret put DNSBL_DQS_KEY
+# (never add to [vars] — the key must not appear in source control)
+
 [triggers]
 crons = ["17 6 * * *"]
 

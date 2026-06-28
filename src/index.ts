@@ -11,6 +11,7 @@ import type {
   DaneResult,
   DkimResult,
   DmarcResult,
+  DnsblResult,
   DnssecResult,
   MtaStsResult,
   MxResult,
@@ -79,6 +80,7 @@ import {
   renderDaneCard,
   renderDkimCard,
   renderDmarcCard,
+  renderDnsblCard,
   renderDnssecCard,
   renderError,
   renderLandingPage,
@@ -557,6 +559,7 @@ const protocolRenderers: Record<
   tls_rpt: (r) => renderTlsRptCard(r as TlsRptResult),
   dnssec: (r) => renderDnssecCard(r as DnssecResult),
   dane: (r) => renderDaneCard(r as DaneResult),
+  dnsbl: (r) => renderDnsblCard(r as DnsblResult),
 };
 
 function tagScanResult(result: ScanResult): void {
@@ -649,6 +652,8 @@ app.get("/api/check/stream", async (c) => {
         if (pending) protocolWrites.push(pending);
       },
       parseScoringConfig(c.env?.SCORING_CONFIG),
+      undefined,
+      c.env?.DNSBL_DQS_KEY,
     );
     await Promise.all(protocolWrites);
 
@@ -750,7 +755,13 @@ app.get("/badge", async (c) => {
     const cached = await getCachedScan(domain, []);
     const result =
       cached ??
-      (await scan(domain, [], parseScoringConfig(c.env?.SCORING_CONFIG)));
+      (await scan(
+        domain,
+        [],
+        parseScoringConfig(c.env?.SCORING_CONFIG),
+        undefined,
+        c.env?.DNSBL_DQS_KEY,
+      ));
     if (!cached) {
       const pendingCacheWrite = setCachedScan(domain, [], result);
       if (pendingCacheWrite) {
@@ -1088,6 +1099,8 @@ app.get("/api/check", async (c) => {
         domain,
         selectors,
         parseScoringConfig(c.env?.SCORING_CONFIG),
+        undefined,
+        c.env?.DNSBL_DQS_KEY,
       ));
     tagScanResult(result);
     if (!cached) {
@@ -1286,6 +1299,8 @@ app.get("/check/score", async (c) => {
       domain,
       selectors,
       parseScoringConfig(c.env?.SCORING_CONFIG),
+      undefined,
+      c.env?.DNSBL_DQS_KEY,
     );
     tagScanResult(result);
     return c.html(renderScoreBreakdown(result));
@@ -1343,6 +1358,8 @@ app.get("/check", async (c) => {
           domain,
           selectors,
           parseScoringConfig(c.env?.SCORING_CONFIG),
+          undefined,
+          c.env?.DNSBL_DQS_KEY,
         ));
       tagScanResult(result);
       if (!cached) {
@@ -1371,6 +1388,8 @@ app.get("/check", async (c) => {
         domain,
         selectors,
         parseScoringConfig(c.env?.SCORING_CONFIG),
+        undefined,
+        c.env?.DNSBL_DQS_KEY,
       );
       tagScanResult(result);
       return c.json(result);
@@ -1393,6 +1412,8 @@ app.get("/check", async (c) => {
         domain,
         selectors,
         parseScoringConfig(c.env?.SCORING_CONFIG),
+        undefined,
+        c.env?.DNSBL_DQS_KEY,
       );
       tagScanResult(result);
       return c.body(generateCsv(result), 200, {
@@ -1428,6 +1449,8 @@ app.get("/check", async (c) => {
           domain,
           selectors,
           parseScoringConfig(c.env?.SCORING_CONFIG),
+          undefined,
+          c.env?.DNSBL_DQS_KEY,
         ));
       tagScanResult(result);
       if (!cached) {

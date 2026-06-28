@@ -4,6 +4,7 @@ import type {
   DaneResult,
   DkimResult,
   DmarcResult,
+  DnsblResult,
   DnssecResult,
   MtaStsResult,
   MxResult,
@@ -386,6 +387,26 @@ export function renderDnssecCard(d: DnssecResult): string {
   return protocolCard("DNSSEC", d.status, subtitle, body, false, "dnssec");
 }
 
+export function renderDnsblCard(d: DnsblResult): string {
+  let subtitle: string;
+  if (d.checked === 0) {
+    subtitle = d.status === "info" ? "Not configured" : "No IPs to check";
+  } else if (d.listed.length > 0) {
+    subtitle = `${d.listed.length} IP${d.listed.length !== 1 ? "s" : ""} listed`;
+  } else {
+    subtitle = `${d.checked} IP${d.checked !== 1 ? "s" : ""} checked — clean`;
+  }
+  const body = validationList(d.validations);
+  return protocolCard(
+    "DNSBL/Spamhaus",
+    d.status,
+    subtitle,
+    body,
+    false,
+    "dnsbl",
+  );
+}
+
 export function renderDaneCard(d: DaneResult): string {
   const hostsWithTlsa = d.hosts.filter((h) => h.tlsaRecords.length > 0);
   const subtitle =
@@ -422,6 +443,7 @@ function reportBody(result: ScanResult): string {
     tls_rpt,
     dnssec,
     dane,
+    dnsbl,
   } = result.protocols;
 
   return `<main class="report">
@@ -453,6 +475,7 @@ function reportBody(result: ScanResult): string {
   ${tls_rpt ? renderTlsRptCard(tls_rpt) : ""}
   ${dnssec ? renderDnssecCard(dnssec) : ""}
   ${dane ? renderDaneCard(dane) : ""}
+  ${dnsbl ? renderDnsblCard(dnsbl) : ""}
   ${monitorSnapshotCard(result)}
   <div class="learn-link" style="margin-top:2.5rem">Analyze message headers: <a href="https://toolbox.googleapps.com/apps/messageheader/" target="_blank" rel="noopener">Google &#8599;</a> &middot; <a href="https://mha.azurewebsites.net/" target="_blank" rel="noopener">Microsoft &#8599;</a></div>
   <div class="learn-link" style="margin-top:0.4rem;margin-bottom:1rem"><a href="/scoring">How is my score calculated?</a> &middot; <a href="https://www.cloudflare.com/learning/email-security/dmarc-dkim-spf/" target="_blank" rel="noopener">What is email security? &#8599;</a> &middot; <a href="https://github.com/schmug/dmarcheck/releases" target="_blank" rel="noopener">Changelog &#8599;</a></div>
@@ -563,6 +586,7 @@ export function renderStreamingLoading(
     ${skeletonCard("TLS-RPT", false, "tls_rpt")}
     ${skeletonCard("DNSSEC", false)}
     ${skeletonCard("DANE/TLSA", false, "dane")}
+    ${skeletonCard("DNSBL/Spamhaus", false, "dnsbl")}
   </div>
   <noscript><meta http-equiv="refresh" content="0;url=/check?${esc(qs)}&_direct=1"></noscript>
 </main>

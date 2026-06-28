@@ -158,6 +158,19 @@ export interface DaneResult {
   lookup_error?: { code: string; message: string };
 }
 
+export interface DnsblListing {
+  ip: string;
+  zones: string[];
+}
+
+export interface DnsblResult {
+  status: Status;
+  checked: number;
+  listed: DnsblListing[];
+  validations: Validation[];
+  lookup_error?: { code: string; message: string };
+}
+
 export interface ScanResult {
   domain: string;
   timestamp: string;
@@ -175,5 +188,6 @@ export interface ScanResult {
     tls_rpt?: TlsRptResult;
     dnssec?: DnssecResult;
     dane?: DaneResult;
+    dnsbl?: DnsblResult;
   };
 }

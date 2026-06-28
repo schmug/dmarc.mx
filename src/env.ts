@@ -45,4 +45,9 @@ export interface Env {
   // domain (`dmarc.mx`) is not affected by these vars.
   ACCESS_AUD?: string;
   ACCESS_TEAM_DOMAIN?: string;
+  // Spamhaus DQS key for DNSBL/IP-reputation checks (issue #587). Optional:
+  // when absent, the DNSBL analyzer returns a clean "not configured" info
+  // result and no outbound DNS queries are issued. Set via `wrangler secret
+  // put DNSBL_DQS_KEY` — never add to [vars] (key must stay out of source).
+  DNSBL_DQS_KEY?: string;
 }
