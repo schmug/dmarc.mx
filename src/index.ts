@@ -49,6 +49,13 @@ import {
   setEmailAlertsEnabled,
 } from "./db/users.js";
 import type { Env } from "./env.js";
+import {
+  handleInboundEmail,
+  putPending,
+  reserveLiveToken,
+  streamInboxResult,
+} from "./inbox/store.js";
+import { generateToken, isValidToken } from "./inbox/tokens.js";
 import { handleMcpRequest, MCP_SERVER_CARD } from "./mcp/handler.js";
 import type { ProtocolId, ProtocolResult } from "./orchestrator.js";
 import { scan, scanStreaming } from "./orchestrator.js";
@@ -94,6 +101,7 @@ import {
   renderStreamingLoading,
   renderTlsRptCard,
 } from "./views/html.js";
+import { renderInboxScanPage, renderInboxVerdict } from "./views/inbox.js";
 import {
   renderLearnBimi,
   renderLearnDane,
@@ -478,6 +486,20 @@ app.use(
   ),
 );
 
+// Test-email address issuance (issue #417). Minting a token is also minting a
+// routable address, so it gets the same per-identity limiter as a scan.
+app.use(
+  "/check/email",
+  rateLimitMiddleware((_c, _result, headers) =>
+    _c.html(
+      renderError(
+        "Rate limit exceeded. Please wait a minute before requesting another test address.",
+      ),
+      { status: 429, headers },
+    ),
+  ),
+);
+
 app.use(
   "/api/check",
   rateLimitMiddleware((c, result, headers) =>
@@ -514,6 +536,15 @@ app.use(
 // Give it its own limiter so it cannot be used as a DNS amplification vector.
 app.use(
   "/api/check/stream",
+  rateLimitMiddleware((c, result, headers) =>
+    c.json({ error: blockedMessage(result) }, { status: 429, headers }),
+  ),
+);
+
+// Inbox result SSE stream (issue #417). Polls KV (no DNS fan-out), but give it
+// its own limiter so it can't be opened en masse on one identity.
+app.use(
+  "/api/check/email/stream",
   rateLimitMiddleware((c, result, headers) =>
     c.json({ error: blockedMessage(result) }, { status: 429, headers }),
   ),
@@ -669,6 +700,30 @@ app.get("/api/check/stream", async (c) => {
         headerHtml: renderReportHeader(result),
         footerHtml: renderReportFooter(result),
       }),
+    });
+  });
+});
+
+// Stream the verdict for a test-email token (issue #417). Mirrors
+// /api/check/stream: emits a "waiting" state, polls KV server-side, pushes the
+// parsed verdict when the message lands, then closes. An unknown/expired token
+// yields a clean "closed" event — never a 500.
+app.get("/api/check/email/stream", async (c) => {
+  const token = c.req.query("token");
+  if (!token || !isValidToken(token)) {
+    return c.json({ error: "Missing or invalid token parameter" }, 400);
+  }
+  const kv = c.env?.INBOX_TOKENS;
+  return streamSSE(c, async (stream) => {
+    if (!kv) {
+      await stream.writeSSE({
+        event: "closed",
+        data: JSON.stringify({ status: "unavailable" }),
+      });
+      return;
+    }
+    await streamInboxResult(stream, kv, token, {
+      renderCard: renderInboxVerdict,
     });
   });
 });
@@ -1267,6 +1322,51 @@ function persistBearerScanIfWatched(
   c.executionCtx.waitUntil(task.catch(() => {}));
 }
 
+// Issue a one-time test-email address (issue #417). Rate-limited by the
+// middleware above; additionally capped per identity on simultaneously-live
+// tokens. ALL dynamic content is escaped by renderInboxScanPage.
+app.get("/check/email", async (c) => {
+  const kv = c.env?.INBOX_TOKENS;
+  if (!kv) {
+    return c.html(
+      renderError("Test-email scanning isn't configured on this deployment."),
+      503,
+    );
+  }
+
+  // Reuse the rate-limit identity for the live-token cap. The middleware above
+  // has already resolved + stashed any bearer; fall back to the client IP.
+  const bearer =
+    (c.get("bearer" as never) as BearerIdentity | undefined) ?? null;
+  const identity = bearer ? `user:${bearer.userId}` : `ip:${getClientIp(c)}`;
+
+  const token = generateToken();
+  let reserved = false;
+  try {
+    reserved = await reserveLiveToken(kv, identity, token);
+    if (reserved) {
+      await putPending(kv, token);
+    }
+  } catch (err) {
+    Sentry.captureException(err);
+    return c.html(
+      renderError("Couldn't allocate a test address. Please try again."),
+      500,
+    );
+  }
+
+  if (!reserved) {
+    return c.html(
+      renderError(
+        "You have too many active test addresses. Wait for them to expire (30 minutes) before requesting another.",
+      ),
+      429,
+    );
+  }
+
+  return c.html(renderInboxScanPage(token));
+});
+
 app.get("/check/score", async (c) => {
   const domain = normalizeDomain(c.req.query("domain"));
   if (!domain) {
@@ -1544,6 +1644,19 @@ app.get("/alerts/unsubscribe", async (c) => {
 const handler: ExportedHandler<Env> = {
   fetch: app.fetch.bind(app),
   scheduled,
+  // Email Worker entry point for the `inbox.dmarc.mx` catch-all (issue #417).
+  // Reads the authentication verdict from the inbound message's headers and
+  // stores it under the address token. Unknown/expired tokens and a message off
+  // our subdomain are silent no-ops (handled in handleInboundEmail). Errors are
+  // swallowed + reported so a transient KV failure never bounces legitimate
+  // test mail.
+  async email(message, env) {
+    try {
+      await handleInboundEmail(message, env.INBOX_TOKENS);
+    } catch (err) {
+      Sentry.captureException(err);
+    }
+  },
 };
 
 export default Sentry.withSentry<Env>(

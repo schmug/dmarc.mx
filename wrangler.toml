@@ -63,3 +63,22 @@ migrations_dir = "src/db/migrations"
 [[send_email]]
 name = "EMAIL"
 allowed_sender_addresses = ["alerts@dmarc.mx"]
+
+# Inbound test-email scanning (issue #417). Short-lived store (30-min TTL on
+# every record) keyed by capability token: a "pending" reservation written on
+# GET /check/email, overwritten with the parsed SPF/DKIM/DMARC verdict by the
+# Email Worker `email()` handler when the test message arrives. This is the
+# repo's FIRST KV namespace — the SSE scan cache (src/cache.ts) uses the Cache
+# API, not KV.
+#
+# Top-level binding only — NEVER add an [env.<name>] block here (doing so
+# detached dmarc.mx on 2026-04-26, PRs #203 → #206).
+#
+# OWNER/ZONE-ADMIN STEP (not committable): create the namespace and paste its
+# id below before this is deployed —
+#   wrangler kv namespace create INBOX_TOKENS
+# The id below is a placeholder so local dev + the Workers test pool boot; it
+# is NOT a real namespace.
+[[kv_namespaces]]
+binding = "INBOX_TOKENS"
+id = "0000000000000000000000000000000a"

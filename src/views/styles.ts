@@ -1006,4 +1006,50 @@ h1.domain-name, .domain-name { font-size: 1.5rem; font-weight: 700; margin: 0; }
   .mx-exchange { display: inline; padding: 0; border: none; }
   .mx-provider { display: block; padding: 4px 0 0; border: none; }
 }
+
+/* Inbound test-email scanning (issue #417) */
+.inbox-intro { color: var(--clr-text-dim); max-width: 44rem; margin: 0.5rem auto 0; font-size: 0.95rem; }
+.inbox-address-card {
+  background: var(--clr-surface); border: 1px solid var(--clr-border); border-radius: 12px;
+  padding: 18px 20px; margin: 1.5rem auto; max-width: 36rem; text-align: center;
+}
+.inbox-address-card label { display: block; font-size: 0.8rem; color: var(--clr-text-muted); margin-bottom: 8px; }
+.inbox-address-row { display: flex; gap: 10px; align-items: center; justify-content: center; flex-wrap: wrap; }
+.inbox-address {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1rem;
+  background: var(--clr-bg); border: 1px solid var(--clr-border); border-radius: 8px;
+  padding: 8px 12px; color: var(--clr-accent); word-break: break-all;
+}
+.inbox-steps { max-width: 36rem; margin: 1rem auto; padding-left: 1.2rem; color: var(--clr-text-dim); line-height: 1.7; }
+.inbox-status { text-align: center; padding: 2rem 1rem; }
+.inbox-status .spinner {
+  display: inline-block; width: 28px; height: 28px; border: 3px solid var(--clr-border);
+  border-top-color: var(--clr-accent); border-radius: 50%; animation: spin 0.8s linear infinite;
+}
+.inbox-status p { color: var(--clr-text-dim); margin-top: 0.8rem; font-size: 0.9rem; }
+.inbox-note {
+  max-width: 40rem; margin: 1.5rem auto 0; font-size: 0.82rem; color: var(--clr-text-muted);
+  line-height: 1.6; border-top: 1px solid var(--clr-border); padding-top: 1rem;
+}
+.inbox-note code { font-size: 0.8rem; }
+.inbox-verdict-card {
+  background: var(--clr-surface); border: 1px solid var(--clr-border); border-radius: 12px;
+  padding: 20px 22px; margin: 1rem auto; max-width: 40rem;
+}
+.inbox-verdict-card h2 { margin-bottom: 0.5rem; display: flex; align-items: center; gap: 8px; }
+.inbox-verdict-from { font-size: 0.85rem; color: var(--clr-text-muted); margin-bottom: 1rem; }
+.inbox-verdict-hint { color: var(--clr-text-dim); }
+.inbox-verdict-grid { display: flex; flex-direction: column; gap: 6px; }
+.inbox-verdict-row { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--clr-border); }
+.inbox-verdict-label { color: var(--clr-text-muted); font-size: 0.9rem; }
+.inbox-verdict-value { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 600; }
+.inbox-v-pass { color: var(--clr-pass); }
+.inbox-v-fail { color: var(--clr-fail); }
+.inbox-v-warn { color: var(--clr-warn); }
+.inbox-v-none { color: var(--clr-text-dim); }
+.inbox-verdict-raw { margin-top: 1rem; font-size: 0.82rem; }
+.inbox-verdict-raw pre { white-space: pre-wrap; word-break: break-word; background: var(--clr-bg); border: 1px solid var(--clr-border); border-radius: 8px; padding: 10px; margin-top: 8px; }
+.inbox-verdict-time { font-size: 0.8rem; color: var(--clr-text-muted); margin-top: 1rem; }
+.inbox-verdict-note { font-size: 0.8rem; color: var(--clr-text-dim); margin-top: 0.5rem; }
+.inbox-again { display: inline-block; margin-top: 1rem; font-size: 0.9rem; }
 `;
