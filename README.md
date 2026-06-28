@@ -95,6 +95,17 @@ Response includes a `summary` with elevated fields and full `protocols` detail:
 }
 ```
 
+## Agent discovery
+
+dmarcheck advertises its `scan_domain` capability to automated agents through several standard discovery surfaces, so an agent can find and call the scanner without hard-coded knowledge:
+
+- `/.well-known/api-catalog` — RFC 9727 linkset pointing to the OpenAPI doc, API docs, and health endpoint
+- `/.well-known/agent-skills/index.json` + `/.well-known/agent-skills/scan-domain/SKILL.md` — Cloudflare Agent Skills Discovery index and skill description
+- `/.well-known/agent.json` — [DNS-AID](https://datatracker.ietf.org/doc/draft-mozleywilliams-dnsop-dnsaid/) agent metadata contract (DNS-based Agent Identification & Discovery). Describes `scan_domain` as a read-only `query` reachable over the MCP (`streamable-http`) endpoint at `/mcp`. This is the HTTP-layer document; the matching DNS records under `_agents.dmarc.mx` are published separately.
+- `/openapi.json` — OpenAPI 3.1 service description
+- `/mcp` — Model Context Protocol endpoint exposing the `scan_domain` tool
+- Every HTML page also carries a `Link` header pointing at the relations above.
+
 ## Self-Hosting
 
 You can deploy your own instance of dmarcheck to Cloudflare Workers.

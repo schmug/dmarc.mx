@@ -12,6 +12,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { _resetAgentSkillsCache } from "../src/api/agent-skills.js";
+import { AGENT_CARD_JSON } from "../src/api/catalog.js";
 import { OPENAPI_DOCUMENT } from "../src/api/openapi.js";
 import { app } from "../src/index.js";
 import { _memoryStore } from "../src/rate-limit.js";
@@ -252,6 +253,53 @@ describe("OpenAPI examples actually work", () => {
     const res = await app.request("/.well-known/api-catalog");
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toBe("application/linkset+json");
+  });
+});
+
+// ===========================================================================
+// Scenario 2b — DNS-AID agent.json integrity
+// ===========================================================================
+
+describe("DNS-AID agent.json integrity", () => {
+  it("the served bytes match the built AGENT_CARD_JSON", async () => {
+    const res = await app.request("/.well-known/agent.json");
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe(AGENT_CARD_JSON);
+  });
+
+  it("the documentation URL it advertises is fetchable", async () => {
+    const card = JSON.parse(AGENT_CARD_JSON) as {
+      identity: { documentation: string };
+    };
+    const docPath = new URL(card.identity.documentation).pathname;
+    const res = await app.request(docPath);
+    expect(res.status, `expected 200 for ${docPath}`).toBe(200);
+  });
+
+  it("the MCP connection endpoint it advertises lists scan_domain", async () => {
+    const card = JSON.parse(AGENT_CARD_JSON) as {
+      connection: { endpoint: string };
+    };
+    const mcpPath = new URL(card.connection.endpoint).pathname;
+    // /mcp is POST-only and stateless; a JSON-RPC tools/list returns a 200
+    // envelope listing the advertised capability — proving the endpoint the
+    // agent card points at is live and exposes scan_domain. app.fetch lets us
+    // stub the ExecutionContext the handler's waitUntil needs (Hono's
+    // app.request supplies none by default).
+    const req = new Request(`http://local${mcpPath}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+    });
+    const res = await app.fetch(req, {}, {
+      waitUntil: () => {},
+      passThroughOnException: () => {},
+    } as ExecutionContext);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      result: { tools: Array<{ name: string }> };
+    };
+    expect(body.result.tools.map((t) => t.name)).toContain("scan_domain");
   });
 });
 

@@ -29,7 +29,11 @@ import {
   isCapExceeded,
   processBulkScan,
 } from "./api/bulk-scan.js";
-import { API_CATALOG_JSON, CANONICAL_ORIGIN } from "./api/catalog.js";
+import {
+  AGENT_CARD_JSON,
+  API_CATALOG_JSON,
+  CANONICAL_ORIGIN,
+} from "./api/catalog.js";
 import { clampHistoryLimit, fetchDomainHistory } from "./api/history.js";
 import { LLMS_TXT } from "./api/llms-txt.js";
 import { OPENAPI_JSON } from "./api/openapi.js";
@@ -193,6 +197,8 @@ const NOINDEX_CONTENT_TYPES = [
 const AGENT_DISCOVERY_LINK_HEADER = [
   '</.well-known/api-catalog>; rel="api-catalog"; type="application/linkset+json"',
   '</.well-known/agent-skills/index.json>; rel="https://agentskills.io/rel/index"; type="application/json"',
+  // DNS-AID agent metadata contract — the rel URI is the tracked IETF draft.
+  '</.well-known/agent.json>; rel="https://datatracker.ietf.org/doc/draft-mozleywilliams-dnsop-dnsaid"; type="application/json"',
   '</openapi.json>; rel="service-desc"; type="application/openapi+json"',
   '</docs/api>; rel="service-doc"; type="text/html"',
   '</health>; rel="status"',
@@ -871,6 +877,16 @@ app.get("/.well-known/agent-skills/index.json", async (c) => {
 app.get("/.well-known/agent-skills/scan-domain/SKILL.md", (c) => {
   return c.body(SCAN_DOMAIN_SKILL_MD, 200, {
     "Content-Type": "text/markdown; charset=utf-8",
+    "Cache-Control": "public, max-age=3600",
+  });
+});
+
+// DNS-AID agent metadata contract — draft-mozleywilliams-dnsop-dnsaid.
+// Publishes the scan_domain capability at the HTTP layer; the matching DNS
+// SVCB/TXT records under _agents.dmarc.mx are owner zone-admin work (#461).
+app.get("/.well-known/agent.json", (c) => {
+  return c.body(AGENT_CARD_JSON, 200, {
+    "Content-Type": "application/json; charset=utf-8",
     "Cache-Control": "public, max-age=3600",
   });
 });
