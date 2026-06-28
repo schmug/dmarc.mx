@@ -21,6 +21,15 @@ export interface Env {
   // Cloudflare Email Sending binding. Optional so self-host deploys without
   // a verified sender still boot; the dispatcher no-ops when absent.
   EMAIL?: SendEmail;
+  // Short-lived KV store for inbound test-email scanning (issue #417). Keyed
+  // by capability token: a pending reservation on issuance, overwritten with
+  // the parsed authentication verdict when the Email Worker `email()` handler
+  // receives the message. Both records carry a 30-min `expirationTtl`. Optional
+  // so self-host deploys without the namespace (and the Node test pool) still
+  // boot — the /check/email route and SSE stream degrade gracefully when it is
+  // absent. This is the repo's first KV namespace; the SSE *scan* cache
+  // (src/cache.ts) uses the Cache API, not KV.
+  INBOX_TOKENS?: KVNamespace;
   // Stripe billing (Phase 3 M2). All three must be present for billing to
   // activate; isBillingEnabled() in src/billing/feature-flag.ts gates paid
   // code paths so self-hosters without Stripe keys still get a working

@@ -72,3 +72,22 @@ migrations_dir = "src/db/migrations"
 [[send_email]]
 name = "EMAIL"
 allowed_sender_addresses = ["alerts@dmarc.mx"]
+
+# Inbound test-email scanning (issue #417). Short-lived store (30-min TTL on
+# every record) keyed by capability token: a "pending" reservation written on
+# GET /check/email, overwritten with the parsed SPF/DKIM/DMARC verdict by the
+# Email Worker `email()` handler when the test message arrives. This is the
+# repo's FIRST KV namespace — the SSE scan cache (src/cache.ts) uses the Cache
+# API, not KV.
+#
+# Top-level binding only — NEVER add an [env.<name>] block here (doing so
+# detached dmarc.mx on 2026-04-26, PRs #203 → #206).
+#
+# Namespace created by the owner via `wrangler kv namespace create INBOX_TOKENS`.
+# Remaining owner/zone-admin step (not committable): in Email Routing for
+# dmarc.mx, create one rule `inbox@dmarc.mx` → "Send to a Worker" → dmarcheck and
+# enable Subaddressing (Settings). Addresses are `inbox+<token>@dmarc.mx`; the
+# specific rule outranks PhishSOC's zone catch-all, so only `inbox+*` reaches us.
+[[kv_namespaces]]
+binding = "INBOX_TOKENS"
+id = "9194395b3f804f01bbbd14160b2a13bb"
