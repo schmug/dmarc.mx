@@ -19,7 +19,7 @@ beforeEach(() => {
 });
 
 describe("Link response header", () => {
-  it("advertises the four agent-discovery relations on the landing page", async () => {
+  it("advertises the agent-discovery relations on the landing page", async () => {
     const res = await app.request("/");
     const link = res.headers.get("Link");
     expect(link).toBeTruthy();
@@ -32,6 +32,9 @@ describe("Link response header", () => {
     expect(link).toContain("</docs/api>");
     expect(link).toContain("</health>");
     expect(link).toContain("</.well-known/agent-skills/index.json>");
+    // DNS-AID agent metadata contract (draft-mozleywilliams-dnsop-dnsaid).
+    expect(link).toContain("</.well-known/agent.json>");
+    expect(link).toContain("draft-mozleywilliams-dnsop-dnsaid");
   });
 
   it("sets Link on scoring, learn, and docs pages too", async () => {
@@ -77,6 +80,53 @@ describe("/.well-known/api-catalog", () => {
       expect(entry["service-doc"][0].href).toBe("https://dmarc.mx/docs/api");
       expect(entry.status[0].href).toBe("https://dmarc.mx/health");
     }
+  });
+});
+
+describe("/.well-known/agent.json", () => {
+  it("returns the DNS-AID metadata contract describing scan_domain", async () => {
+    const res = await app.request("/.well-known/agent.json");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toBe(
+      "application/json; charset=utf-8",
+    );
+    const body = (await res.json()) as {
+      aid_version: string;
+      identity: { name: string; url: string; documentation: string };
+      connection: { protocol: string; transport: string; endpoint: string };
+      auth: { type: string };
+      capabilities: {
+        supports_streaming: boolean;
+        actions: Array<{
+          name: string;
+          description: string;
+          intent: string;
+          semantics: string;
+        }>;
+      };
+    };
+
+    // `aid_version` is the key that marks this as a DNS-AID-native document
+    // (vs. a Google A2A agent card, which omits it).
+    expect(body.aid_version).toBeTruthy();
+    expect(body.identity.name).toBe("dmarcheck");
+    expect(body.identity.url).toBe("https://dmarc.mx");
+    expect(body.identity.documentation).toBe("https://dmarc.mx/docs/api");
+
+    // Connection points at our streamable-HTTP MCP endpoint.
+    expect(body.connection.protocol).toBe("mcp");
+    expect(body.connection.transport).toBe("streamable-http");
+    expect(body.connection.endpoint).toBe("https://dmarc.mx/mcp");
+
+    expect(body.auth.type).toBeTruthy();
+
+    const scan = body.capabilities.actions.find(
+      (a) => a.name === "scan_domain",
+    );
+    expect(scan).toBeDefined();
+    expect(scan?.intent).toBe("query");
+    expect(scan?.semantics).toBe("read");
+    expect(scan?.description).toBeTruthy();
   });
 });
 
