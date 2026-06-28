@@ -160,6 +160,38 @@ describe("inbox store — parseVerdict", () => {
     expect(v.size_bytes).toBe(1234);
   });
 
+  it("picks the DMARC-relevant SPF (mailfrom) and From-aligned DKIM from a multi-result header", () => {
+    // Real shape: a forwarding relay's results plus the author domain's. The
+    // first spf= is the HELO check (none); the mailfrom check (pass) is what
+    // DMARC used. The first dkim= is the relay (cloudflare-smtp.net); the
+    // From-aligned signature is the author domain (cortech.online).
+    const headers = new Headers({
+      "Authentication-Results":
+        "mx.cloudflare.net; dkim=pass header.d=cloudflare-smtp.net header.s=cf2024-1 header.b=haR8eT2T; dkim=pass header.d=cortech.online header.s=cf-bounce header.b=TkrLHPRk; dmarc=pass header.from=cortech.online policy.dmarc=reject; spf=none (mx.cloudflare.net: no SPF records found for postmaster@bg-he.cloudflare-smtp.net) smtp.helo=bg-he.cloudflare-smtp.net; spf=pass (mx.cloudflare.net: domain of bounces@cf-bounce.cortech.online designates 104.30.16.74 as permitted sender) smtp.mailfrom=bounces@cf-bounce.cortech.online; arc=none smtp.remote-ip=104.30.16.74",
+    });
+    const v = parseVerdict(headers, "bounces@cf-bounce.cortech.online", 4096);
+    expect(v.spf).toBe("pass"); // mailfrom, not the HELO "none"
+    expect(v.dkim).toBe("pass");
+    expect(v.dmarc).toBe("pass");
+    expect(v.alignment).toBe("pass");
+    // The user's own signature, not the Cloudflare relay's cf2024-1.
+    expect(v.dkim_selector).toBe("cf-bounce");
+    expect(v.dkim_domain).toBe("cortech.online");
+  });
+
+  it("falls back to the first DKIM result when none aligns with the From domain", () => {
+    const headers = new Headers({
+      "Authentication-Results":
+        "mx; dkim=pass header.d=relay.example header.s=r1; dmarc=fail header.from=victim.example; spf=fail smtp.mailfrom=relay.example",
+    });
+    const v = parseVerdict(headers, "x@relay.example", 1);
+    expect(v.dkim).toBe("pass");
+    expect(v.dkim_selector).toBe("r1");
+    expect(v.dkim_domain).toBe("relay.example");
+    expect(v.spf).toBe("fail");
+    expect(v.dmarc).toBe("fail");
+  });
+
   it("derives alignment=fail when dmarc fails", () => {
     const headers = new Headers({
       "Authentication-Results": "mx; spf=fail; dkim=fail; dmarc=fail",

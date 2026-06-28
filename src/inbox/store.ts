@@ -214,6 +214,72 @@ function deriveAlignment(dmarc: string | null): string | null {
   return null;
 }
 
+// Charset-validate + cap an attacker-controlled tag value (selector/domain)
+// pulled from a header. Returns null if it doesn't match the allowed charset.
+function cleanTag(value: string | null, charset: RegExp): string | null {
+  if (!value) return null;
+  const v = value.trim();
+  if (!charset.test(v)) return null;
+  return cap(v, MAX_SELECTOR_LEN);
+}
+
+// Split an Authentication-Results value into its `;`-separated method clauses.
+// Cloudflare's parenthetical comments don't contain `;`, so a plain split is
+// enough to isolate each `method=result ...` clause for the verdict we trust.
+function authClauses(authResults: string): string[] {
+  return authResults
+    .split(";")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+// Relaxed-ish domain alignment: exact match or a parent/child relationship.
+// Good enough to pick which signature to *surface*; Cloudflare's `dmarc=`
+// result is the authoritative alignment verdict.
+function domainsAlign(a: string, b: string): boolean {
+  const x = a.toLowerCase();
+  const y = b.toLowerCase();
+  return x === y || x.endsWith(`.${y}`) || y.endsWith(`.${x}`);
+}
+
+// A message carries multiple SPF/DKIM results (the relay's and the author
+// domain's). The DMARC-relevant ones are the SPF check tied to `smtp.mailfrom`
+// (the envelope identity) and the DKIM signature whose `header.d` aligns with
+// `header.from`. We surface those rather than the first clause, so the verdict
+// reflects the *user's own* domain, not the forwarding relay.
+
+function selectSpf(authResults: string, receivedSpf: string): string | null {
+  const spfClauses = authClauses(authResults).filter((c) => /^spf=/i.test(c));
+  if (spfClauses.length > 0) {
+    const chosen =
+      spfClauses.find((c) => /smtp\.mailfrom=/i.test(c)) ?? spfClauses[0];
+    const m = chosen.match(/^spf=([a-zA-Z]+)/i);
+    if (m) return m[1].toLowerCase();
+  }
+  // No SPF in Authentication-Results — fall back to a Received-SPF header.
+  return receivedSpf.match(/^\s*([a-zA-Z]+)/)?.[1]?.toLowerCase() ?? null;
+}
+
+interface DkimClause {
+  result: string;
+  domain: string | null;
+  selector: string | null;
+}
+
+function parseDkimClauses(authResults: string): DkimClause[] {
+  const out: DkimClause[] = [];
+  for (const clause of authClauses(authResults)) {
+    const m = clause.match(/^dkim=([a-zA-Z]+)/i);
+    if (!m) continue;
+    out.push({
+      result: m[1].toLowerCase(),
+      domain: clause.match(/header\.d=([^\s;]+)/i)?.[1] ?? null,
+      selector: clause.match(/header\.s=([^\s;]+)/i)?.[1] ?? null,
+    });
+  }
+  return out;
+}
+
 /**
  * Parse the authentication verdict out of an inbound message's headers.
  * Cloudflare stamps `Authentication-Results` at ingest; no MIME body parse is
@@ -229,11 +295,26 @@ export function parseVerdict(
   const receivedSpf = headers.get("Received-SPF") ?? "";
 
   const dmarc = extractMethodResult(authResultsRaw, "dmarc");
-  const spf =
-    extractMethodResult(authResultsRaw, "spf") ??
-    receivedSpf.match(/^\s*([a-zA-Z]+)/)?.[1]?.toLowerCase() ??
-    null;
-  const dkim = extractMethodResult(authResultsRaw, "dkim");
+  const spf = selectSpf(authResultsRaw, receivedSpf);
+
+  // Prefer the DKIM signature aligned with the DMARC From domain (the user's
+  // own), then any signature, then the raw DKIM-Signature header as a fallback.
+  const fromDomain =
+    authResultsRaw.match(/header\.from=([^\s;]+)/i)?.[1]?.toLowerCase() ?? null;
+  const dkimClauses = parseDkimClauses(authResultsRaw);
+  const chosenDkim =
+    (fromDomain
+      ? dkimClauses.find((c) => c.domain && domainsAlign(c.domain, fromDomain))
+      : undefined) ?? dkimClauses[0];
+
+  const dkim =
+    chosenDkim?.result ?? extractMethodResult(authResultsRaw, "dkim");
+  const dkim_selector =
+    cleanTag(chosenDkim?.selector ?? null, /^[A-Za-z0-9._-]+$/) ??
+    extractDkimTag(dkimSig, "s", /^[A-Za-z0-9._-]+$/);
+  const dkim_domain =
+    cleanTag(chosenDkim?.domain ?? null, /^[A-Za-z0-9.-]+$/) ??
+    extractDkimTag(dkimSig, "d", /^[A-Za-z0-9.-]+$/);
 
   return {
     status: "received",
@@ -242,8 +323,8 @@ export function parseVerdict(
     dmarc,
     alignment: deriveAlignment(dmarc),
     from: from ? cap(from, MAX_FROM_LEN) : null,
-    dkim_selector: extractDkimTag(dkimSig, "s", /^[A-Za-z0-9._-]+$/),
-    dkim_domain: extractDkimTag(dkimSig, "d", /^[A-Za-z0-9.-]+$/),
+    dkim_selector,
+    dkim_domain,
     auth_results: authResultsRaw
       ? cap(authResultsRaw, MAX_AUTH_RESULTS_LEN)
       : null,
