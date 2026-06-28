@@ -4,6 +4,7 @@ import type {
   DaneResult,
   DkimResult,
   DmarcResult,
+  DnsblResult,
   DnssecResult,
   MtaStsResult,
   MxResult,
@@ -410,6 +411,33 @@ export function renderDaneCard(d: DaneResult): string {
   return protocolCard("DANE/TLSA", d.status, subtitle, body, false, "dane");
 }
 
+export function renderDnsblCard(d: DnsblResult): string {
+  const listed = d.checked.filter((c) => c.verdict === "listed");
+  const subtitle = !d.enabled
+    ? "Not checked"
+    : listed.length > 0
+      ? `${listed.length} IP${listed.length !== 1 ? "s" : ""} listed`
+      : d.ips_checked > 0
+        ? `${d.ips_checked} IP${d.ips_checked !== 1 ? "s" : ""} checked, none listed`
+        : "No sending IPs to check";
+  let body = "";
+  if (d.checked.length > 0) {
+    body += `<div class="tag-grid">`;
+    for (const c of d.checked) {
+      const badge =
+        c.verdict === "listed"
+          ? `<span class="tag-fail">listed${c.zones && c.zones.length > 0 ? ` · ${esc(c.zones.join(", "))}` : ""}</span>`
+          : c.verdict === "error"
+            ? `<span class="tag-warn">unverified</span>`
+            : `<span class="tag-pass">clean</span>`;
+      body += `<div><strong>${esc(c.ip)}</strong> <span class="tag-source">${esc(c.source)}</span></div><div>${badge}</div>`;
+    }
+    body += `</div>`;
+  }
+  body += validationList(d.validations);
+  return protocolCard("DNSBL", d.status, subtitle, body, false);
+}
+
 function reportBody(result: ScanResult): string {
   const {
     mx,
@@ -422,6 +450,7 @@ function reportBody(result: ScanResult): string {
     tls_rpt,
     dnssec,
     dane,
+    dnsbl,
   } = result.protocols;
 
   return `<main class="report">
@@ -453,6 +482,7 @@ function reportBody(result: ScanResult): string {
   ${tls_rpt ? renderTlsRptCard(tls_rpt) : ""}
   ${dnssec ? renderDnssecCard(dnssec) : ""}
   ${dane ? renderDaneCard(dane) : ""}
+  ${dnsbl ? renderDnsblCard(dnsbl) : ""}
   ${monitorSnapshotCard(result)}
   <div class="learn-link" style="margin-top:2.5rem">Analyze message headers: <a href="https://toolbox.googleapps.com/apps/messageheader/" target="_blank" rel="noopener">Google &#8599;</a> &middot; <a href="https://mha.azurewebsites.net/" target="_blank" rel="noopener">Microsoft &#8599;</a></div>
   <div class="learn-link" style="margin-top:0.4rem;margin-bottom:1rem"><a href="/scoring">How is my score calculated?</a> &middot; <a href="https://www.cloudflare.com/learning/email-security/dmarc-dkim-spf/" target="_blank" rel="noopener">What is email security? &#8599;</a> &middot; <a href="https://github.com/schmug/dmarcheck/releases" target="_blank" rel="noopener">Changelog &#8599;</a></div>
@@ -563,6 +593,7 @@ export function renderStreamingLoading(
     ${skeletonCard("TLS-RPT", false, "tls_rpt")}
     ${skeletonCard("DNSSEC", false)}
     ${skeletonCard("DANE/TLSA", false, "dane")}
+    ${skeletonCard("DNSBL", false, "dnsbl")}
   </div>
   <noscript><meta http-equiv="refresh" content="0;url=/check?${esc(qs)}&_direct=1"></noscript>
 </main>

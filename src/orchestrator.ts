@@ -3,6 +3,7 @@ import { analyzeBimi, prefetchBimiDns } from "./analyzers/bimi.js";
 import { analyzeDane } from "./analyzers/dane.js";
 import { analyzeDkim } from "./analyzers/dkim.js";
 import { analyzeDmarc } from "./analyzers/dmarc.js";
+import { analyzeDnsbl } from "./analyzers/dnsbl.js";
 import { analyzeDnssec } from "./analyzers/dnssec.js";
 import { analyzeMtaSts } from "./analyzers/mta-sts.js";
 import { analyzeMx } from "./analyzers/mx.js";
@@ -15,6 +16,7 @@ import type {
   DaneResult,
   DkimResult,
   DmarcResult,
+  DnsblResult,
   DnssecResult,
   MtaStsResult,
   MxResult,
@@ -42,7 +44,8 @@ export type ProtocolId =
   | "security_txt"
   | "tls_rpt"
   | "dnssec"
-  | "dane";
+  | "dane"
+  | "dnsbl";
 export type ProtocolResult =
   | MxResult
   | DmarcResult
@@ -53,7 +56,8 @@ export type ProtocolResult =
   | SecurityTxtResult
   | TlsRptResult
   | DnssecResult
-  | DaneResult;
+  | DaneResult
+  | DnsblResult;
 
 export const PROTOCOL_LABEL: Record<ProtocolId, string> = {
   mx: "MX",
@@ -66,6 +70,7 @@ export const PROTOCOL_LABEL: Record<ProtocolId, string> = {
   tls_rpt: "TLS-RPT",
   dnssec: "DNSSEC",
   dane: "DANE/TLSA",
+  dnsbl: "DNSBL",
 };
 
 function analyzerErrorValidation(id: ProtocolId, message: string): Validation {
@@ -146,6 +151,15 @@ const ERROR_RESULTS = {
     status: "fail",
     hosts: [],
     validations: [analyzerErrorValidation("dane", m)],
+    lookup_error: { code: "analyzer_error", message: m },
+  }),
+  dnsbl: (m: string): DnsblResult => ({
+    status: "fail",
+    enabled: false,
+    checked: [],
+    ips_found: 0,
+    ips_checked: 0,
+    validations: [analyzerErrorValidation("dnsbl", m)],
     lookup_error: { code: "analyzer_error", message: m },
   }),
 } as const;
@@ -266,6 +280,10 @@ export async function scan(
   customSelectors: string[],
   config: Partial<ScoringConfig>,
   limits: ScanLimits = DEFAULT_SCAN_LIMITS,
+  // Optional Spamhaus DQS key (env secret). When absent, the DNSBL analyzer is
+  // a clean no-op (#587). Threaded the same way config/budget are; never logged
+  // or cached.
+  dnsblKey?: string,
 ): Promise<ScanResult> {
   // GHSA-f828-8wf8-vqp2 — bound the whole scan with one deadline + one shared
   // DNS-query pool, so neither total outbound queries nor wall-clock can scale
@@ -319,6 +337,13 @@ export async function scan(
       ),
     );
 
+    // Chain DNSBL off SPF + MX — the sending IPs are derived from both. No-op
+    // (no DNS) when dnsblKey is absent.
+    const dnsblPromise = Promise.all([spfPromise, mxPromise]).then(
+      ([spfResult, mxResult]) =>
+        analyzeDnsbl(domain, spfResult, mxResult, dnsblKey, budget),
+    );
+
     const bimiPromise = Promise.all([dmarcPromise, bimiDnsPromise]).then(
       ([dmarcResult, bimiDns]) => {
         const dmarcPolicy = dmarcResult.tags?.p?.toLowerCase() ?? null;
@@ -340,6 +365,7 @@ export async function scan(
       tlsRptResult,
       dnssecResult,
       daneResult,
+      dnsblResult,
     ] = await Promise.all([
       bounded("dmarc", dmarcPromise, ERROR_RESULTS.dmarc),
       bounded("spf", spfPromise, ERROR_RESULTS.spf),
@@ -351,6 +377,7 @@ export async function scan(
       bounded("tls_rpt", tlsRptPromise, ERROR_RESULTS.tls_rpt),
       bounded("dnssec", dnssecPromise, ERROR_RESULTS.dnssec),
       bounded("dane", danePromise, ERROR_RESULTS.dane),
+      bounded("dnsbl", dnsblPromise, ERROR_RESULTS.dnsbl),
     ]);
 
     Sentry.addBreadcrumb({
@@ -407,6 +434,12 @@ export async function scan(
       data: { protocol: "dane", status: daneResult.status },
       level: "info",
     });
+    Sentry.addBreadcrumb({
+      category: "analyzer.complete",
+      message: `dnsbl: ${dnsblResult.status}`,
+      data: { protocol: "dnsbl", status: dnsblResult.status },
+      level: "info",
+    });
 
     return await buildScanResult(
       domain,
@@ -421,6 +454,7 @@ export async function scan(
         tls_rpt: tlsRptResult,
         dnssec: dnssecResult,
         dane: daneResult,
+        dnsbl: dnsblResult,
       },
       config,
       budget,
@@ -438,6 +472,8 @@ export async function scanStreaming(
   onResult: (id: ProtocolId, result: ProtocolResult) => void,
   config: Partial<ScoringConfig>,
   limits: ScanLimits = DEFAULT_SCAN_LIMITS,
+  // Optional Spamhaus DQS key (env secret); absent → DNSBL no-op (#587).
+  dnsblKey?: string,
 ): Promise<ScanResult> {
   // GHSA-f828-8wf8-vqp2 — same deadline + shared DNS-query pool as scan() (see
   // there). The SSE contract is preserved under the deadline: protocols that
@@ -515,6 +551,12 @@ export async function scanStreaming(
       ),
     );
 
+    // Chain DNSBL off SPF + MX (derives sending IPs from both); no-op when no key
+    const dnsblPromise = Promise.all([spfPromise, mxPromise]).then(
+      ([spfResult, mxResult]) =>
+        analyzeDnsbl(domain, spfResult, mxResult, dnsblKey, budget),
+    );
+
     // Chain BIMI off DMARC and BIMI DNS
     const bimiPromise = Promise.all([dmarcPromise, bimiDnsPromise]).then(
       ([dmarcResult, bimiDns]) => {
@@ -545,6 +587,7 @@ export async function scanStreaming(
       tlsRptResult,
       dnssecResult,
       daneResult,
+      dnsblResult,
     ] = await Promise.all([
       streamBounded("dmarc", dmarcPromise, ERROR_RESULTS.dmarc),
       streamBounded("spf", spfPromise, ERROR_RESULTS.spf),
@@ -564,6 +607,7 @@ export async function scanStreaming(
       streamBounded("tls_rpt", tlsRptPromise, ERROR_RESULTS.tls_rpt),
       streamBounded("dnssec", dnssecPromise, ERROR_RESULTS.dnssec),
       streamBounded("dane", danePromise, ERROR_RESULTS.dane),
+      streamBounded("dnsbl", dnsblPromise, ERROR_RESULTS.dnsbl),
     ]);
 
     const result = await buildScanResult(
@@ -579,6 +623,7 @@ export async function scanStreaming(
         tls_rpt: tlsRptResult,
         dnssec: dnssecResult,
         dane: daneResult,
+        dnsbl: dnsblResult,
       },
       config,
       budget,

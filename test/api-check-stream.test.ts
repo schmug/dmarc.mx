@@ -144,6 +144,14 @@ const CACHED_SCAN = {
       hosts: [],
       validations: [],
     },
+    dnsbl: {
+      status: "info" as const,
+      enabled: false,
+      checked: [],
+      ips_found: 0,
+      ips_checked: 0,
+      validations: [],
+    },
   },
 };
 
@@ -458,6 +466,9 @@ describe("GET /api/check/stream — custom selectors", () => {
       ["google", "microsoft"],
       expect.any(Function),
       {},
+      // limits defaulted (undefined) + optional DNSBL key (unset in tests).
+      undefined,
+      undefined,
     );
   });
 

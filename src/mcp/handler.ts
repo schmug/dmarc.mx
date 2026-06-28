@@ -116,6 +116,9 @@ export interface McpEnv {
   executionCtx: Pick<ExecutionContext, "waitUntil">;
   // Self-host scoring rubric override, forwarded to scan() (issue #25).
   scoringConfig: Partial<ScoringConfig>;
+  // Optional Spamhaus DQS key, forwarded to scan() (issue #587). Absent → the
+  // DNSBL analyzer is a no-op. Never logged or cached.
+  dnsblKey?: string;
 }
 
 export async function handleMcpRequest(
@@ -193,7 +196,15 @@ async function handleToolCall(
 
   try {
     const cached = await getCachedScan(domain, selectors);
-    const result = cached ?? (await scan(domain, selectors, env.scoringConfig));
+    const result =
+      cached ??
+      (await scan(
+        domain,
+        selectors,
+        env.scoringConfig,
+        undefined,
+        env.dnsblKey,
+      ));
     if (!cached) {
       const pendingWrite = setCachedScan(domain, selectors, result);
       if (pendingWrite) {

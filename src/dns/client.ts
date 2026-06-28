@@ -192,6 +192,63 @@ export async function queryDoh(
   }
 }
 
+// DNSBL/RBL lookup over the Cloudflare DoH JSON API. The query name embeds a
+// per-account Spamhaus DQS key (`<reversed-ip>.<key>.<zone>`), which is a deploy
+// secret — so this function NEVER breadcrumbs or error-messages the full name.
+// Only the reversed IP + zone are logged; the key is replaced with a redacted
+// placeholder, and error messages are generic (the underlying fetch error can
+// echo the request URL, which carries the key, so it is deliberately dropped).
+//
+// Returns the listing A-record values (e.g. ["127.0.0.2"]) when the IP is
+// listed, null when not listed (NXDOMAIN / no answer), and throws
+// DnsLookupError on SERVFAIL/timeout so callers surface "could not verify"
+// rather than a false "clean".
+export async function queryDnsbl(
+  reversedIp: string,
+  key: string,
+  zone: string,
+  budget?: ScanBudget,
+): Promise<string[] | null> {
+  budget?.consume();
+  const redacted = `${reversedIp}.<key>.${zone}`;
+  Sentry.addBreadcrumb({
+    category: "dns.query",
+    message: `DNSBL A ${redacted}`,
+    data: { type: "A", hostname: redacted },
+    level: "info",
+  });
+  const name = `${reversedIp}.${key}.${zone}`;
+  const url = `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(name)}&type=A`;
+  try {
+    const resp = await withTimeout(
+      fetch(url, {
+        headers: { Accept: "application/dns-json" },
+        redirect: "follow",
+      }),
+      DNS_TIMEOUT_MS,
+    );
+    if (!resp.ok) {
+      throw new DnsLookupError(
+        "ESERVFAIL",
+        `DNSBL query returned HTTP ${resp.status}`,
+      );
+    }
+    const data = (await resp.json()) as DohResponse;
+    if (data.Status === 3 || !data.Answer || data.Answer.length === 0) {
+      return null;
+    }
+    return data.Answer.filter((a) => a.type === 1).map((a) => a.data);
+  } catch (err: unknown) {
+    if (err instanceof DnsLookupError) throw err;
+    if (err instanceof Error && err.message === "DNS timeout") {
+      throw new DnsLookupError("DNS_TIMEOUT", "DNSBL query timed out");
+    }
+    // Deliberately generic — the underlying error message can include the
+    // request URL, which carries the DQS key.
+    throw new DnsLookupError("ESERVFAIL", "DNSBL query failed");
+  }
+}
+
 export async function queryMx(
   name: string,
   budget?: ScanBudget,

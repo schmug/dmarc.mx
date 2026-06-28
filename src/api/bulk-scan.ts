@@ -53,6 +53,8 @@ export interface ProcessBulkScanInput {
   scanFn?: (domain: string) => Promise<ScanLike>;
   // Self-host scoring rubric override, forwarded to scan() (issue #25).
   scoringConfig?: Partial<ScoringConfig>;
+  // Optional Spamhaus DQS key, forwarded to scan() (issue #587); absent → no-op.
+  dnsblKey?: string;
   now?: number;
   // Knobs for tests; defaults match the production caps above.
   inBandCap?: number;
@@ -88,7 +90,8 @@ export async function processBulkScan(
 ): Promise<ProcessBulkScanOutcome> {
   const scanFn =
     input.scanFn ??
-    ((domain: string) => scan(domain, [], input.scoringConfig ?? {}));
+    ((domain: string) =>
+      scan(domain, [], input.scoringConfig ?? {}, undefined, input.dnsblKey));
   const inBandCap = input.inBandCap ?? BULK_IN_BAND_CAP;
   const batchSize = input.batchSize ?? BULK_BATCH_SIZE;
 
