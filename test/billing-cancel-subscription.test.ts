@@ -58,3 +58,61 @@ describe("billing/stripe.cancelSubscription", () => {
     );
   });
 });
+
+describe("billing/stripe.cancelActiveSubscriptionsForCustomer", () => {
+  it("lists billable subscriptions for the customer and cancels each", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (url) => {
+        const { pathname } = new URL(String(url));
+        if (pathname === "/v1/subscriptions") {
+          return new Response(
+            JSON.stringify({
+              data: [
+                { id: "sub_a", status: "active" },
+                { id: "sub_b", status: "canceled" },
+              ],
+            }),
+            { status: 200 },
+          );
+        }
+        if (pathname === "/v1/subscriptions/sub_a") {
+          return new Response(
+            JSON.stringify({ id: "sub_a", status: "canceled" }),
+            { status: 200 },
+          );
+        }
+        throw new Error(`unexpected fetch: ${url}`);
+      });
+
+    const { cancelActiveSubscriptionsForCustomer } = await import(
+      "../src/billing/stripe.js"
+    );
+    const cancelled = await cancelActiveSubscriptionsForCustomer(
+      ENV,
+      "cus_123",
+    );
+
+    expect(cancelled).toBe(true);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns false when the customer has no billable subscriptions", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({ data: [{ id: "sub_x", status: "canceled" }] }),
+        { status: 200 },
+      ),
+    );
+
+    const { cancelActiveSubscriptionsForCustomer } = await import(
+      "../src/billing/stripe.js"
+    );
+    const cancelled = await cancelActiveSubscriptionsForCustomer(
+      ENV,
+      "cus_123",
+    );
+
+    expect(cancelled).toBe(false);
+  });
+});

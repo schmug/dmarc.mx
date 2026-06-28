@@ -86,6 +86,11 @@ function makeDb(state: MockState): D1Database {
           return (state.subscriptions.get(params[0] as string) ??
             null) as T | null;
         }
+        if (/FROM stripe_events WHERE event_id = \?/i.test(sql)) {
+          return state.events.has(params[0] as string)
+            ? ({ exists: 1 } as T)
+            : null;
+        }
         return null;
       },
     }),
@@ -267,6 +272,51 @@ describe("stripeWebhookRoutes POST /webhooks/stripe", () => {
     );
     expect(res.status).toBe(200);
     expect(state.subscriptions.get("u1")).toMatchObject({ status: "canceled" });
+  });
+
+  it("repairs a missing subscription row on replay when the event was recorded before upsert", async () => {
+    const state = makeState();
+    state.users.set("u1", {
+      id: "u1",
+      email: "pro@example.com",
+      email_domain: "example.com",
+      stripe_customer_id: "cus_pro",
+      email_alerts_enabled: 1,
+      api_key_retirement_acknowledged_at: 0,
+      created_at: 0,
+    });
+    // Simulate the old bug: event id recorded but upsert never ran.
+    state.events.add("evt_orphan");
+    const app = new Hono();
+    app.route("/webhooks", stripeWebhookRoutes);
+
+    const body = subscriptionEventBody({
+      eventId: "evt_orphan",
+      eventType: "customer.subscription.created",
+      customerId: "cus_pro",
+      subscriptionId: "sub_1",
+      status: "active",
+    });
+    const ts = Math.floor(Date.now() / 1000);
+    const sig = await signStripePayload(
+      STRIPE_SECRETS.STRIPE_WEBHOOK_SECRET,
+      ts,
+      body,
+    );
+
+    const res = await app.request(
+      "/webhooks/stripe",
+      { method: "POST", body, headers: { "stripe-signature": sig } },
+      { DB: makeDb(state), ...STRIPE_SECRETS },
+    );
+
+    expect(res.status).toBe(200);
+    const payload = (await res.json()) as { replay?: boolean };
+    expect(payload.replay).toBe(true);
+    expect(state.subscriptions.get("u1")).toMatchObject({
+      stripe_subscription_id: "sub_1",
+      status: "active",
+    });
   });
 
   it("replays the same event id without re-processing", async () => {

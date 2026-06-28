@@ -85,6 +85,20 @@ export async function upsertSubscription(
     .run();
 }
 
+// Whether the webhook idempotency ledger already contains this event id.
+// Used to skip redundant upserts on Stripe replays while still repairing rows
+// that were never written when the event was recorded before upsert failed.
+export async function isStripeEventRecorded(
+  db: D1Database,
+  eventId: string,
+): Promise<boolean> {
+  const row = await db
+    .prepare("SELECT 1 AS exists FROM stripe_events WHERE event_id = ?")
+    .bind(eventId)
+    .first();
+  return row !== null;
+}
+
 // Returns true if this event id had not been seen before (caller should
 // proceed with handling). Returns false on a replay (caller should 200 and
 // skip). Relies on the PRIMARY KEY conflict to be atomic under D1.

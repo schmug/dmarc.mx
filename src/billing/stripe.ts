@@ -182,6 +182,60 @@ interface StripeSubscription {
   status: string;
 }
 
+interface StripeSubscriptionList {
+  data: StripeSubscription[];
+}
+
+// Stripe statuses that can still bill the customer — mirrors ACTIVE_STATUSES in
+// subscriptions.ts so account deletion cancels subs even when the local D1
+// mirror row is missing or stale.
+const BILLABLE_STATUSES = new Set(["active", "trialing", "past_due"]);
+
+async function stripeGet<T>(
+  env: BillingEnv,
+  path: string,
+  query: Record<string, string>,
+): Promise<T> {
+  const qs = new URLSearchParams(query).toString();
+  const res = await fetch(`https://api.stripe.com/v1${path}?${qs}`, {
+    headers: { Authorization: `Bearer ${env.STRIPE_SECRET_KEY}` },
+  });
+  const json = (await res.json()) as T | { error: { message: string } };
+  if (!res.ok) {
+    const err = (json as { error?: { message?: string } }).error;
+    throw new Error(`Stripe API ${res.status}: ${err?.message ?? "unknown"}`);
+  }
+  return json as T;
+}
+
+// Lists subscriptions for a Stripe customer. Used as a fallback during account
+// deletion when the local subscriptions row is absent but checkout succeeded.
+export async function listCustomerSubscriptions(
+  env: BillingEnv,
+  customerId: string,
+): Promise<StripeSubscription[]> {
+  const page = await stripeGet<StripeSubscriptionList>(env, "/subscriptions", {
+    customer: customerId,
+    limit: "100",
+  });
+  return page.data;
+}
+
+// Cancels every billable subscription on a customer. Returns true when at
+// least one subscription was cancelled (or was already gone per 404 handling).
+export async function cancelActiveSubscriptionsForCustomer(
+  env: BillingEnv,
+  customerId: string,
+): Promise<boolean> {
+  const subs = await listCustomerSubscriptions(env, customerId);
+  const billable = subs.filter((s) => BILLABLE_STATUSES.has(s.status));
+  if (billable.length === 0) return false;
+  for (const sub of billable) {
+    await cancelSubscription(env, sub.id);
+  }
+  return true;
+}
+
 // Cancels a subscription immediately (not at period end). Used by account
 // deletion (issue #550): we must stop billing a card for a service the user is
 // erasing. `DELETE /v1/subscriptions/{id}` is Stripe's immediate-cancel verb.

@@ -2,6 +2,8 @@ import { Hono } from "hono";
 import { requireAuth } from "../auth/middleware.js";
 import type { SessionPayload } from "../auth/session.js";
 import {
+  getSubscriptionByUserId,
+  isStripeEventRecorded,
   recordStripeEventOnce,
   upsertSubscription,
 } from "../db/subscriptions.js";
@@ -114,18 +116,16 @@ stripeWebhookRoutes.post("/stripe", async (c) => {
   }
 
   // Idempotency guard — Stripe retries delivery for up to 3 days on 5xx or
-  // network error. Reject replays of an event id we've already handled.
+  // network error. Apply side effects BEFORE recording the event id so a
+  // transient upsert failure does not permanently skip processing on replay.
   const db = env.DB;
-  const fresh = await recordStripeEventOnce(db, event.id);
-  if (!fresh) {
-    return c.json({ received: true, replay: true });
-  }
 
-  if (
+  const isSubscriptionEvent =
     event.type === "customer.subscription.created" ||
     event.type === "customer.subscription.updated" ||
-    event.type === "customer.subscription.deleted"
-  ) {
+    event.type === "customer.subscription.deleted";
+
+  if (isSubscriptionEvent) {
     const sub = event.data.object;
     const user = await getUserByStripeCustomerId(db, sub.customer);
     if (!user) {
@@ -140,17 +140,25 @@ stripeWebhookRoutes.post("/stripe", async (c) => {
     }
 
     const priceId = sub.items?.data?.[0]?.price?.id ?? "";
-    // For `customer.subscription.deleted`, Stripe still sends status (usually
-    // "canceled"); upserting with that status is exactly what we want —
-    // getPlanForUser will drop the user to "free" next request.
-    await upsertSubscription(db, {
-      user_id: user.id,
-      stripe_subscription_id: sub.id,
-      stripe_price_id: priceId,
-      status: sub.status,
-      current_period_end: sub.current_period_end ?? null,
-      cancel_at_period_end: sub.cancel_at_period_end === true,
-    });
+    const eventRecorded = await isStripeEventRecorded(db, event.id);
+    const localSub = await getSubscriptionByUserId(db, user.id);
+    // Upsert on first delivery, and on replay only when repairing a row that
+    // was never written (event id recorded before upsert in older builds).
+    if (!eventRecorded || !localSub) {
+      await upsertSubscription(db, {
+        user_id: user.id,
+        stripe_subscription_id: sub.id,
+        stripe_price_id: priceId,
+        status: sub.status,
+        current_period_end: sub.current_period_end ?? null,
+        cancel_at_period_end: sub.cancel_at_period_end === true,
+      });
+    }
+  }
+
+  const fresh = await recordStripeEventOnce(db, event.id);
+  if (!fresh) {
+    return c.json({ received: true, replay: true });
   }
   // All other event types are accepted but not acted on. Returning 2xx stops
   // Stripe from retrying them; we'd rather silently ignore unknown types

@@ -2,9 +2,12 @@ import * as Sentry from "@sentry/cloudflare";
 import { sendAccountDeletedEmail } from "../alerts/email.js";
 import { deleteWorkosUser } from "../auth/workos.js";
 import { isBillingEnabled } from "../billing/feature-flag.js";
-import { cancelSubscription } from "../billing/stripe.js";
+import {
+  cancelActiveSubscriptionsForCustomer,
+  cancelSubscription,
+} from "../billing/stripe.js";
 import { getSubscriptionByUserId, statusToPlan } from "../db/subscriptions.js";
-import { deleteUser } from "../db/users.js";
+import { deleteUser, getUserById } from "../db/users.js";
 import type { Env } from "../env.js";
 import { enqueueWorkosRetry } from "./workos-retry.js";
 
@@ -54,6 +57,17 @@ export async function deleteAccount(
       // BEFORE any local data is removed.
       await cancelSubscription(env, subscription.stripe_subscription_id);
       stripeCancelled = true;
+    } else {
+      // Local mirror missing or stale (e.g. webhook recorded the event id but
+      // upsert failed on first delivery). Fall back to Stripe as source of
+      // truth so erasure never leaves a billing card attached.
+      const fullUser = await getUserById(env.DB, user.id);
+      if (fullUser?.stripe_customer_id) {
+        stripeCancelled = await cancelActiveSubscriptionsForCustomer(
+          env,
+          fullUser.stripe_customer_id,
+        );
+      }
     }
   }
 
