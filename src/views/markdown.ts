@@ -1,5 +1,6 @@
 import type {
   DaneResult,
+  DnsblResult,
   DnssecResult,
   ScanResult,
   SecurityTxtResult,
@@ -105,6 +106,23 @@ function renderDaneMarkdown(d: DaneResult): string {
   return `## DANE/TLSA — ${d.status}
 
 ${hostLines}
+
+${validationLines(d.validations)}`;
+}
+
+function renderDnsblMarkdown(d: DnsblResult): string {
+  const ipLines =
+    d.checked.length > 0
+      ? d.checked
+          .map(
+            (c) =>
+              `- ${c.ip} (${c.source}): ${c.verdict}${c.verdict === "listed" && c.zones?.length ? ` — ${c.zones.join(", ")}` : ""}`,
+          )
+          .join("\n")
+      : "_No sending IPs checked._";
+  return `## DNSBL — ${d.status}
+
+${ipLines}
 
 ${validationLines(d.validations)}`;
 }
@@ -228,6 +246,8 @@ ${protocols.tls_rpt ? renderTlsRptMarkdown(protocols.tls_rpt) : ""}
 ${protocols.dnssec ? renderDnssecMarkdown(protocols.dnssec) : ""}
 
 ${protocols.dane ? renderDaneMarkdown(protocols.dane) : ""}
+
+${protocols.dnsbl ? renderDnsblMarkdown(protocols.dnsbl) : ""}
 
 ---
 

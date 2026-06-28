@@ -39,6 +39,13 @@ export interface Env {
   // the shipped default rubric, so hosted dmarc.mx and config-less self-hosts
   // are unaffected. Parsed per request via parseScoringConfig().
   SCORING_CONFIG?: string;
+  // Optional Spamhaus DQS (Data Query Service) key enabling the DNSBL/IP-
+  // reputation analyzer (issue #587). Absent → the analyzer is a clean no-op,
+  // so self-host deploys and the test pool are unaffected; set it (as a
+  // wrangler secret) on the hosted deploy to turn the check on. NEVER logged,
+  // returned, or written into a cache key — it is embedded only in the
+  // outbound DQS query name (see queryDnsbl in src/dns/client.ts).
+  DNSBL_DQS_KEY?: string;
   // Cloudflare Access enforcement on `*.workers.dev` preview-branch deploys.
   // Both must be set together — the middleware fail-CLOSEDs (503) on a
   // workers.dev hostname when either is missing. The production custom

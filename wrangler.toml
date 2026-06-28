@@ -33,6 +33,15 @@ ACCESS_TEAM_DOMAIN = "coryrankin.cloudflareaccess.com"
 # Example (self-hosters uncomment and edit):
 # SCORING_CONFIG = '{"requireBimiForAPlus":false,"dkimKeyMinBits":4096}'
 
+# Optional Spamhaus DQS (Data Query Service) key enabling the DNSBL/IP-reputation
+# analyzer (issue #587). It is a SECRET — never set it here as a [vars] value and
+# never commit a real key. Provision it out-of-band with:
+#   wrangler secret put DNSBL_DQS_KEY
+# Absent → the DNSBL analyzer is a clean no-op (informational, no grade impact),
+# so self-host deploys and the test pool are unaffected. The key is embedded only
+# in the outbound DQS query name (see queryDnsbl in src/dns/client.ts); it is
+# never logged, returned in responses, or written into a cache key.
+
 [triggers]
 crons = ["17 6 * * *"]
 

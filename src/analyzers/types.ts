@@ -158,6 +158,42 @@ export interface DaneResult {
   lookup_error?: { code: string; message: string };
 }
 
+/** Per-IP verdict from a DNSBL/IP-reputation check. */
+export interface DnsblListing {
+  /** The sending IP that was queried. */
+  ip: string;
+  /**
+   * Where the IP was derived from, e.g. "SPF ip4", "A:mail.example.com",
+   * "MX:mx.example.com". Never contains the DQS key.
+   */
+  source: string;
+  /** "listed" = on the blocklist, "clean" = not listed, "error" = could not verify. */
+  verdict: "listed" | "clean" | "error";
+  /**
+   * Human-readable Spamhaus zone labels for a listing (e.g. ["SBL", "XBL (CBL)"]).
+   * Set only when verdict is "listed".
+   */
+  zones?: string[];
+}
+
+export interface DnsblResult {
+  status: Status;
+  /**
+   * True only when a DQS key was present and the check actually ran. False on
+   * the credential-gated no-op path (no DNSBL_DQS_KEY) — a clean, scored-out
+   * informational result, never a fail.
+   */
+  enabled: boolean;
+  /** Per-IP results for every IP actually queried (after the per-scan cap). */
+  checked: DnsblListing[];
+  /** Count of derivable sending IPs found before the per-scan cap was applied. */
+  ips_found: number;
+  /** Count of IPs actually queried (≤ ips_found, bounded by the per-scan cap). */
+  ips_checked: number;
+  validations: Validation[];
+  lookup_error?: { code: string; message: string };
+}
+
 export interface ScanResult {
   domain: string;
   timestamp: string;
@@ -175,5 +211,6 @@ export interface ScanResult {
     tls_rpt?: TlsRptResult;
     dnssec?: DnssecResult;
     dane?: DaneResult;
+    dnsbl?: DnsblResult;
   };
 }

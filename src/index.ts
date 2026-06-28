@@ -11,6 +11,7 @@ import type {
   DaneResult,
   DkimResult,
   DmarcResult,
+  DnsblResult,
   DnssecResult,
   MtaStsResult,
   MxResult,
@@ -79,6 +80,7 @@ import {
   renderDaneCard,
   renderDkimCard,
   renderDmarcCard,
+  renderDnsblCard,
   renderDnssecCard,
   renderError,
   renderLandingPage,
@@ -557,7 +559,27 @@ const protocolRenderers: Record<
   tls_rpt: (r) => renderTlsRptCard(r as TlsRptResult),
   dnssec: (r) => renderDnssecCard(r as DnssecResult),
   dane: (r) => renderDaneCard(r as DaneResult),
+  dnsbl: (r) => renderDnsblCard(r as DnsblResult),
 };
+
+// Single chokepoint for env-derived scan inputs: the scoring rubric override
+// and the optional Spamhaus DQS key (#587). Threading the key here (rather than
+// at each route) keeps it on every scan path that warms the shared cache, so
+// the DNSBL result is consistent regardless of which route ran the scan. The
+// key is passed only to the analyzer's outbound query — never logged or cached.
+function envScan(
+  c: Context<{ Bindings: Env }>,
+  domain: string,
+  selectors: string[] = [],
+): Promise<ScanResult> {
+  return scan(
+    domain,
+    selectors,
+    parseScoringConfig(c.env?.SCORING_CONFIG),
+    undefined,
+    c.env?.DNSBL_DQS_KEY,
+  );
+}
 
 function tagScanResult(result: ScanResult): void {
   const scope = Sentry.getCurrentScope();
@@ -649,6 +671,8 @@ app.get("/api/check/stream", async (c) => {
         if (pending) protocolWrites.push(pending);
       },
       parseScoringConfig(c.env?.SCORING_CONFIG),
+      undefined,
+      c.env?.DNSBL_DQS_KEY,
     );
     await Promise.all(protocolWrites);
 
@@ -748,9 +772,7 @@ app.get("/badge", async (c) => {
 
   try {
     const cached = await getCachedScan(domain, []);
-    const result =
-      cached ??
-      (await scan(domain, [], parseScoringConfig(c.env?.SCORING_CONFIG)));
+    const result = cached ?? (await envScan(c, domain, []));
     if (!cached) {
       const pendingCacheWrite = setCachedScan(domain, [], result);
       if (pendingCacheWrite) {
@@ -895,6 +917,7 @@ app.post("/mcp", async (c) => {
   return handleMcpRequest(body, {
     executionCtx: c.executionCtx,
     scoringConfig: parseScoringConfig(c.env?.SCORING_CONFIG),
+    dnsblKey: c.env?.DNSBL_DQS_KEY,
   });
 });
 
@@ -1082,13 +1105,7 @@ app.get("/api/check", async (c) => {
       data: { domain },
       level: "info",
     });
-    const result =
-      cached ??
-      (await scan(
-        domain,
-        selectors,
-        parseScoringConfig(c.env?.SCORING_CONFIG),
-      ));
+    const result = cached ?? (await envScan(c, domain, selectors));
     tagScanResult(result);
     if (!cached) {
       const pendingCacheWrite = setCachedScan(domain, selectors, result);
@@ -1176,6 +1193,7 @@ app.post("/api/bulk-scan", async (c) => {
     rawDomains,
     watchlistCap: watchlistCapFor(plan, override),
     scoringConfig: parseScoringConfig(c.env?.SCORING_CONFIG),
+    dnsblKey: c.env?.DNSBL_DQS_KEY,
   });
   if (isCapExceeded(outcome)) {
     return c.json(
@@ -1282,11 +1300,7 @@ app.get("/check/score", async (c) => {
       data: { domain, selectors },
       level: "info",
     });
-    const result = await scan(
-      domain,
-      selectors,
-      parseScoringConfig(c.env?.SCORING_CONFIG),
-    );
+    const result = await envScan(c, domain, selectors);
     tagScanResult(result);
     return c.html(renderScoreBreakdown(result));
   } catch (err) {
@@ -1337,13 +1351,7 @@ app.get("/check", async (c) => {
         level: "info",
       });
       const cached = await getCachedScan(domain, selectors);
-      const result =
-        cached ??
-        (await scan(
-          domain,
-          selectors,
-          parseScoringConfig(c.env?.SCORING_CONFIG),
-        ));
+      const result = cached ?? (await envScan(c, domain, selectors));
       tagScanResult(result);
       if (!cached) {
         const pendingCacheWrite = setCachedScan(domain, selectors, result);
@@ -1367,11 +1375,7 @@ app.get("/check", async (c) => {
         data: { domain, selectors },
         level: "info",
       });
-      const result = await scan(
-        domain,
-        selectors,
-        parseScoringConfig(c.env?.SCORING_CONFIG),
-      );
+      const result = await envScan(c, domain, selectors);
       tagScanResult(result);
       return c.json(result);
     } catch (err) {
@@ -1389,11 +1393,7 @@ app.get("/check", async (c) => {
         data: { domain, selectors },
         level: "info",
       });
-      const result = await scan(
-        domain,
-        selectors,
-        parseScoringConfig(c.env?.SCORING_CONFIG),
-      );
+      const result = await envScan(c, domain, selectors);
       tagScanResult(result);
       return c.body(generateCsv(result), 200, {
         "Content-Type": "text/csv; charset=utf-8",
@@ -1422,13 +1422,7 @@ app.get("/check", async (c) => {
         data: { domain },
         level: "info",
       });
-      const result =
-        cached ??
-        (await scan(
-          domain,
-          selectors,
-          parseScoringConfig(c.env?.SCORING_CONFIG),
-        ));
+      const result = cached ?? (await envScan(c, domain, selectors));
       tagScanResult(result);
       if (!cached) {
         const pendingCacheWrite = setCachedScan(domain, selectors, result);
@@ -1498,6 +1492,7 @@ async function scheduled(
       db: env.DB,
       now: Math.floor(Date.now() / 1000),
       scoringConfig: parseScoringConfig(env.SCORING_CONFIG),
+      dnsblKey: env.DNSBL_DQS_KEY,
     });
     const scope = Sentry.getCurrentScope();
     scope.setTag("cron.scanned", String(rescanResult.scanned));

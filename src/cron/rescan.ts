@@ -37,6 +37,8 @@ interface RescanDeps {
   scanFn?: (domain: string) => Promise<ScanResult>;
   // Self-host scoring rubric override, forwarded to scan() (issue #25).
   scoringConfig?: Partial<ScoringConfig>;
+  // Optional Spamhaus DQS key, forwarded to scan() (issue #587); absent → no-op.
+  dnsblKey?: string;
   fireWebhookFn?: WebhookFireFn;
 }
 
@@ -112,7 +114,8 @@ async function rescanOne(
 ): Promise<{ alerts: number; error?: unknown }> {
   const scanFn =
     deps.scanFn ??
-    ((domain: string) => scan(domain, [], deps.scoringConfig ?? {}));
+    ((domain: string) =>
+      scan(domain, [], deps.scoringConfig ?? {}, undefined, deps.dnsblKey));
   const prevStatuses = await getPreviousProtocolStatuses(deps.db, domain.id);
 
   let result: ScanResult;

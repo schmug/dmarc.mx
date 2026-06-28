@@ -897,6 +897,7 @@ dashboardRoutes.post("/bulk", async (c) => {
     scoringConfig: parseScoringConfig(
       (c.env as { SCORING_CONFIG?: string }).SCORING_CONFIG,
     ),
+    dnsblKey: (c.env as { DNSBL_DQS_KEY?: string }).DNSBL_DQS_KEY,
   });
   if (isCapExceeded(outcome)) {
     return c.html(
@@ -1050,6 +1051,8 @@ dashboardRoutes.post("/domain/:domain/scan", async (c) => {
     owned.domain,
     [],
     parseScoringConfig((c.env as { SCORING_CONFIG?: string }).SCORING_CONFIG),
+    undefined,
+    (c.env as { DNSBL_DQS_KEY?: string }).DNSBL_DQS_KEY,
   );
   await recordScan(db, {
     domainId: owned.id,
