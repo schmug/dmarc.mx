@@ -16,7 +16,7 @@ afterEach(() => {
 // (b) assert zero rows remain for the user across every owned table.
 // ---------------------------------------------------------------------------
 interface CascadeState {
-  users: Array<{ id: string; email: string }>;
+  users: Array<{ id: string; email: string; stripe_customer_id?: string }>;
   domains: Array<{ id: number; user_id: string }>;
   scanHistory: Array<{ domain_id: number }>;
   alerts: Array<{ domain_id: number }>;
@@ -50,6 +50,9 @@ function makeDB(state: CascadeState, order: string[]) {
         if (/SELECT \* FROM subscriptions WHERE user_id = \?/i.test(sql)) {
           return (state.subscriptions.find((s) => s.user_id === b[0]) ??
             null) as T | null;
+        }
+        if (/SELECT \* FROM users WHERE id = \?/i.test(sql)) {
+          return (state.users.find((u) => u.id === b[0]) ?? null) as T | null;
         }
         return null as T | null;
       },
@@ -111,12 +114,26 @@ function makeEnv(
 // Routes Stripe + WorkOS REST calls and records the order they fire in.
 function stubFetch(
   order: string[],
-  opts: { stripeStatus?: number; workosStatus?: number } = {},
+  opts: {
+    stripeStatus?: number;
+    workosStatus?: number;
+    stripeList?: Array<{ id: string; status: string }>;
+  } = {},
 ) {
   const fetchMock = vi.fn(async (url: string) => {
     // Match on the parsed host + path (not a substring) so the router can't be
     // fooled by an arbitrary host that merely contains the API hostname.
-    const { hostname, pathname } = new URL(url);
+    const { hostname, pathname, search } = new URL(url);
+    if (
+      hostname === "api.stripe.com" &&
+      pathname === "/v1/subscriptions" &&
+      search.includes("customer=")
+    ) {
+      order.push("stripe-list");
+      return new Response(JSON.stringify({ data: opts.stripeList ?? [] }), {
+        status: 200,
+      });
+    }
     if (
       hostname === "api.stripe.com" &&
       pathname.startsWith("/v1/subscriptions/")
@@ -182,6 +199,30 @@ describe("account/deletion.deleteAccount", () => {
     // The user row must survive — we never orphan an active subscription.
     expect(order).not.toContain("delete-users");
     expect(state.users).toHaveLength(1);
+  });
+
+  it("cancels via Stripe customer lookup when the local subscription row is missing", async () => {
+    const state = emptyState();
+    state.users.push({ ...USER, stripe_customer_id: "cus_orphan" });
+    const order: string[] = [];
+    const fetchMock = stubFetch(order, {
+      stripeList: [{ id: "sub_live", status: "active" }],
+    });
+    const env = makeEnv(state, order, BILLING_ENV);
+
+    const result = await deleteAccount(env, USER);
+
+    expect(result.stripeCancelled).toBe(true);
+    expect(order).toContain("stripe-list");
+    expect(order).toContain("stripe-cancel");
+    expect(order.indexOf("stripe-list")).toBeLessThan(
+      order.indexOf("stripe-cancel"),
+    );
+    expect(order.indexOf("stripe-cancel")).toBeLessThan(
+      order.indexOf("delete-users"),
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(state.users).toHaveLength(0);
   });
 
   it("proceeds when Stripe cancel returns 404 (stale local sub id)", async () => {

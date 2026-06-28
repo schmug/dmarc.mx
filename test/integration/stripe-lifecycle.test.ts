@@ -121,6 +121,11 @@ function makeDb(state: MockState): D1Database {
           }
           return row as T;
         }
+        if (/FROM stripe_events WHERE event_id = \?/i.test(sql)) {
+          return state.events.has(params[0] as string)
+            ? ({ exists: 1 } as T)
+            : null;
+        }
         return null;
       },
     }),
