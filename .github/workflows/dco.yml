@@ -66,6 +66,16 @@ jobs:
             author_name=$(echo "$row" | jq -r '.commit.author.name')
             author_email=$(echo "$row" | jq -r '.commit.author.email')
 
+            # Skip merge commits (≥2 parents) — defense-in-depth.
+            # The primary guard is required_linear_history on main; this
+            # covers any merge commit that arrives by another path (e.g.
+            # settings drift) without spuriously failing DCO (#597).
+            parents=$(echo "$row" | jq '.parents | length')
+            if [ "$parents" -gt 1 ]; then
+              echo "SKIP $sha — merge commit ($parents parents)"
+              continue
+            fi
+
             # Skip automated commits that cannot run `git commit -s`.
             # Skip commits whose author name contains [bot], is github-actions,
             # or carries a known coding-agent author email (Cursor's cloud
