@@ -225,7 +225,7 @@ describe("account/deletion.deleteAccount", () => {
     expect(state.users).toHaveLength(0);
   });
 
-  it("proceeds when Stripe cancel returns 404 (stale local sub id)", async () => {
+  it("proceeds when Stripe cancel returns 404 (stale local sub id, no customer)", async () => {
     const state = emptyState();
     state.users.push({ ...USER });
     state.subscriptions.push({
@@ -244,6 +244,36 @@ describe("account/deletion.deleteAccount", () => {
     expect(order.indexOf("stripe-cancel")).toBeLessThan(
       order.indexOf("delete-users"),
     );
+    expect(state.users).toHaveLength(0);
+  });
+
+  it("cancels other billable subs when the local sub id is stale (404)", async () => {
+    const state = emptyState();
+    state.users.push({ ...USER, stripe_customer_id: "cus_stale" });
+    state.subscriptions.push({
+      user_id: "user_1",
+      stripe_subscription_id: "sub_gone",
+      status: "active",
+    });
+    const order: string[] = [];
+    const fetchMock = stubFetch(order, {
+      stripeList: [{ id: "sub_live", status: "active" }],
+    });
+    const env = makeEnv(state, order, BILLING_ENV);
+
+    const result = await deleteAccount(env, USER);
+
+    expect(result.stripeCancelled).toBe(true);
+    expect(order).toContain("stripe-list");
+    expect(order).toContain("stripe-cancel");
+    expect(order.indexOf("stripe-list")).toBeLessThan(
+      order.indexOf("stripe-cancel"),
+    );
+    expect(order.indexOf("stripe-cancel")).toBeLessThan(
+      order.indexOf("delete-users"),
+    );
+    // List + cancel the live sub — not a lone 404 on the stale id.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(state.users).toHaveLength(0);
   });
 
