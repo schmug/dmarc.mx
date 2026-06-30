@@ -38,3 +38,10 @@
 /src/analyzers/                 @schmug
 /src/orchestrator.ts            @schmug
 /src/shared/scoring.ts          @schmug
+
+# Account deletion & billing — self-serve erasure orchestration (deletion.ts)
+# cancels Stripe subscriptions, hard-deletes the user row, and removes the
+# WorkOS identity behind a step-up re-auth + IDOR guard (CLAUDE.md "Account
+# deletion (#550, T1/T4/T12)"). Covered broadly so new files under the
+# directory are gated too. Surfaced by #599/#600.
+/src/account/                   @schmug
