@@ -52,22 +52,22 @@ export async function deleteAccount(
   let stripeCancelled = false;
   if (isBillingEnabled(env)) {
     const subscription = await getSubscriptionByUserId(env.DB, user.id);
-    if (subscription && statusToPlan(subscription.status) === "pro") {
-      // No try/catch: a failure here must propagate so the caller aborts
-      // BEFORE any local data is removed.
+    const fullUser = await getUserById(env.DB, user.id);
+
+    if (fullUser?.stripe_customer_id) {
+      // List+cancel every billable sub on the customer — Stripe is the source
+      // of truth when the local mirror is stale (404 on a lone sub id, webhook
+      // repair lag, duplicate checkout). A single cancelSubscription call can
+      // succeed on a gone id while another active sub keeps billing.
+      // No try/catch: failures propagate so the caller aborts before local delete.
+      stripeCancelled = await cancelActiveSubscriptionsForCustomer(
+        env,
+        fullUser.stripe_customer_id,
+      );
+    } else if (subscription && statusToPlan(subscription.status) === "pro") {
+      // Paid user with no stripe_customer_id on file (shouldn't happen in prod).
       await cancelSubscription(env, subscription.stripe_subscription_id);
       stripeCancelled = true;
-    } else {
-      // Local mirror missing or stale (e.g. webhook recorded the event id but
-      // upsert failed on first delivery). Fall back to Stripe as source of
-      // truth so erasure never leaves a billing card attached.
-      const fullUser = await getUserById(env.DB, user.id);
-      if (fullUser?.stripe_customer_id) {
-        stripeCancelled = await cancelActiveSubscriptionsForCustomer(
-          env,
-          fullUser.stripe_customer_id,
-        );
-      }
     }
   }
 
