@@ -28,6 +28,23 @@ async function localUserExists(
   return row !== null;
 }
 
+// Atomically remove a retry row only when no local user exists. Returns true
+// when this sweep claimed the row and may proceed to deleteWorkosUser.
+async function claimRetryRowIfNoLocalUser(
+  db: D1Database,
+  workosUserId: string,
+): Promise<boolean> {
+  const result = await db
+    .prepare(
+      `DELETE FROM workos_identity_retry
+       WHERE workos_user_id = ?
+         AND NOT EXISTS (SELECT 1 FROM users WHERE id = ?)`,
+    )
+    .bind(workosUserId, workosUserId)
+    .run();
+  return (result.meta?.changes ?? 0) > 0;
+}
+
 // Persists a failed WorkOS deletion so the nightly sweep can retry it.
 // INSERT OR IGNORE is idempotent — a second enqueue for the same id is a no-op.
 export async function enqueueWorkosRetry(
@@ -82,27 +99,55 @@ export async function sweepWorkosRetries(
       continue;
     }
 
-    try {
-      // Re-check before the external delete — OAuth signup can complete between
-      // the guard above and this await while the sweep row is still in flight.
+    // Claim the row only when no local user exists — signup that completes
+    // between the guard above and this statement loses the race and leaves
+    // zero rows deleted, so we skip the external delete.
+    if (!(await claimRetryRowIfNoLocalUser(db, row.workos_user_id))) {
       if (await localUserExists(db, row.workos_user_id)) {
-        await db
-          .prepare("DELETE FROM workos_identity_retry WHERE workos_user_id = ?")
-          .bind(row.workos_user_id)
-          .run();
+        cleared += 1;
+      }
+      continue;
+    }
+
+    try {
+      // Final synchronous guard immediately before the outbound call — the only
+      // remaining race is signup during the HTTP round-trip.
+      if (await localUserExists(db, row.workos_user_id)) {
         cleared += 1;
         continue;
       }
 
       retried += 1;
       await deleteWorkosUser(apiKey, row.workos_user_id);
-      await db
-        .prepare("DELETE FROM workos_identity_retry WHERE workos_user_id = ?")
-        .bind(row.workos_user_id)
-        .run();
+
+      if (await localUserExists(db, row.workos_user_id)) {
+        Sentry.captureException(
+          new Error(
+            `WorkOS identity ${row.workos_user_id} was deleted after local re-registration during sweep — manual recovery required`,
+          ),
+        );
+      }
+
       cleared += 1;
     } catch (err) {
       const nextCount = row.attempt_count + 1;
+      // Row was claimed above — re-enqueue so a transient failure can retry.
+      if (nextCount < MAX_ATTEMPTS) {
+        const backoffSecs = Math.min(86400, 3600 * 2 ** row.attempt_count);
+        await db
+          .prepare(
+            `INSERT OR IGNORE INTO workos_identity_retry
+             (workos_user_id, attempt_count, next_attempt_at, enqueued_at)
+             VALUES (?, ?, ?, ?)`,
+          )
+          .bind(
+            row.workos_user_id,
+            nextCount,
+            now + backoffSecs,
+            row.enqueued_at,
+          )
+          .run();
+      }
       if (nextCount >= MAX_ATTEMPTS) {
         Sentry.captureException(
           new Error(
@@ -115,14 +160,6 @@ export async function sweepWorkosRetries(
           .run();
         givenUp += 1;
       } else {
-        // Exponential backoff: 1h × 2^attempt_count, capped at 24h.
-        const backoffSecs = Math.min(86400, 3600 * 2 ** row.attempt_count);
-        await db
-          .prepare(
-            "UPDATE workos_identity_retry SET attempt_count = ?, next_attempt_at = ? WHERE workos_user_id = ?",
-          )
-          .bind(nextCount, now + backoffSecs, row.workos_user_id)
-          .run();
         Sentry.captureException(err);
         errors += 1;
       }
