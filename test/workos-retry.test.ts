@@ -42,15 +42,42 @@ function makeRetryDB(
                 if (!store.find((r) => r.workos_user_id === userId)) {
                   store.push({
                     workos_user_id: userId,
-                    attempt_count: 0,
-                    next_attempt_at: 0,
-                    enqueued_at: 1000,
+                    attempt_count: args.length >= 2 ? (args[1] as number) : 0,
+                    next_attempt_at: args.length >= 3 ? (args[2] as number) : 0,
+                    enqueued_at: args.length >= 4 ? (args[3] as number) : 1000,
                   });
                 }
               } else if (/DELETE FROM workos_identity_retry/i.test(sql)) {
                 const userId = args[0] as string;
+                if (/NOT EXISTS/i.test(sql) && users.has(userId)) {
+                  return {
+                    success: true,
+                    meta: {
+                      changes: 0,
+                      duration: 0,
+                      last_row_id: 0,
+                      rows_read: 0,
+                      rows_written: 0,
+                      size_after: 0,
+                      changed_db: false,
+                    },
+                  };
+                }
                 const idx = store.findIndex((r) => r.workos_user_id === userId);
+                const changed = idx >= 0 ? 1 : 0;
                 if (idx >= 0) store.splice(idx, 1);
+                return {
+                  success: true,
+                  meta: {
+                    changes: changed,
+                    duration: 0,
+                    last_row_id: 0,
+                    rows_read: 0,
+                    rows_written: 0,
+                    size_after: 0,
+                    changed_db: changed > 0,
+                  },
+                };
               } else if (/UPDATE workos_identity_retry/i.test(sql)) {
                 const [newCount, newAt, userId] = args;
                 const row = store.find(
@@ -331,6 +358,7 @@ describe("sweepWorkosRetries", () => {
         enqueued_at: 1000,
       },
     ];
+    const users = new Set<string>();
     const db = {
       prepare(sql: string) {
         return {
@@ -339,10 +367,15 @@ describe("sweepWorkosRetries", () => {
               async run() {
                 if (/DELETE FROM workos_identity_retry/i.test(sql)) {
                   const userId = args[0] as string;
+                  if (/NOT EXISTS/i.test(sql) && users.has(userId)) {
+                    return { success: true, meta: { changes: 0 } };
+                  }
                   const idx = store.findIndex(
                     (r) => r.workos_user_id === userId,
                   );
+                  const changed = idx >= 0 ? 1 : 0;
                   if (idx >= 0) store.splice(idx, 1);
+                  return { success: true, meta: { changes: changed } };
                 }
                 return { success: true, meta: { changes: 1 } };
               },
@@ -360,8 +393,7 @@ describe("sweepWorkosRetries", () => {
               async first<T>() {
                 if (/SELECT 1 AS exists FROM users WHERE id = \?/i.test(sql)) {
                   userSelectCount += 1;
-                  // First check: no user yet. Second check (pre-delete): signup
-                  // completed during the sweep iteration.
+                  // Guard: no user. Pre-delete check: signup completed.
                   return (
                     userSelectCount >= 2 ? { exists: 1 } : null
                   ) as T | null;
@@ -383,6 +415,81 @@ describe("sweepWorkosRetries", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(store).toHaveLength(0);
     expect(userSelectCount).toBeGreaterThanOrEqual(2);
+  });
+
+  it("alerts when signup completes during the WorkOS delete HTTP call", async () => {
+    const now = 2000;
+    const store: RetryRow[] = [
+      {
+        workos_user_id: "user_http_race",
+        attempt_count: 0,
+        next_attempt_at: now - 1,
+        enqueued_at: 1000,
+      },
+    ];
+    const users = new Set<string>();
+    const db = {
+      prepare(sql: string) {
+        return {
+          bind(...args: unknown[]) {
+            return {
+              async run() {
+                if (/DELETE FROM workos_identity_retry/i.test(sql)) {
+                  const userId = args[0] as string;
+                  if (/NOT EXISTS/i.test(sql) && users.has(userId)) {
+                    return { success: true, meta: { changes: 0 } };
+                  }
+                  const idx = store.findIndex(
+                    (r) => r.workos_user_id === userId,
+                  );
+                  const changed = idx >= 0 ? 1 : 0;
+                  if (idx >= 0) store.splice(idx, 1);
+                  return { success: true, meta: { changes: changed } };
+                }
+                return { success: true, meta: { changes: 1 } };
+              },
+              async all<T>() {
+                if (/SELECT .* FROM workos_identity_retry/i.test(sql)) {
+                  const threshold = args[0] as number;
+                  return {
+                    results: store.filter(
+                      (r) => r.next_attempt_at <= threshold,
+                    ) as unknown as T[],
+                  };
+                }
+                return { results: [] as T[] };
+              },
+              async first<T>() {
+                if (/SELECT 1 AS exists FROM users WHERE id = \?/i.test(sql)) {
+                  return (
+                    users.has(args[0] as string) ? { exists: 1 } : null
+                  ) as T | null;
+                }
+                return null as T | null;
+              },
+            };
+          },
+        };
+      },
+    } as unknown as D1Database;
+
+    const Sentry = await import("@sentry/cloudflare");
+    const captureSpy = vi.spyOn(Sentry, "captureException");
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      users.add("user_http_race");
+      return new Response(null, { status: 200 });
+    });
+
+    const result = await sweepWorkosRetries(db, "sk_workos", now);
+
+    expect(result.retried).toBe(1);
+    expect(result.cleared).toBe(1);
+    expect(captureSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringContaining("re-registration during sweep"),
+      }),
+    );
   });
 
   it("skips rows whose next_attempt_at is in the future", async () => {
