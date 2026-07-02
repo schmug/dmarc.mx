@@ -14,6 +14,20 @@ export const SKIP_PATTERN_SOURCES = [
 
 const SKIP = SKIP_PATTERN_SOURCES.map((s) => new RegExp(s));
 
+// The repo's automated tags are strictly CalVer (vYYYY.M.serial). Git refnames
+// may legally contain characters like $, backticks, ;, | and quotes, so any
+// tag that doesn't match this shape is untrusted input and must never reach a
+// git command line — callers treat it as "no prior tag" instead.
+export const CALVER_TAG_PATTERN = /^v\d{4}\.\d{1,2}\.\d+$/;
+
+/**
+ * Returns the tag unchanged if it matches the CalVer scheme, otherwise ""
+ * (the same sentinel check-releasable.ts uses for "no prior tag").
+ */
+export function sanitizeLastTag(tag: string): string {
+  return CALVER_TAG_PATTERN.test(tag) ? tag : "";
+}
+
 /**
  * Returns true if the commit set should produce a release.
  *   null → no prior tag; this is the first release → always releasable

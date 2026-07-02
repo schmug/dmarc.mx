@@ -1,14 +1,21 @@
 #!/usr/bin/env -S npx tsx
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { appendFileSync } from "node:fs";
-import { isReleasable } from "./releasable.js";
+import { isReleasable, sanitizeLastTag } from "./releasable.js";
 
+// Both git calls use execFileSync with argv arrays — never a shell command
+// string. Tag names can contain shell metacharacters, and this script runs in
+// the release workflow with write permissions, so a tag must never be
+// interpolated into a shell line. sanitizeLastTag additionally drops any
+// non-CalVer tag (treated as "no prior tag") before it reaches git argv.
 const lastTag = (() => {
   try {
-    return execSync("git describe --tags --abbrev=0", {
-      encoding: "utf8",
-      stdio: ["pipe", "pipe", "pipe"],
-    }).trim();
+    return sanitizeLastTag(
+      execFileSync("git", ["describe", "--tags", "--abbrev=0"], {
+        encoding: "utf8",
+        stdio: ["pipe", "pipe", "pipe"],
+      }).trim(),
+    );
   } catch {
     return "";
   }
@@ -17,7 +24,7 @@ const lastTag = (() => {
 const commits: string[] | null =
   lastTag === ""
     ? null
-    : execSync(`git log "${lastTag}..HEAD" --format=%s`, { encoding: "utf8" })
+    : execFileSync("git", ["log", `${lastTag}..HEAD`, "--format=%s"], { encoding: "utf8" })
         .split("\n")
         .filter((s) => s.trim() !== "");
 
