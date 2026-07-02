@@ -13,7 +13,7 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.4.16",
+    "@biomejs/biome": "^2.5.2",
     "@cloudflare/vitest-pool-workers": "^0.16.19",
     "@cloudflare/workers-types": "^4.20260611.1",
     "@emnapi/core": "^1.11.1",
