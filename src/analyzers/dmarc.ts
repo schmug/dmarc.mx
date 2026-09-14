@@ -207,15 +207,31 @@ export async function analyzeDmarc(
       message: "Policy is set to none (monitoring only, no enforcement)",
       learnAnchor: learnAnchorHref(LEARN_ANCHORS.dmarcPolicyNone),
     });
+  } else {
+    validations.push({
+      status: "fail",
+      message: `Unrecognized policy value p=${tags.p} — must be one of reject, quarantine, or none (RFC 7489 §6.3)`,
+    });
   }
 
   // sp= check
   if (tags.sp) {
     const spLower = tags.sp.toLowerCase();
-    validations.push({
-      status: "pass",
-      message: "Subdomain policy explicitly set",
-    });
+    if (
+      spLower === "reject" ||
+      spLower === "quarantine" ||
+      spLower === "none"
+    ) {
+      validations.push({
+        status: "pass",
+        message: "Subdomain policy explicitly set",
+      });
+    } else {
+      validations.push({
+        status: "fail",
+        message: `Unrecognized subdomain policy value sp=${tags.sp} — must be one of reject, quarantine, or none (RFC 7489 §6.3)`,
+      });
+    }
     // sp=none overrides stronger parent policy — subdomains lose enforcement
     if (
       spLower === "none" &&

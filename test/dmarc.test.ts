@@ -381,6 +381,90 @@ describe("analyzeDmarc — sp=none weakness", () => {
   });
 });
 
+describe("analyzeDmarc — unrecognized policy values (#738)", () => {
+  it("fails on an unrecognized p= value instead of silently passing", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=Quarntine; rua=mailto:r@mydomain.com"],
+      raw: "v=DMARC1; p=Quarntine; rua=mailto:r@mydomain.com",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(result.status).toBe("fail");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "fail" &&
+          v.message.includes("Unrecognized policy value") &&
+          v.message.includes("p=Quarntine"),
+      ),
+    ).toBe(true);
+  });
+
+  it("fails on an unrecognized sp= value instead of reporting it as explicitly set", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=reject; sp=Rejectt; rua=mailto:r@mydomain.com"],
+      raw: "v=DMARC1; p=reject; sp=Rejectt; rua=mailto:r@mydomain.com",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(result.status).toBe("fail");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "fail" &&
+          v.message.includes("Unrecognized subdomain policy value") &&
+          v.message.includes("sp=Rejectt"),
+      ),
+    ).toBe(true);
+    expect(
+      result.validations.some(
+        (v) => v.message === "Subdomain policy explicitly set",
+      ),
+    ).toBe(false);
+  });
+
+  it("still passes p=REJECT (case-insensitive) with no unrecognized-value fail", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=REJECT; rua=mailto:r@mydomain.com"],
+      raw: "v=DMARC1; p=REJECT; rua=mailto:r@mydomain.com",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(
+      result.validations.some((v) =>
+        v.message.includes("Unrecognized policy value"),
+      ),
+    ).toBe(false);
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "pass" && v.message.includes("Policy is set to reject"),
+      ),
+    ).toBe(true);
+  });
+
+  it("still reports sp=none as explicitly set with no unrecognized-value fail", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=reject; sp=none; rua=mailto:r@mydomain.com"],
+      raw: "v=DMARC1; p=reject; sp=none; rua=mailto:r@mydomain.com",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(
+      result.validations.some((v) =>
+        v.message.includes("Unrecognized subdomain policy value"),
+      ),
+    ).toBe(false);
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "pass" &&
+          v.message === "Subdomain policy explicitly set",
+      ),
+    ).toBe(true);
+  });
+});
+
 describe("analyzeDmarc — multiple records", () => {
   it("fails with permerror when more than one DMARC record is published (RFC 7489 §6.6.3)", async () => {
     mockQueryTxt.mockResolvedValueOnce({
