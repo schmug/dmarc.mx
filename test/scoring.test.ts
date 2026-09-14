@@ -104,6 +104,23 @@ describe("computeGrade", () => {
     expect(grade).toBe("F");
   });
 
+  it("returns F (never the fallback C arm) for a p= value analyzeDmarc could not parse (#738)", () => {
+    const breakdown = computeGradeBreakdown({
+      dmarc: makeDmarc({
+        status: "fail",
+        tags: { v: "DMARC1", p: "Quarntine" },
+      }),
+      spf: makeSpf(),
+      dkim: makeDkim(),
+      bimi: makeBimi(),
+      mta_sts: makeMtaSts(),
+    });
+    expect(breakdown.grade).toBe("F");
+    expect(breakdown.tierReason).not.toBe(
+      "Fallback — quarantine-level enforcement",
+    );
+  });
+
   // ── D tier (missing auth) ───────────────────────────────────
 
   it("returns D when quarantine but missing SPF", () => {
