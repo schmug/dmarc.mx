@@ -3,6 +3,7 @@
 // handler — leaving them there for now to keep route-level tests stable.
 
 import type { WebhookFormat } from "../webhooks/formats/index.js";
+import { d1Read } from "./retry.js";
 
 export interface WebhookRow {
   id: number;
@@ -19,8 +20,10 @@ export async function getWebhookForUser(
   db: D1Database,
   userId: string,
 ): Promise<WebhookRow | null> {
-  return db
-    .prepare("SELECT * FROM webhooks WHERE user_id = ?")
-    .bind(userId)
-    .first<WebhookRow>();
+  return d1Read(() =>
+    db
+      .prepare("SELECT * FROM webhooks WHERE user_id = ?")
+      .bind(userId)
+      .first<WebhookRow>(),
+  );
 }

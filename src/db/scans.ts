@@ -1,3 +1,5 @@
+import { d1Read } from "./retry.js";
+
 export interface ScanHistoryRow {
   id: number;
   domain_id: number;
@@ -52,12 +54,14 @@ export async function getScanHistory(
   domainId: number,
   limit = 12,
 ): Promise<ScanHistoryRow[]> {
-  const result = await db
-    .prepare(
-      "SELECT * FROM scan_history WHERE domain_id = ? ORDER BY scanned_at DESC LIMIT ?",
-    )
-    .bind(domainId, limit)
-    .all<ScanHistoryRow>();
+  const result = await d1Read(() =>
+    db
+      .prepare(
+        "SELECT * FROM scan_history WHERE domain_id = ? ORDER BY scanned_at DESC LIMIT ?",
+      )
+      .bind(domainId, limit)
+      .all<ScanHistoryRow>(),
+  );
   return result.results;
 }
 
@@ -124,16 +128,18 @@ export async function getPortfolioTrendForUser(
   now: number = Math.floor(Date.now() / 1000),
 ): Promise<number[]> {
   const since = now - days * 86400;
-  const result = await db
-    .prepare(
-      `SELECT sh.grade AS grade, sh.scanned_at AS scanned_at
-       FROM scan_history sh
-       JOIN domains d ON d.id = sh.domain_id
-       WHERE d.user_id = ? AND sh.scanned_at >= ?
-       ORDER BY sh.scanned_at ASC`,
-    )
-    .bind(userId, since)
-    .all<{ grade: string; scanned_at: number }>();
+  const result = await d1Read(() =>
+    db
+      .prepare(
+        `SELECT sh.grade AS grade, sh.scanned_at AS scanned_at
+         FROM scan_history sh
+         JOIN domains d ON d.id = sh.domain_id
+         WHERE d.user_id = ? AND sh.scanned_at >= ?
+         ORDER BY sh.scanned_at ASC`,
+      )
+      .bind(userId, since)
+      .all<{ grade: string; scanned_at: number }>(),
+  );
 
   // Bucket by integer day (UTC). Each bucket gets the *latest* scan per domain,
   // then we average across domains. We approximate "latest per domain per day"
@@ -183,20 +189,22 @@ export async function getProtocolResultsForUser(
 ): Promise<
   Array<{ last_grade: string | null; protocol_results: string | null }>
 > {
-  const result = await db
-    .prepare(
-      `SELECT
-         d.last_grade AS last_grade,
-         (SELECT sh.protocol_results
-            FROM scan_history sh
-           WHERE sh.domain_id = d.id
-           ORDER BY sh.scanned_at DESC
-           LIMIT 1) AS protocol_results
-       FROM domains d
-       WHERE d.user_id = ?`,
-    )
-    .bind(userId)
-    .all<{ last_grade: string | null; protocol_results: string | null }>();
+  const result = await d1Read(() =>
+    db
+      .prepare(
+        `SELECT
+           d.last_grade AS last_grade,
+           (SELECT sh.protocol_results
+              FROM scan_history sh
+             WHERE sh.domain_id = d.id
+             ORDER BY sh.scanned_at DESC
+             LIMIT 1) AS protocol_results
+         FROM domains d
+         WHERE d.user_id = ?`,
+      )
+      .bind(userId)
+      .all<{ last_grade: string | null; protocol_results: string | null }>(),
+  );
   return result.results;
 }
 
@@ -207,23 +215,25 @@ export async function getDashboardExportRows(
   // Correlated subquery picks the single most-recent protocol_results blob per
   // domain without a second round-trip. domains.last_grade / last_scanned_at
   // are the authoritative "current posture" fields maintained by recordScan.
-  const result = await db
-    .prepare(
-      `SELECT
-         d.domain,
-         d.last_scanned_at,
-         d.last_grade,
-         (SELECT sh.protocol_results
-            FROM scan_history sh
-           WHERE sh.domain_id = d.id
-           ORDER BY sh.scanned_at DESC
-           LIMIT 1) AS protocol_results
-       FROM domains d
-       WHERE d.user_id = ?
-       ORDER BY d.domain ASC`,
-    )
-    .bind(userId)
-    .all<DashboardExportRow>();
+  const result = await d1Read(() =>
+    db
+      .prepare(
+        `SELECT
+           d.domain,
+           d.last_scanned_at,
+           d.last_grade,
+           (SELECT sh.protocol_results
+              FROM scan_history sh
+             WHERE sh.domain_id = d.id
+             ORDER BY sh.scanned_at DESC
+             LIMIT 1) AS protocol_results
+         FROM domains d
+         WHERE d.user_id = ?
+         ORDER BY d.domain ASC`,
+      )
+      .bind(userId)
+      .all<DashboardExportRow>(),
+  );
   return result.results;
 }
 

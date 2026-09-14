@@ -1,4 +1,5 @@
 import { type PortfolioStats, tallyGradeCounts } from "../shared/portfolio.js";
+import { d1Read } from "./retry.js";
 
 export interface Domain {
   id: number;
@@ -57,10 +58,12 @@ export async function getDomainsByUser(
   db: D1Database,
   userId: string,
 ): Promise<Domain[]> {
-  const result = await db
-    .prepare("SELECT * FROM domains WHERE user_id = ? ORDER BY created_at")
-    .bind(userId)
-    .all<Domain>();
+  const result = await d1Read(() =>
+    db
+      .prepare("SELECT * FROM domains WHERE user_id = ? ORDER BY created_at")
+      .bind(userId)
+      .all<Domain>(),
+  );
   return result.results;
 }
 
@@ -68,10 +71,12 @@ export async function countDomainsByUser(
   db: D1Database,
   userId: string,
 ): Promise<number> {
-  const row = await db
-    .prepare("SELECT COUNT(*) AS n FROM domains WHERE user_id = ?")
-    .bind(userId)
-    .first<{ n: number }>();
+  const row = await d1Read(() =>
+    db
+      .prepare("SELECT COUNT(*) AS n FROM domains WHERE user_id = ?")
+      .bind(userId)
+      .first<{ n: number }>(),
+  );
   return row?.n ?? 0;
 }
 
@@ -82,12 +87,14 @@ export async function getGradeDistributionForUser(
   db: D1Database,
   userId: string,
 ): Promise<PortfolioStats> {
-  const result = await db
-    .prepare(
-      "SELECT last_grade AS grade, COUNT(*) AS count FROM domains WHERE user_id = ? GROUP BY last_grade",
-    )
-    .bind(userId)
-    .all<{ grade: string | null; count: number }>();
+  const result = await d1Read(() =>
+    db
+      .prepare(
+        "SELECT last_grade AS grade, COUNT(*) AS count FROM domains WHERE user_id = ? GROUP BY last_grade",
+      )
+      .bind(userId)
+      .all<{ grade: string | null; count: number }>(),
+  );
   return tallyGradeCounts(result.results);
 }
 
@@ -123,15 +130,17 @@ export async function getWorstGradedDomainForUser(
   db: D1Database,
   userId: string,
 ): Promise<WorstGradedDomain | null> {
-  const row = await db
-    .prepare(
-      `SELECT domain, last_grade AS grade FROM domains
+  const row = await d1Read(() =>
+    db
+      .prepare(
+        `SELECT domain, last_grade AS grade FROM domains
        WHERE user_id = ? AND last_grade IS NOT NULL
        ORDER BY ${WORST_GRADE_ORDER_SQL} ASC, domain ASC
        LIMIT 1`,
-    )
-    .bind(userId)
-    .first<WorstGradedDomain>();
+      )
+      .bind(userId)
+      .first<WorstGradedDomain>(),
+  );
   return row ?? null;
 }
 
@@ -146,12 +155,14 @@ export async function findExistingDomainsForUser(
 ): Promise<Set<string>> {
   if (domains.length === 0) return new Set();
   const placeholders = domains.map(() => "?").join(",");
-  const result = await db
-    .prepare(
-      `SELECT domain FROM domains WHERE user_id = ? AND domain IN (${placeholders})`,
-    )
-    .bind(userId, ...domains)
-    .all<{ domain: string }>();
+  const result = await d1Read(() =>
+    db
+      .prepare(
+        `SELECT domain FROM domains WHERE user_id = ? AND domain IN (${placeholders})`,
+      )
+      .bind(userId, ...domains)
+      .all<{ domain: string }>(),
+  );
   return new Set(result.results.map((r) => r.domain));
 }
 
@@ -262,8 +273,8 @@ export async function listDomainsForUserPaged(
     .prepare(`SELECT COUNT(*) AS n FROM domains WHERE ${where}`)
     .bind(...bindings);
   const [rowsResult, countResult] = await Promise.all([
-    rowsStmt.all<Domain>(),
-    countStmt.first<{ n: number }>(),
+    d1Read(() => rowsStmt.all<Domain>()),
+    d1Read(() => countStmt.first<{ n: number }>()),
   ]);
   return {
     rows: rowsResult.results,
@@ -276,10 +287,12 @@ export async function getDomainByUserAndName(
   userId: string,
   domain: string,
 ): Promise<Domain | null> {
-  return db
-    .prepare("SELECT * FROM domains WHERE user_id = ? AND domain = ?")
-    .bind(userId, domain)
-    .first<Domain>();
+  return d1Read(() =>
+    db
+      .prepare("SELECT * FROM domains WHERE user_id = ? AND domain = ?")
+      .bind(userId, domain)
+      .first<Domain>(),
+  );
 }
 
 export async function deleteDomain(
@@ -304,16 +317,18 @@ export async function getDueDomains(
 ): Promise<Domain[]> {
   const monthlyCutoff = now - 30 * 24 * 60 * 60;
   const weeklyCutoff = now - 7 * 24 * 60 * 60;
-  const result = await db
-    .prepare(
-      `SELECT * FROM domains
+  const result = await d1Read(() =>
+    db
+      .prepare(
+        `SELECT * FROM domains
        WHERE (scan_frequency = 'monthly' AND (last_scanned_at IS NULL OR last_scanned_at < ?))
           OR (scan_frequency = 'weekly' AND (last_scanned_at IS NULL OR last_scanned_at < ?))
        ORDER BY last_scanned_at ASC NULLS FIRST
        LIMIT ?`,
-    )
-    .bind(monthlyCutoff, weeklyCutoff, limit)
-    .all<Domain>();
+      )
+      .bind(monthlyCutoff, weeklyCutoff, limit)
+      .all<Domain>(),
+  );
   return result.results;
 }
 

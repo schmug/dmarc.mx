@@ -47,6 +47,7 @@ import { runDueRescans } from "./cron/rescan.js";
 import { generateCsv } from "./csv.js";
 import { dashboardRoutes } from "./dashboard/routes.js";
 import { getDomainByUserAndName } from "./db/domains.js";
+import { isTransientD1Error } from "./db/retry.js";
 import { recordScan } from "./db/scans.js";
 import { getPlanForUser } from "./db/subscriptions.js";
 import {
@@ -296,17 +297,35 @@ app.use("*", async (c, next) => {
   }
 });
 
+// A D1 blip that outlived `d1Read`'s retries is not the caller's fault and is
+// not permanent, so it gets 503 + Retry-After rather than a 500 — that is what
+// the API docs already tell clients and agents to back off on, and it keeps the
+// raw `D1_ERROR: internal error; reference = <id>` out of the page (it is of no
+// use to the visitor; Sentry has the full exception either way).
+const D1_UNAVAILABLE_MESSAGE =
+  "Our database is briefly unavailable. Please try again in a moment.";
+const D1_RETRY_AFTER_SECONDS = "5";
+
 // Safety net: capture any unhandled errors that bypass route catch blocks
 app.onError((err, c) => {
   Sentry.captureException(err);
-  const message = err instanceof Error ? err.message : "Internal error";
+  const transientD1 = isTransientD1Error(err);
+  const message = transientD1
+    ? D1_UNAVAILABLE_MESSAGE
+    : err instanceof Error
+      ? err.message
+      : "Internal error";
+  const status = transientD1 ? 503 : 500;
+  const headers = transientD1
+    ? { "Retry-After": D1_RETRY_AFTER_SECONDS }
+    : undefined;
   const wantsJson =
     c.req.header("Accept")?.includes("application/json") ||
     c.req.query("format") === "json";
   if (wantsJson) {
-    return c.json({ error: message }, 500);
+    return c.json({ error: message }, status, headers);
   }
-  return c.html(renderError(message), 500);
+  return c.html(renderError(message), status, headers);
 });
 
 app.use("/api/*", cors());
