@@ -1,4 +1,5 @@
 import type { AlertType } from "../alerts/detector.js";
+import { d1Read } from "./retry.js";
 
 export interface AlertRow {
   id: number;
@@ -76,17 +77,19 @@ export async function listUnsentAlerts(
   db: D1Database,
   limit = 100,
 ): Promise<UnsentAlert[]> {
-  const result = await db
-    .prepare(
-      `SELECT a.*, d.user_id, d.domain
-       FROM alerts a
-       JOIN domains d ON d.id = a.domain_id
-       WHERE a.notified_via IS NULL
-       ORDER BY a.created_at ASC
-       LIMIT ?`,
-    )
-    .bind(limit)
-    .all<UnsentAlert>();
+  const result = await d1Read(() =>
+    db
+      .prepare(
+        `SELECT a.*, d.user_id, d.domain
+         FROM alerts a
+         JOIN domains d ON d.id = a.domain_id
+         WHERE a.notified_via IS NULL
+         ORDER BY a.created_at ASC
+         LIMIT ?`,
+      )
+      .bind(limit)
+      .all<UnsentAlert>(),
+  );
   return result.results;
 }
 
@@ -112,17 +115,19 @@ export async function listUnacknowledgedForUser(
   userId: string,
   limit = 20,
 ): Promise<UserAlert[]> {
-  const result = await db
-    .prepare(
-      `SELECT a.*, d.domain
-       FROM alerts a
-       JOIN domains d ON d.id = a.domain_id
-       WHERE d.user_id = ? AND a.acknowledged_at IS NULL
-       ORDER BY a.created_at DESC
-       LIMIT ?`,
-    )
-    .bind(userId, limit)
-    .all<UserAlert>();
+  const result = await d1Read(() =>
+    db
+      .prepare(
+        `SELECT a.*, d.domain
+         FROM alerts a
+         JOIN domains d ON d.id = a.domain_id
+         WHERE d.user_id = ? AND a.acknowledged_at IS NULL
+         ORDER BY a.created_at DESC
+         LIMIT ?`,
+      )
+      .bind(userId, limit)
+      .all<UserAlert>(),
+  );
   return result.results;
 }
 
@@ -176,15 +181,17 @@ export async function countUnacknowledgedByDomain(
   db: D1Database,
   userId: string,
 ): Promise<Map<number, number>> {
-  const result = await db
-    .prepare(
-      `SELECT a.domain_id AS domain_id, COUNT(*) AS count
-       FROM alerts a
-       JOIN domains d ON d.id = a.domain_id
-       WHERE d.user_id = ? AND a.acknowledged_at IS NULL
-       GROUP BY a.domain_id`,
-    )
-    .bind(userId)
-    .all<UnacknowledgedCountRow>();
+  const result = await d1Read(() =>
+    db
+      .prepare(
+        `SELECT a.domain_id AS domain_id, COUNT(*) AS count
+         FROM alerts a
+         JOIN domains d ON d.id = a.domain_id
+         WHERE d.user_id = ? AND a.acknowledged_at IS NULL
+         GROUP BY a.domain_id`,
+      )
+      .bind(userId)
+      .all<UnacknowledgedCountRow>(),
+  );
   return new Map(result.results.map((r) => [r.domain_id, r.count]));
 }
