@@ -16,6 +16,13 @@ import type { DmarcResult, Validation } from "./types.js";
 export const MAX_REPORT_AUTH_LOOKUPS = 10;
 
 /**
+ * The only values RFC 7489 §6.3 defines for p= and sp=, lowercased (both tags
+ * are case-insensitive). Anything else is an unparseable policy, which §6.6.3
+ * step 6 says receivers treat as p=none or skip entirely — never enforcement.
+ */
+const VALID_POLICIES = new Set(["none", "quarantine", "reject"]);
+
+/**
  * Shared, mutable lookup budget threaded across the rua and ruf authorization
  * passes so the cap bounds their combined external DNS fan-out, and the
  * cap-exceeded warning is emitted at most once per scan.
@@ -207,25 +214,47 @@ export async function analyzeDmarc(
       message: "Policy is set to none (monitoring only, no enforcement)",
       learnAnchor: learnAnchorHref(LEARN_ANCHORS.dmarcPolicyNone),
     });
+  } else {
+    // Anything outside none/quarantine/reject is not a valid p= (RFC 7489
+    // §6.3). Per §6.6.3 step 6 a receiver then either acts as if p=none was
+    // published (when rua carries a valid URI) or applies no DMARC at all —
+    // no enforcement either way, so this is a fail, not a warn. Without this
+    // arm a typo like p=Quarntine pushed no policy validation and the record
+    // reported healthy (#738).
+    validations.push({
+      status: "fail",
+      message: `Unrecognized policy value (p=${tags.p}) — receivers apply no enforcement (RFC 7489 §6.6.3)`,
+    });
   }
 
   // sp= check
   if (tags.sp) {
     const spLower = tags.sp.toLowerCase();
-    validations.push({
-      status: "pass",
-      message: "Subdomain policy explicitly set",
-    });
-    // sp=none overrides stronger parent policy — subdomains lose enforcement
-    if (
-      spLower === "none" &&
-      (policy === "quarantine" || policy === "reject")
-    ) {
+    if (!VALID_POLICIES.has(spLower)) {
+      // RFC 7489 §6.6.3 step 6 treats an invalid sp= exactly like a missing
+      // p=: it invalidates the whole record, not just subdomain handling. So
+      // this is a fail rather than a warn, and the record is not "explicitly
+      // set" (#738).
       validations.push({
-        status: "warn",
-        message:
-          "sp=none overrides subdomain enforcement — subdomains have no DMARC policy applied",
+        status: "fail",
+        message: `Unrecognized subdomain policy value (sp=${tags.sp}) — receivers apply no enforcement (RFC 7489 §6.6.3)`,
       });
+    } else {
+      validations.push({
+        status: "pass",
+        message: "Subdomain policy explicitly set",
+      });
+      // sp=none overrides stronger parent policy — subdomains lose enforcement
+      if (
+        spLower === "none" &&
+        (policy === "quarantine" || policy === "reject")
+      ) {
+        validations.push({
+          status: "warn",
+          message:
+            "sp=none overrides subdomain enforcement — subdomains have no DMARC policy applied",
+        });
+      }
     }
   }
 

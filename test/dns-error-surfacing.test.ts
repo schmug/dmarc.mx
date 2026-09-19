@@ -226,3 +226,76 @@ describe("scoring with DMARC lookup_error", () => {
     expect(breakdown.grade).toBe("F");
   });
 });
+
+describe("scoring an unparseable DMARC policy (#738)", () => {
+  // Feeds the real analyzer output into the grader: a p= value that matches
+  // no policy arm used to produce zero policy validations, an overall "pass",
+  // and a tier-C credit from scoring.ts's "shouldn't normally reach here"
+  // fallback — quarantine-level enforcement the domain does not have.
+  const baseProtocols = {
+    spf: {
+      status: "pass" as const,
+      record: "v=spf1 -all",
+      lookups_used: 1,
+      lookup_limit: 10,
+      include_tree: null,
+      validations: [],
+    },
+    dkim: {
+      status: "pass" as const,
+      selectors: { google: { found: true } },
+      validations: [],
+    },
+    bimi: {
+      status: "warn" as const,
+      record: null,
+      tags: null,
+      validations: [],
+    },
+    mta_sts: {
+      status: "warn" as const,
+      dns_record: null,
+      policy: null,
+      validations: [],
+    },
+  };
+
+  it("does not credit p=Quarntine with the fallback quarantine tier", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=Quarntine; rua=mailto:r@example.com"],
+      raw: "v=DMARC1; p=Quarntine; rua=mailto:r@example.com",
+    });
+    const dmarc = await analyzeDmarc("example.com");
+
+    const breakdown = computeGradeBreakdown({ ...baseProtocols, dmarc });
+    expect(breakdown.tierReason).not.toBe(
+      "Fallback — quarantine-level enforcement",
+    );
+    expect(breakdown.grade).toBe("F");
+  });
+
+  it("does not credit sp=Rejectt with the fallback quarantine tier", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=reject; sp=Rejectt; rua=mailto:r@example.com"],
+      raw: "v=DMARC1; p=reject; sp=Rejectt; rua=mailto:r@example.com",
+    });
+    const dmarc = await analyzeDmarc("example.com");
+
+    const breakdown = computeGradeBreakdown({ ...baseProtocols, dmarc });
+    expect(breakdown.tierReason).not.toBe(
+      "Fallback — quarantine-level enforcement",
+    );
+    expect(breakdown.grade).toBe("F");
+  });
+
+  it("leaves a cleanly parsed p=reject record on its existing grade", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=reject; rua=mailto:r@example.com"],
+      raw: "v=DMARC1; p=reject; rua=mailto:r@example.com",
+    });
+    const dmarc = await analyzeDmarc("example.com");
+
+    const breakdown = computeGradeBreakdown({ ...baseProtocols, dmarc });
+    expect(breakdown.tier).toBe("B");
+  });
+});
