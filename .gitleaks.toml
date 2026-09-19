@@ -1,0 +1,44 @@
+# gitleaks configuration for dmarc.mx
+#
+# Scoped allowlist for confirmed-mock fixture values and two non-secret
+# Cloudflare Access identifiers. See schmug/dmarc.mx#682 for the triage that
+# established each entry.
+#
+# Design note: entries match the flagged VALUE, not the file path. A real
+# credential pasted into any of these same files still fires. Prefer adding a
+# value regex here over adding a path — path allowlists silently stop scanning
+# a whole file, and test fixtures are a place real keys get pasted by accident.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Mock fixture credentials and non-secret Access identifiers (see #682)"
+
+regexes = [
+  # Test-fixture tokens: patterned hex, never issued by anything.
+  #   test/inbox-tokens.test.ts, test/inbox-routes.test.ts, test/inbox-store.test.ts
+  '''^0123456789abcdef0123456789abcdef$''',
+  #   test/integration/inbox-verdict-headers.test.ts
+  '''^aabbccddeeff00112233445566778899$''',
+
+  # Stripe webhook signing secret placeholder — Stripe's own `_test_` convention.
+  #   test/billing-stripe.test.ts
+  '''^whsec_test_[0-9]+$''',
+
+  # Fake API key in dashboard view fixtures (history only; no longer at HEAD).
+  #   test/dashboard-views.test.ts
+  '''^dmx_abc123[A-Za-z0-9]*$''',
+
+  # DKIM PUBLIC key body in the weak-key test. A DKIM p= value is public by
+  # definition — it is published in DNS for anyone to read. History only.
+  #   test/dkim.test.ts
+  '''^11qYAYKxCrfV[A-Za-z0-9+/=]*$''',
+
+  # Cloudflare Access Application Audience (AUD) tag. NOT a credential: it is
+  # the value the Worker verifies an incoming Access JWT's `aud` claim against.
+  # Possessing it grants nothing — a valid Cloudflare-signed token is still
+  # required. Committed deliberately in config.
+  #   wrangler.toml, worker-configuration.d.ts (generated)
+  '''^7b283d5d9b56f6fffa342280310a4ae68f13cbb05dc27f3c1d2faec2deae507a$''',
+]
