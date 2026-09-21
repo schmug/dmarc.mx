@@ -7,8 +7,11 @@ import { AGENT_CARD_JSON, API_CATALOG_JSON } from "../api/catalog.js";
 import { LLMS_TXT } from "../api/llms-txt.js";
 import { OPENAPI_JSON } from "../api/openapi.js";
 import type { Env } from "../env.js";
-import { markdownResponse, wantsMarkdown } from "../index.js";
 import { handleMcpRequest, MCP_SERVER_CARD } from "../mcp/handler.js";
+import {
+  markdownResponse,
+  wantsMarkdown,
+} from "../shared/content-negotiation.js";
 import { parseScoringConfig } from "../shared/scoring-config.js";
 import { renderApiDocs } from "../views/html.js";
 import { renderApiDocsMarkdown } from "../views/markdown.js";

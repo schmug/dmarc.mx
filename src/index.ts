@@ -59,6 +59,10 @@ import { inboxRoutes } from "./routes/inbox.js";
 import { staticRoutes } from "./routes/static.js";
 import { scrubSentryEvent } from "./sentry-scrub.js";
 import { getClientIp } from "./shared/client.js";
+import {
+  markdownResponse,
+  wantsMarkdown,
+} from "./shared/content-negotiation.js";
 import { normalizeDomain } from "./shared/domain.js";
 import { watchlistCapFor } from "./shared/limits.js";
 import { parseScoringConfig } from "./shared/scoring-config.js";
@@ -357,29 +361,6 @@ app.route("/webhooks", stripeWebhookRoutes);
 app.route("/", staticRoutes);
 app.route("/", agentDiscoveryRoutes);
 app.route("/", inboxRoutes);
-
-export function markdownResponse(c: Context, body: string, status = 200) {
-  return c.body(body, status as 200, {
-    "Content-Type": "text/markdown; charset=utf-8",
-  });
-}
-
-// Returns true when the client explicitly asked for markdown (via `?format=md`
-// or an `Accept` header that lists `text/markdown` before `text/html`). HTML
-// stays the default for browsers that send wildcards like `*/*`.
-export function wantsMarkdown(c: Context): boolean {
-  const format = c.req.query("format");
-  if (format === "md" || format === "markdown") return true;
-  const accept = c.req.header("Accept");
-  if (!accept) return false;
-  const types = accept.toLowerCase().split(",");
-  const mdIndex = types.findIndex((t) => t.trim().startsWith("text/markdown"));
-  if (mdIndex === -1) return false;
-  const htmlIndex = types.findIndex((t) => t.trim().startsWith("text/html"));
-  // Agents that send `Accept: text/markdown` (and nothing else, or markdown
-  // first) get markdown. Browsers that prefer HTML keep getting HTML.
-  return htmlIndex === -1 || mdIndex < htmlIndex;
-}
 
 // Resolves rate-limit identity + config for a request. Pro-authed bearers
 // lift to the per-user bucket (60/hour). Everyone else — anonymous callers,
