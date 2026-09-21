@@ -1,6 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { runDueRescans } from "../src/cron/rescan.js";
 
+// Only mocked for the "per-domain DKIM selectors" describe block below,
+// which exercises rescanOne's default scanFn (i.e. deps.scanFn omitted) so
+// the real call into scan() can be asserted on. Every other test in this
+// file supplies deps.scanFn and never reaches this mock.
+vi.mock("../src/orchestrator.js", () => ({
+  scan: vi.fn(),
+}));
+
+import { scan } from "../src/orchestrator.js";
+
 interface UserRow {
   id: string;
   email: string;
@@ -21,6 +31,7 @@ interface DomainRow {
   last_scanned_at: number | null;
   last_grade: string | null;
   created_at: number;
+  dkim_selectors?: string | null;
 }
 
 interface AlertRow {
@@ -913,6 +924,72 @@ describe("cron/runDueRescans", () => {
       // Deferred domains sort first next run (last_scanned_at ASC), so the
       // portfolio still gets full coverage across consecutive daily runs.
       expect(domains.get(61)?.last_scanned_at).toBeLessThan(now - weekSeconds);
+    });
+  });
+
+  // #755 — rescanOne's default scanFn (deps.scanFn omitted) must forward a
+  // domain row's stored dkim_selectors into scan(), instead of hardcoding
+  // []. These tests exercise that default path directly, so scan() itself
+  // (not deps.scanFn) is mocked and asserted on.
+  describe("per-domain DKIM selectors (#755)", () => {
+    beforeEach(() => {
+      vi.mocked(scan).mockReset();
+      vi.mocked(scan).mockResolvedValue(
+        makeScanResult("pionagent.com", "D", {}) as never,
+      );
+    });
+
+    it("forwards a domain row's stored selectors into scan()", async () => {
+      domains.set(1, {
+        id: 1,
+        user_id: "u",
+        domain: "pionagent.com",
+        is_free: 0,
+        scan_frequency: "weekly",
+        last_scanned_at: null,
+        last_grade: "D",
+        created_at: 0,
+        dkim_selectors: "agentmail",
+      });
+
+      const result = await runDueRescans({ db: makeD1Mock(), now });
+
+      expect(result.scanned).toBe(1);
+      expect(scan).toHaveBeenCalledWith(
+        "pionagent.com",
+        ["agentmail"],
+        {},
+        undefined,
+        undefined,
+      );
+    });
+
+    it("still calls scan(domain, [], ...) when no selectors are stored", async () => {
+      domains.set(1, {
+        id: 1,
+        user_id: "u",
+        domain: "plain.com",
+        is_free: 0,
+        scan_frequency: "weekly",
+        last_scanned_at: null,
+        last_grade: "A",
+        created_at: 0,
+        dkim_selectors: null,
+      });
+      vi.mocked(scan).mockResolvedValue(
+        makeScanResult("plain.com", "A", {}) as never,
+      );
+
+      const result = await runDueRescans({ db: makeD1Mock(), now });
+
+      expect(result.scanned).toBe(1);
+      expect(scan).toHaveBeenCalledWith(
+        "plain.com",
+        [],
+        {},
+        undefined,
+        undefined,
+      );
     });
   });
 });

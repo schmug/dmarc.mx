@@ -86,6 +86,7 @@ function createMockDB(data: {
     last_scanned_at: number | null;
     last_grade: string | null;
     created_at: number;
+    dkim_selectors?: string | null;
   }>;
   users?: Array<{
     id: string;
@@ -356,8 +357,23 @@ function createMockDB(data: {
         // Guarded insert (createDomainUnderCap, issue #617): cap check and
         // insert happen together, mirroring D1's single-statement atomicity.
         if (/WHERE \(SELECT COUNT/i.test(sql)) {
-          const [userId, domain, isFree, frequency, capUserId, cap] =
-            bindings as [string, string, number, string, string, number];
+          const [
+            userId,
+            domain,
+            isFree,
+            frequency,
+            dkimSelectors,
+            capUserId,
+            cap,
+          ] = bindings as [
+            string,
+            string,
+            number,
+            string,
+            string | null,
+            string,
+            number,
+          ];
           const currentCount = domains.filter(
             (d) => d.user_id === capUserId,
           ).length;
@@ -376,6 +392,7 @@ function createMockDB(data: {
             last_scanned_at: null,
             last_grade: null,
             created_at: 1700000000,
+            dkim_selectors: dkimSelectors,
           });
           return { success: true, meta: { changes: 1 } };
         }
@@ -2033,6 +2050,7 @@ describe("dashboard/routes", () => {
         "example.com",
         0, // isFree=false → 0
         "weekly",
+        null, // dkim_selectors: no selectors submitted (#755)
         "user_1",
         3, // FREE_WATCHLIST_CAP
       ]);

@@ -2594,10 +2594,12 @@ export function renderAddDomainPage({
   email,
   error,
   usage,
+  selectorsValue,
 }: {
   email: string;
   error: string | null;
   usage: WatchlistUsage;
+  selectorsValue?: string;
 }): string {
   const errorBlock = error
     ? `<div class="settings-section" style="border-color:var(--clr-danger, #b91c1c);color:var(--clr-danger, #b91c1c)">${esc(error)}</div>`
@@ -2627,6 +2629,22 @@ ${usageBlock}
   >
   <p id="domain-help" style="font-size:0.8125rem;color:var(--clr-text-muted);margin:0.5rem 0 1rem">
     We'll run a full DMARC/SPF/DKIM/BIMI/MTA-STS scan and notify you if the grade drops.
+  </p>
+  <label for="dkim-selectors-input" style="display:block;font-size:0.875rem;color:var(--clr-text-muted);margin-bottom:0.4rem">DKIM selectors (optional)</label>
+  <input
+    id="dkim-selectors-input"
+    class="settings-input"
+    type="text"
+    name="dkim_selectors"
+    placeholder="e.g. selector1, google"
+    value="${esc(selectorsValue ?? "")}"
+    autocapitalize="none"
+    autocorrect="off"
+    spellcheck="false"
+    aria-describedby="dkim-selectors-help"
+  >
+  <p id="dkim-selectors-help" style="font-size:0.8125rem;color:var(--clr-text-muted);margin:0.5rem 0 1rem">
+    Comma-separated. We already check common selectors automatically — only add one here if your DKIM key lives somewhere unusual.
   </p>
   <div class="action-row">
     <button type="submit" class="btn"${submitDisabled} data-loading-text="Adding...">Add Domain</button>

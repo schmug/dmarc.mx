@@ -21,6 +21,10 @@ CREATE TABLE IF NOT EXISTS domains (
   last_scanned_at INTEGER,
   last_grade TEXT,
   created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  -- Comma-separated custom DKIM selectors for cron rescans (issue #755).
+  -- NULL/empty = use the built-in COMMON_SELECTORS list only. Validated at
+  -- write time by validateCustomSelectors (src/shared/selectors.ts).
+  dkim_selectors TEXT,
   UNIQUE(user_id, domain)
 );
 
