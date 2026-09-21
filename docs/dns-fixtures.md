@@ -22,6 +22,12 @@ appears when the domain's DNS really changed.
 A scan that throws is still recorded. Captured error answers are how a
 resolver-failure bug gets reproduced at all.
 
+Record from somewhere with working outbound DNS. In a sandboxed environment
+without it, recording succeeds but captures a file full of `ECONNREFUSED`
+answers, which replays faithfully and tells you nothing about the domain. If
+every answer in a fresh recording carries a `lookup_error`, that is the
+environment, not the domain.
+
 ## Replay
 
 ```ts
