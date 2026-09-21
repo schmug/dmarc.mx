@@ -669,7 +669,13 @@ export async function scanFromFixture(
     // A fixture never carries the DQS key: the DNSBL answer is recorded under a
     // key-free name, so replay needs a non-empty placeholder only to keep the
     // analyzer's "configured" branch alive.
-    return await scan(fixture.domain, customSelectors, config, limits, "replay");
+    return await scan(
+      fixture.domain,
+      customSelectors,
+      config,
+      limits,
+      "replay",
+    );
   } finally {
     setFixtureSource(null);
   }

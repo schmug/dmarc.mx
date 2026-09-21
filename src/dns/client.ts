@@ -86,7 +86,10 @@ async function throughFixture<T>(
           ? String((err as { code: unknown }).code)
           : "UNKNOWN";
     fixture.capture(key, {
-      error: { code, message: err instanceof Error ? err.message : String(err) },
+      error: {
+        code,
+        message: err instanceof Error ? err.message : String(err),
+      },
     });
     throw err;
   }
