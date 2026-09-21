@@ -1,10 +1,10 @@
 import dns from "node:dns";
 import * as Sentry from "@sentry/cloudflare";
 import { DnsLookupError } from "./errors.js";
+import * as fixture from "./replay.js";
 // Type-only: enforcement is a runtime `budget?.consume()` call, so no value
 // import of scan-budget.ts is emitted here.
 import type { ScanBudget } from "./scan-budget.js";
-import * as fixture from "./replay.js";
 import type { MxRecord, TxtRecord } from "./types.js";
 
 // Re-exported so existing `import { DnsLookupError } from "../dns/client.js"`
