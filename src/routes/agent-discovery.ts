@@ -29,16 +29,13 @@ agentDiscoveryRoutes.get("/.well-known/api-catalog", (c) => {
 
 // Agent Skills discovery index — Cloudflare RFC v0.2.0.
 // https://github.com/cloudflare/agent-skills-discovery-rfc
-agentDiscoveryRoutes.get(
-  "/.well-known/agent-skills/index.json",
-  async (c) => {
-    const json = await getAgentSkillsIndexJson();
-    return c.body(json, 200, {
-      "Content-Type": "application/json; charset=utf-8",
-      "Cache-Control": "public, max-age=3600",
-    });
-  },
-);
+agentDiscoveryRoutes.get("/.well-known/agent-skills/index.json", async (c) => {
+  const json = await getAgentSkillsIndexJson();
+  return c.body(json, 200, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "public, max-age=3600",
+  });
+});
 
 agentDiscoveryRoutes.get(
   "/.well-known/agent-skills/scan-domain/SKILL.md",
