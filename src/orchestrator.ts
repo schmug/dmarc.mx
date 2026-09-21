@@ -27,6 +27,7 @@ import type {
   Validation,
 } from "./analyzers/types.js";
 import { queryTxt } from "./dns/client.js";
+import { type DnsFixture, setFixtureSource } from "./dns/replay.js";
 import {
   DEFAULT_SCAN_LIMITS,
   ScanBudget,
@@ -642,5 +643,34 @@ export async function scanStreaming(
     return result;
   } finally {
     clearTimeout(deadlineTimer);
+  }
+}
+
+/**
+ * Run a full scan against a recorded DNS fixture instead of live DNS (#655).
+ *
+ * Deterministic and offline: with the fixture installed, every query in
+ * src/dns/client.ts is answered from it, and a name the fixture does not cover
+ * throws FixtureMissError rather than quietly going to the network. Use it to
+ * reproduce a reported grade, then assert on the fix.
+ *
+ * Takes a parsed fixture rather than a path: this module is bundled into the
+ * Worker, where node:fs does not exist. Read the file with loadFixture() from
+ * scripts/fixtures.ts (Node-side) and pass the result in.
+ */
+export async function scanFromFixture(
+  fixture: DnsFixture,
+  customSelectors: string[] = [],
+  config: Partial<ScoringConfig> = {},
+  limits: ScanLimits = DEFAULT_SCAN_LIMITS,
+): Promise<ScanResult> {
+  setFixtureSource(fixture);
+  try {
+    // A fixture never carries the DQS key: the DNSBL answer is recorded under a
+    // key-free name, so replay needs a non-empty placeholder only to keep the
+    // analyzer's "configured" branch alive.
+    return await scan(fixture.domain, customSelectors, config, limits, "replay");
+  } finally {
+    setFixtureSource(null);
   }
 }

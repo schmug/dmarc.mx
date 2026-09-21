@@ -8,6 +8,7 @@
     "deploy": "wrangler deploy",
     "test": "vitest run && vitest run --project=node --coverage",
     "test:watch": "vitest",
+    "record": "tsx scripts/record-fixture.ts",
     "lint": "biome check src/ test/",
     "lint:fix": "biome check --write src/ test/",
     "types": "wrangler types --include-runtime=false --env-interface=GeneratedBindings",
