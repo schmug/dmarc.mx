@@ -55,13 +55,7 @@ import {
   setEmailAlertsEnabled,
 } from "./db/users.js";
 import type { Env } from "./env.js";
-import {
-  handleInboundEmail,
-  putPending,
-  reserveLiveToken,
-  streamInboxResult,
-} from "./inbox/store.js";
-import { generateToken, isValidToken } from "./inbox/tokens.js";
+import { handleInboundEmail } from "./inbox/store.js";
 import { handleMcpRequest, MCP_SERVER_CARD } from "./mcp/handler.js";
 import type { ProtocolId, ProtocolResult } from "./orchestrator.js";
 import { scan, scanStreaming } from "./orchestrator.js";
@@ -71,8 +65,10 @@ import {
   type RateLimitResult,
   rateLimitHeaders,
 } from "./rate-limit.js";
+import { inboxRoutes } from "./routes/inbox.js";
 import { staticRoutes } from "./routes/static.js";
 import { scrubSentryEvent } from "./sentry-scrub.js";
+import { getClientIp } from "./shared/client.js";
 import { normalizeDomain } from "./shared/domain.js";
 import { watchlistCapFor } from "./shared/limits.js";
 import { parseScoringConfig } from "./shared/scoring-config.js";
@@ -98,7 +94,6 @@ import {
   renderStreamingLoading,
   renderTlsRptCard,
 } from "./views/html.js";
-import { renderInboxScanPage, renderInboxVerdict } from "./views/inbox.js";
 import {
   renderLearnBimi,
   renderLearnDane,
@@ -372,6 +367,7 @@ app.route("/webhooks", stripeWebhookRoutes);
 
 // Static assets, health check, and crawler-facing infrastructure (#661).
 app.route("/", staticRoutes);
+app.route("/", inboxRoutes);
 
 function markdownResponse(c: Context, body: string, status = 200) {
   return c.body(body, status as 200, {
@@ -394,13 +390,6 @@ function wantsMarkdown(c: Context): boolean {
   // Agents that send `Accept: text/markdown` (and nothing else, or markdown
   // first) get markdown. Browsers that prefer HTML keep getting HTML.
   return htmlIndex === -1 || mdIndex < htmlIndex;
-}
-
-function getClientIp(c: Context): string {
-  const cfIp = c.req.header("CF-Connecting-IP");
-  if (cfIp) return cfIp;
-
-  return "unknown";
 }
 
 // Resolves rate-limit identity + config for a request. Pro-authed bearers
@@ -793,27 +782,6 @@ app.get("/api/check/stream", async (c) => {
 // /api/check/stream: emits a "waiting" state, polls KV server-side, pushes the
 // parsed verdict when the message lands, then closes. An unknown/expired token
 // yields a clean "closed" event — never a 500.
-app.get("/api/check/email/stream", async (c) => {
-  const token = c.req.query("token");
-  if (!token || !isValidToken(token)) {
-    return c.json({ error: "Missing or invalid token parameter" }, 400);
-  }
-  const kv = c.env?.INBOX_TOKENS;
-  return streamSSE(c, async (stream) => {
-    if (!kv) {
-      await stream.writeSSE({
-        event: "closed",
-        data: JSON.stringify({ status: "unavailable" }),
-      });
-      return;
-    }
-    await streamInboxResult(stream, kv, token, {
-      renderCard: renderInboxVerdict,
-      rateLimiterNamespace: c.env?.RATE_LIMITER,
-    });
-  });
-});
-
 // Embeddable email-security badge for READMEs and dashboards. Always
 // returns a 200 SVG (even for invalid input or scan errors) so a badge
 // embed never renders as a broken image — error states are encoded into
@@ -1208,58 +1176,6 @@ function persistBearerScanIfWatched(
   })();
   c.executionCtx.waitUntil(task.catch(() => {}));
 }
-
-// Issue a one-time test-email address (issue #417). Rate-limited by the
-// middleware above; additionally capped per identity on simultaneously-live
-// tokens, enforced atomically via the RATE_LIMITER Durable Object (#618). ALL
-// dynamic content is escaped by renderInboxScanPage.
-app.get("/check/email", async (c) => {
-  const kv = c.env?.INBOX_TOKENS;
-  if (!kv) {
-    return c.html(
-      renderError("Test-email scanning isn't configured on this deployment."),
-      503,
-    );
-  }
-
-  // Reuse the rate-limit identity for the live-token cap. The middleware above
-  // has already resolved + stashed any bearer; fall back to the client IP.
-  const bearer =
-    (c.get("bearer" as never) as BearerIdentity | undefined) ?? null;
-  const identity = bearer ? `user:${bearer.userId}` : `ip:${getClientIp(c)}`;
-
-  const token = generateToken();
-  let reserved = false;
-  try {
-    reserved = await reserveLiveToken(
-      kv,
-      identity,
-      token,
-      undefined,
-      c.env?.RATE_LIMITER,
-    );
-    if (reserved) {
-      await putPending(kv, token);
-    }
-  } catch (err) {
-    Sentry.captureException(err);
-    return c.html(
-      renderError("Couldn't allocate a test address. Please try again."),
-      500,
-    );
-  }
-
-  if (!reserved) {
-    return c.html(
-      renderError(
-        "You have too many active test addresses. Wait for them to expire (30 minutes) before requesting another.",
-      ),
-      429,
-    );
-  }
-
-  return c.html(renderInboxScanPage(token));
-});
 
 app.get("/check/score", async (c) => {
   const domain = normalizeDomain(c.req.query("domain"));
