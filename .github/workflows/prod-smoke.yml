@@ -207,6 +207,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           TRIGGER: ${{ github.event_name }}
+          SERVER_URL: ${{ github.server_url }}
         run: |
           set -euo pipefail
           # Idempotent label creation — avoids hard-coupling this workflow
@@ -216,9 +217,36 @@ jobs:
           # spamming a new one every cron tick. Resolved by closing the
           # issue once the next green run comes in (manual for now).
           existing=$(gh issue list --state open --label incident --search "Prod smoke test failing" --json number --jq '.[0].number' || echo "")
+          # Hand the operator the rollback lever, filled in (#681). Deliberately
+          # a proposal and not a dispatch: on 2026-05-29 Bot Fight Mode
+          # challenged the runner and every probe went red with no code
+          # regression at all (#460), so a red smoke means "a human should look
+          # now", not "the last deploy was bad".
           body="The prod smoke workflow failed on $(date -u +%FT%TZ).
           Run: $RUN_URL
-          Trigger: $TRIGGER"
+          Trigger: $TRIGGER
+
+          First, rule out a false alarm: check the run above for a Cloudflare
+          challenge (the cf_challenge_check step) or an edge-configuration
+          change before touching the deploy. Not every red smoke is a bad
+          deploy.
+
+          If it is a bad deploy, the rollback lever is the Rollback workflow:
+          $SERVER_URL/$GH_REPO/actions/workflows/rollback.yml
+
+          Start by listing the recent Worker versions, which changes nothing:
+
+              gh workflow run rollback.yml -f action=inspect -f reason='prod smoke failing, see $RUN_URL'
+
+          Then pick one of the two remedies with the version id or commit from
+          that output:
+
+              gh workflow run rollback.yml -f action=pin-version -f version_id=<uuid> -f reason='prod smoke failing, see $RUN_URL'
+              gh workflow run rollback.yml -f action=revert-commit -f commit=<sha> -f reason='prod smoke failing, see $RUN_URL'
+
+          pin-version takes effect immediately and without review, so leave a
+          note here saying what you pinned and why. revert-commit goes through a
+          pull request and is the one that keeps main and production in step."
           if [ -n "$existing" ]; then
             gh issue comment "$existing" --body "$body"
           else
