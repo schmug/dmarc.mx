@@ -892,6 +892,41 @@ describe("cron/runDueRescans", () => {
       expect(result.scanned).toBe(1);
     });
 
+    // #752 — on 2026-09-17 production recorded 143 of 150 domains with every
+    // grade-critical lookup timed out, and the same portfolio was clean the next
+    // night. At one domain that is indistinguishable from dead nameservers; at
+    // 95% of a run it is our resolver, and must not become 143 verdicts.
+    it("discards unverifiable scans when most of the run is unverifiable", async () => {
+      seedDueDomains(100);
+      const previous = domains.get(1)?.last_scanned_at;
+
+      const scanFn = vi.fn(async (domain: string) => {
+        const id = Number(domain.replace(/\D/g, ""));
+        return id <= 95
+          ? makeUnreachableScanResult(domain)
+          : makeScanResult(domain, "A", {});
+      });
+
+      const result = await runDueRescans({
+        db: makeD1Mock(),
+        now,
+        scanFn: scanFn as never,
+        fireWebhookFn: vi.fn().mockResolvedValue(undefined) as never,
+      });
+
+      // Only the five verifiable scans are written; nothing claims a grade for
+      // the other 95.
+      expect(history.size).toBe(5);
+      expect([...history.values()].every((r) => r.grade === "A")).toBe(true);
+      expect(result.scanned).toBe(5);
+      expect(result.errors).toBe(95);
+      expect(alerts.size).toBe(0);
+
+      // The unverified domains keep their previous grade and stay due.
+      expect(domains.get(1)?.last_grade).toBe("A");
+      expect(domains.get(1)?.last_scanned_at).toBe(previous);
+    });
+
     it("caps a run below the per-invocation subrequest ceiling and defers the rest", async () => {
       seedDueDomains(260);
 
