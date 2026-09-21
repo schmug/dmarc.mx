@@ -41,6 +41,7 @@ export const COMMON_SELECTORS = [
   "cf2024-2",
   "cf2025-1",
   "cf2025-2",
+  "agentmail",
 ];
 
 const PROVIDER_SELECTORS: Record<string, string[]> = {
