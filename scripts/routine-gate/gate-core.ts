@@ -42,10 +42,19 @@ export function parseClosesIssue(body: string): number | null {
   return refs.length === 1 ? refs[0] : null;
 }
 
+export function trustedAuthor(author: string, cfg: Cfg): boolean {
+  return (
+    cfg.allowlistAuthors.includes(author) ||
+    (cfg.allowlistAuthorsWithApproval ?? []).includes(author)
+  );
+}
+
 export function isProvenanceTrusted(issue: IssueInfo | null, cfg: Cfg): boolean {
   if (!issue) return false; // fail-closed
+  // The spec-approved label is required for every author, so the second-tier
+  // allowlist is exactly "trusted once a human has labelled the issue".
   return (
-    cfg.allowlistAuthors.includes(issue.author) &&
+    trustedAuthor(issue.author, cfg) &&
     issue.labels.includes(cfg.labels.specApproved)
   );
 }
@@ -107,7 +116,7 @@ export function evaluateGate(input: GateInput): GateVerdict {
       reasons.push(`PR closes #${closes} but evaluated issue is #${issue.number}`);
     }
     if (!isProvenanceTrusted(issue, cfg)) {
-      if (!cfg.allowlistAuthors.includes(issue.author)) {
+      if (!trustedAuthor(issue.author, cfg)) {
         reasons.push(`issue author @${issue.author} not on allowlist`);
       }
       if (!issue.labels.includes(cfg.labels.specApproved)) {

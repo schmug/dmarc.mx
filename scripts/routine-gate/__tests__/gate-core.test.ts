@@ -8,6 +8,21 @@ describe("CONFIG", () => {
   it("only allowlists the repo owner", () => {
     expect(CONFIG.allowlistAuthors).toEqual(["schmug"]);
   });
+  it("trusts the operating agent only for labelled issues", () => {
+    expect(CONFIG.allowlistAuthorsWithApproval).toEqual(["andonos[bot]"]);
+    const labelled = {
+      number: 1,
+      author: "andonos[bot]",
+      labels: ["spec-approved"],
+    };
+    expect(isProvenanceTrusted(labelled, CONFIG)).toBe(true);
+    expect(
+      isProvenanceTrusted({ ...labelled, labels: ["bug"] }, CONFIG),
+    ).toBe(false);
+    expect(
+      isProvenanceTrusted({ ...labelled, author: "stranger" }, CONFIG),
+    ).toBe(false);
+  });
   it("uses the higher-throughput envelope", () => {
     expect(CONFIG.size.maxChangedLines).toBe(250);
     expect(CONFIG.size.maxChangedFiles).toBe(8);

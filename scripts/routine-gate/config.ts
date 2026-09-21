@@ -2,6 +2,14 @@ export const CONFIG = {
   // Condition 1 (primary, unforgeable): only these issue authors can ever reach auto-merge.
   allowlistAuthors: ["schmug"],
 
+  // Condition 1, second tier: authors trusted only for issues already carrying
+  // the spec-approved label. The operating agent self-specs issues, so its own
+  // issue text is not a human-vetted spec on its own — but the label can only be
+  // applied by someone with write access, so a labelled issue has had a human
+  // mint the approval, which is the property Condition 1 actually protects.
+  // Owner decision, 2026-09-21.
+  allowlistAuthorsWithApproval: ["andonos[bot]"],
+
   labels: {
     specApproved: "spec-approved", // minted ONLY by the interactive mobile session
     autoImpl: "auto-impl",         // applied by Routine #1 to PRs it opens

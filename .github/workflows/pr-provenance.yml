@@ -55,16 +55,33 @@ jobs:
           # Single source of truth: parse the allowlist out of the routine-gate
           # config rather than duplicating it here. Fail closed if it cannot be
           # read — an unparseable allowlist must not silently allow everything.
-          ALLOW=$(node -e '
+          # Names are read off the single line declaring each key, not with a
+          # bracket-bounded regex: a GitHub App login such as "andonos[bot]"
+          # contains a literal "]" and a /\[([^\]]*)\]/ match truncates inside it.
+          READ_LIST='
             const fs = require("fs");
+            const key = process.argv[1];
             const src = fs.readFileSync("scripts/routine-gate/config.ts", "utf8");
-            const m = src.match(/allowlistAuthors:\s*\[([^\]]*)\]/);
-            if (!m) { console.error("could not parse allowlistAuthors"); process.exit(1); }
-            const names = [...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1].toLowerCase());
-            if (!names.length) { console.error("allowlistAuthors is empty"); process.exit(1); }
+            const line = src.split("\n").find((l) => l.includes(key + ":"));
+            if (!line) { console.log(""); process.exit(0); }
+            const names = [...line.matchAll(/"([^"]+)"/g)].map((x) => x[1].toLowerCase());
             console.log(names.join(" "));
-          ')
+          '
+
+          ALLOW=$(node -e "$READ_LIST" allowlistAuthors)
+          if [ -z "$ALLOW" ]; then
+            echo "::error::could not read a non-empty allowlistAuthors from scripts/routine-gate/config.ts — failing closed."
+            exit 1
+          fi
           echo "Trusted issue authors: $ALLOW"
+
+          # Second tier: authors trusted only for issues a human has labelled
+          # spec-approved. The operating agent self-specs its own issues, so its
+          # issue text alone is not a vetted spec; the label is, because applying
+          # a label needs write access to the repo. May be absent or empty, which
+          # simply means no second tier.
+          ALLOW_LABELLED=$(node -e "$READ_LIST" allowlistAuthorsWithApproval)
+          echo "Trusted with spec-approved label: ${ALLOW_LABELLED:-(none)}"
 
           # Collect every issue this PR claims to close, mirroring the strips in
           # closesIssueRefs() (scripts/routine-gate/gate-core.ts): fenced code,
@@ -98,6 +115,17 @@ jobs:
             exit 0
           fi
 
+          # Plain string comparison, not grep: a login containing brackets is a
+          # grep bracket expression and would never match itself.
+          in_list() {
+            local needle="$1"; shift
+            local item
+            for item in $*; do
+              [ "$item" = "$needle" ] && return 0
+            done
+            return 1
+          }
+
           FAILED=0
           for N in $REFS; do
             AUTHOR=$(gh api "repos/$REPO/issues/$N" --jq '.user.login' 2>/dev/null || echo "")
@@ -107,8 +135,16 @@ jobs:
               continue
             fi
             LOWER=$(printf '%s' "$AUTHOR" | tr '[:upper:]' '[:lower:]')
-            if printf '%s\n' $ALLOW | grep -qx "$LOWER"; then
+            if in_list "$LOWER" "$ALLOW"; then
               echo "Issue #$N by @$AUTHOR — trusted."
+            elif in_list "$LOWER" "$ALLOW_LABELLED"; then
+              LABELS=$(gh api "repos/$REPO/issues/$N" --jq '.labels[].name' 2>/dev/null || echo "")
+              if printf '%s\n' "$LABELS" | grep -qx "spec-approved"; then
+                echo "Issue #$N by @$AUTHOR — trusted via the spec-approved label."
+              else
+                echo "::error::Issue #$N was authored by @$AUTHOR, who is trusted only for issues carrying the \"spec-approved\" label. Have a maintainer review the spec and apply that label, or re-file the issue."
+                FAILED=1
+              fi
             else
               echo "::error::Issue #$N was authored by @$AUTHOR, who is not on the trusted-author allowlist in scripts/routine-gate/config.ts. A PR implementing an untrusted issue cannot merge. If this issue is legitimate, have an allowlisted maintainer re-file or vouch for it."
               FAILED=1
