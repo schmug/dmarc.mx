@@ -6,11 +6,12 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "test": "vitest run",
+    "test": "vitest run && vitest run --project=node --coverage",
     "test:watch": "vitest",
     "lint": "biome check src/ test/",
     "lint:fix": "biome check --write src/ test/",
-    "typecheck": "tsc --noEmit"
+    "types": "wrangler types --include-runtime=false --env-interface=GeneratedBindings",
+    "typecheck": "wrangler types --check --include-runtime=false --env-interface=GeneratedBindings && tsc --noEmit"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.2",
@@ -19,6 +20,7 @@
     "@emnapi/core": "^1.11.1",
     "@emnapi/runtime": "^1.11.1",
     "@types/node": "^26.1.0",
+    "@vitest/coverage-v8": "^4.1.10",
     "minimatch": "^10.2.5",
     "sharp": "^0.35.3",
     "tsx": "^4.22.4",

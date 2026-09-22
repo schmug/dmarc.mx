@@ -21,7 +21,6 @@ export function parseDnsServers(raw: string | undefined): string[] | null {
   return servers.length > 0 ? servers : null;
 }
 
-const resolver = new dns.promises.Resolver();
 const DNS_TIMEOUT_MS = 3000;
 
 // Local-dev override: `DNS_SERVERS=8.8.8.8,1.1.1.1 npm run dev` points the
@@ -31,6 +30,18 @@ const customDnsServers =
   typeof process !== "undefined"
     ? parseDnsServers(process.env?.DNS_SERVERS)
     : null;
+
+// One module-level handle is correct here. workerd's node:dns is a DoH client
+// over fetch(), and its `Resolver` is a stateless pass-through — every method
+// is `return moduleFunction(...args)`, it holds no socket and no per-instance
+// query state, and setServers() is a no-op. #701 added a
+// RESOLVER_RESET_THRESHOLD that recreated this handle every 50 queries on the
+// theory that a c-ares handle was accumulating queries; the workerd binary
+// contains zero `ares_` symbols, so there was no handle to recycle and the
+// reset could not affect anything. Removed rather than left as dead code, so
+// the next reader is not handed a disproven model. The real bound on cron DNS
+// work is the per-invocation ceiling in src/cron/rescan.ts (#700).
+const resolver = new dns.promises.Resolver();
 if (customDnsServers) {
   try {
     resolver.setServers(customDnsServers);
@@ -62,7 +73,8 @@ function isDnsAbsent(err: unknown): boolean {
   return false;
 }
 
-function toDnsLookupError(err: unknown): DnsLookupError | null {
+// Exported so callers/tests can assert the classification directly (#700).
+export function toDnsLookupError(err: unknown): DnsLookupError | null {
   if (err instanceof Error && err.message === "DNS timeout") {
     return new DnsLookupError("DNS_TIMEOUT", "DNS query timed out");
   }
@@ -71,6 +83,11 @@ function toDnsLookupError(err: unknown): DnsLookupError | null {
     if (code === "ESERVFAIL") {
       return new DnsLookupError(code, "DNS server failure (SERVFAIL)");
     }
+    // Any other c-ares-level error code (EBADQUERY, ECONNREFUSED, etc.) is a
+    // resolver fault, not a genuinely absent record. Falling through to a bare
+    // throw here is what let a resolver hiccup masquerade as a scored
+    // protocol failure (#700) — classify it the same way as SERVFAIL instead.
+    return new DnsLookupError(code, `DNS resolver error (${code})`);
   }
   return null;
 }
@@ -217,6 +234,13 @@ export async function queryDnsbl(
     data: { type: "A", hostname: redacted },
     level: "info",
   });
+  // The DQS key is part of the query NAME by Spamhaus design, so it travels in
+  // this URL's query string. That is invisible to Sentry (the breadcrumb above
+  // is redacted and the catch below throws a generic message), but NOT to
+  // Workers Traces, which records `url.full`/`url.query` on outbound fetch
+  // spans automatically with no scrubbing hook. Do not set DNSBL_DQS_KEY while
+  // `[observability.traces]` is enabled in wrangler.toml. Structural fix: send
+  // the DQS lookup over a transport whose URL does not carry the name.
   const name = `${reversedIp}.${key}.${zone}`;
   const url = `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(name)}&type=A`;
   try {

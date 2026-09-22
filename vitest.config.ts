@@ -26,6 +26,21 @@ const cloudflareWorkersShim = {
 // compatibility flags / bindings from wrangler.toml.
 export default defineConfig({
   test: {
+    // Scoped to the "node" project only (see `npm test` in package.json) —
+    // the v8 coverage provider imports `node:inspector/promises`, which
+    // doesn't exist inside the workerd runtime the "workers" project runs in.
+    coverage: {
+      provider: "v8",
+      include: ["src/analyzers/**/*.ts", "src/shared/scoring.ts"],
+      reporter: ["text"],
+      thresholds: {
+        perFile: true,
+        statements: 87,
+        branches: 68,
+        functions: 85,
+        lines: 89,
+      },
+    },
     projects: [
       {
         extends: true,

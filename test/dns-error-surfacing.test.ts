@@ -30,6 +30,15 @@ function makeTimeoutError(): DnsLookupError {
   return new DnsLookupError("DNS_TIMEOUT", "DNS query timed out");
 }
 
+// #700 — workerd's node:dns is a DoH client over fetch(); EBADQUERY means the
+// outbound subrequest itself failed, so it says nothing about the domain.
+function makeBadQueryError(): DnsLookupError {
+  return new DnsLookupError(
+    "EBADQUERY",
+    "DNS query could not be sent (resolver unavailable)",
+  );
+}
+
 beforeEach(() => {
   vi.resetAllMocks();
 });
@@ -57,6 +66,13 @@ describe("analyzeDmarc with DNS lookup errors", () => {
     const result = await analyzeDmarc("example.com");
     expect(result.status).toBe("warn");
     expect(result.lookup_error?.code).toBe("DNS_TIMEOUT");
+  });
+
+  it("returns warn + lookup_error on EBADQUERY, never a scored fail", async () => {
+    mockQueryTxt.mockRejectedValue(makeBadQueryError());
+    const result = await analyzeDmarc("appstate.edu");
+    expect(result.status).toBe("warn");
+    expect(result.lookup_error?.code).toBe("EBADQUERY");
   });
 
   it("re-throws non-DnsLookupError errors", async () => {
@@ -98,6 +114,13 @@ describe("analyzeSpf with DNS lookup errors", () => {
     expect(result.lookup_error?.code).toBe("DNS_TIMEOUT");
   });
 
+  it("returns warn + lookup_error on EBADQUERY, never a scored fail", async () => {
+    mockQueryTxt.mockRejectedValue(makeBadQueryError());
+    const result = await analyzeSpf("appstate.edu");
+    expect(result.status).toBe("warn");
+    expect(result.lookup_error?.code).toBe("EBADQUERY");
+  });
+
   it("still returns fail when no SPF record exists", async () => {
     mockQueryTxt.mockResolvedValue(null);
     const result = await analyzeSpf("example.com");
@@ -116,6 +139,14 @@ describe("analyzeMx with DNS lookup errors", () => {
       code: "ESERVFAIL",
       message: "DNS server failure (SERVFAIL)",
     });
+  });
+
+  it("returns warn + lookup_error on EBADQUERY, never a scored fail", async () => {
+    mockQueryMx.mockRejectedValue(makeBadQueryError());
+    const result = await analyzeMx("appstate.edu");
+    expect(result.status).toBe("warn");
+    expect(result.records).toEqual([]);
+    expect(result.lookup_error?.code).toBe("EBADQUERY");
   });
 
   it("still returns info with empty records when no MX exists", async () => {
@@ -193,5 +224,78 @@ describe("scoring with DMARC lookup_error", () => {
     };
     const breakdown = computeGradeBreakdown(protocols);
     expect(breakdown.grade).toBe("F");
+  });
+});
+
+describe("scoring an unparseable DMARC policy (#738)", () => {
+  // Feeds the real analyzer output into the grader: a p= value that matches
+  // no policy arm used to produce zero policy validations, an overall "pass",
+  // and a tier-C credit from scoring.ts's "shouldn't normally reach here"
+  // fallback — quarantine-level enforcement the domain does not have.
+  const baseProtocols = {
+    spf: {
+      status: "pass" as const,
+      record: "v=spf1 -all",
+      lookups_used: 1,
+      lookup_limit: 10,
+      include_tree: null,
+      validations: [],
+    },
+    dkim: {
+      status: "pass" as const,
+      selectors: { google: { found: true } },
+      validations: [],
+    },
+    bimi: {
+      status: "warn" as const,
+      record: null,
+      tags: null,
+      validations: [],
+    },
+    mta_sts: {
+      status: "warn" as const,
+      dns_record: null,
+      policy: null,
+      validations: [],
+    },
+  };
+
+  it("does not credit p=Quarntine with the fallback quarantine tier", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=Quarntine; rua=mailto:r@example.com"],
+      raw: "v=DMARC1; p=Quarntine; rua=mailto:r@example.com",
+    });
+    const dmarc = await analyzeDmarc("example.com");
+
+    const breakdown = computeGradeBreakdown({ ...baseProtocols, dmarc });
+    expect(breakdown.tierReason).not.toBe(
+      "Fallback — quarantine-level enforcement",
+    );
+    expect(breakdown.grade).toBe("F");
+  });
+
+  it("does not credit sp=Rejectt with the fallback quarantine tier", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=reject; sp=Rejectt; rua=mailto:r@example.com"],
+      raw: "v=DMARC1; p=reject; sp=Rejectt; rua=mailto:r@example.com",
+    });
+    const dmarc = await analyzeDmarc("example.com");
+
+    const breakdown = computeGradeBreakdown({ ...baseProtocols, dmarc });
+    expect(breakdown.tierReason).not.toBe(
+      "Fallback — quarantine-level enforcement",
+    );
+    expect(breakdown.grade).toBe("F");
+  });
+
+  it("leaves a cleanly parsed p=reject record on its existing grade", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=reject; rua=mailto:r@example.com"],
+      raw: "v=DMARC1; p=reject; rua=mailto:r@example.com",
+    });
+    const dmarc = await analyzeDmarc("example.com");
+
+    const breakdown = computeGradeBreakdown({ ...baseProtocols, dmarc });
+    expect(breakdown.tier).toBe("B");
   });
 });

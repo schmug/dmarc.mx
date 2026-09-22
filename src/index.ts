@@ -47,6 +47,7 @@ import { runDueRescans } from "./cron/rescan.js";
 import { generateCsv } from "./csv.js";
 import { dashboardRoutes } from "./dashboard/routes.js";
 import { getDomainByUserAndName } from "./db/domains.js";
+import { isTransientD1Error } from "./db/retry.js";
 import { recordScan } from "./db/scans.js";
 import { getPlanForUser } from "./db/subscriptions.js";
 import {
@@ -296,17 +297,35 @@ app.use("*", async (c, next) => {
   }
 });
 
+// A D1 blip that outlived `d1Read`'s retries is not the caller's fault and is
+// not permanent, so it gets 503 + Retry-After rather than a 500 — that is what
+// the API docs already tell clients and agents to back off on, and it keeps the
+// raw `D1_ERROR: internal error; reference = <id>` out of the page (it is of no
+// use to the visitor; Sentry has the full exception either way).
+const D1_UNAVAILABLE_MESSAGE =
+  "Our database is briefly unavailable. Please try again in a moment.";
+const D1_RETRY_AFTER_SECONDS = "5";
+
 // Safety net: capture any unhandled errors that bypass route catch blocks
 app.onError((err, c) => {
   Sentry.captureException(err);
-  const message = err instanceof Error ? err.message : "Internal error";
+  const transientD1 = isTransientD1Error(err);
+  const message = transientD1
+    ? D1_UNAVAILABLE_MESSAGE
+    : err instanceof Error
+      ? err.message
+      : "Internal error";
+  const status = transientD1 ? 503 : 500;
+  const headers = transientD1
+    ? { "Retry-After": D1_RETRY_AFTER_SECONDS }
+    : undefined;
   const wantsJson =
     c.req.header("Accept")?.includes("application/json") ||
     c.req.query("format") === "json";
   if (wantsJson) {
-    return c.json({ error: message }, 500);
+    return c.json({ error: message }, status, headers);
   }
-  return c.html(renderError(message), 500);
+  return c.html(renderError(message), status, headers);
 });
 
 app.use("/api/*", cors());
@@ -1438,13 +1457,22 @@ export function parseSelectors(raw: string | undefined): string[] {
 // Rescans domains whose cadence has come due (monthly or weekly), persists
 // results, and records grade_drop / protocol_regression alerts. Fails soft
 // when DB is unbound so self-host deploys without D1 don't fault.
+//
+// The work is AWAITED, not handed to `ctx.waitUntil()`. Under waitUntil the
+// handler returned in microseconds, so the Cron Trigger's reported duration
+// measured nothing and its success/failure was decided before the rescan had
+// done anything — the run that false-graded 147 domains (#700) was recorded as
+// a success. Awaiting also puts the `cron.*` scope tags inside the live
+// invocation rather than on a scope whose lifetime had already ended. Cron
+// Triggers get 15 minutes of wall time and CPU, so awaiting the rescan does not
+// risk the truncation waitUntil would have avoided. Do not revert to waitUntil.
 async function scheduled(
   _controller: ScheduledController,
   env: Env,
-  ctx: ExecutionContext,
+  _ctx: ExecutionContext,
 ): Promise<void> {
   if (!env.DB) return;
-  const work = (async () => {
+  try {
     const rescanResult = await runDueRescans({
       db: env.DB,
       now: Math.floor(Date.now() / 1000),
@@ -1455,6 +1483,10 @@ async function scheduled(
     scope.setTag("cron.scanned", String(rescanResult.scanned));
     scope.setTag("cron.alerts", String(rescanResult.alerts));
     scope.setTag("cron.errors", String(rescanResult.errors));
+    // #700 — due domains deferred to the next run by the per-invocation
+    // ceiling or the resolver circuit breaker. Persistently non-zero means the
+    // portfolio has outgrown one invocation's outbound subrequest allowance.
+    scope.setTag("cron.skipped", String(rescanResult.skipped));
 
     // Dispatch runs unconditionally — alerts from prior cron runs may still
     // be pending if the EMAIL binding was absent or failed previously.
@@ -1468,10 +1500,15 @@ async function scheduled(
     scope.setTag("cron.workos_retried", String(workosResult.retried));
     scope.setTag("cron.workos_cleared", String(workosResult.cleared));
     scope.setTag("cron.workos_given_up", String(workosResult.givenUp));
-  })().catch((err) => {
+  } catch (err) {
     Sentry.captureException(err);
-  });
-  ctx.waitUntil(work);
+    // Re-throw so the platform records a FAILED cron invocation. Swallowing
+    // here (as the old `.catch()` did) left Sentry as the only place a bad run
+    // was visible, and the trigger itself reported success unconditionally.
+    // `Sentry.withSentry`'s scheduled wrapper re-throws after its own capture,
+    // so this rejection reaches the runtime.
+    throw err;
+  }
 }
 
 // Public unsubscribe endpoint reached from email links. The token is the

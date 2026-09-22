@@ -1,3 +1,5 @@
+import { d1Read } from "./retry.js";
+
 export interface ApiKeyRow {
   id: string;
   user_id: string;
@@ -33,12 +35,14 @@ export async function listApiKeysByUser(
   db: D1Database,
   userId: string,
 ): Promise<ApiKeyRow[]> {
-  const result = await db
-    .prepare(
-      "SELECT * FROM api_keys WHERE user_id = ? ORDER BY created_at DESC",
-    )
-    .bind(userId)
-    .all<ApiKeyRow>();
+  const result = await d1Read(() =>
+    db
+      .prepare(
+        "SELECT * FROM api_keys WHERE user_id = ? ORDER BY created_at DESC",
+      )
+      .bind(userId)
+      .all<ApiKeyRow>(),
+  );
   return result.results;
 }
 
@@ -48,12 +52,14 @@ export async function findActiveApiKeyByHash(
   db: D1Database,
   hash: string,
 ): Promise<Pick<ApiKeyRow, "id" | "user_id"> | null> {
-  return db
-    .prepare(
-      "SELECT id, user_id FROM api_keys WHERE hash = ? AND revoked_at IS NULL",
-    )
-    .bind(hash)
-    .first<Pick<ApiKeyRow, "id" | "user_id">>();
+  return d1Read(() =>
+    db
+      .prepare(
+        "SELECT id, user_id FROM api_keys WHERE hash = ? AND revoked_at IS NULL",
+      )
+      .bind(hash)
+      .first<Pick<ApiKeyRow, "id" | "user_id">>(),
+  );
 }
 
 // Ownership check is enforced by the WHERE clause keying on both id and

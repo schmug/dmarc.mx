@@ -582,3 +582,127 @@ describe("analyzeDmarc — alignment and failure-reporting tags", () => {
     ).toBe(true);
   });
 });
+
+describe("analyzeDmarc — unrecognized policy values (#738)", () => {
+  // RFC 7489 §6.6.3 step 6: a record without a valid p=, or with an invalid
+  // sp=, gets treated as p=none (when rua is present) or skipped entirely —
+  // no enforcement either way. p=Quarntine was observed in production on
+  // northampton.k12.nc.us and reported as healthy.
+  it("fails on an unrecognized p= value naming the typo", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=Quarntine; rua=mailto:r@mydomain.com"],
+      raw: "v=DMARC1; p=Quarntine; rua=mailto:r@mydomain.com",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(result.status).toBe("fail");
+    expect(
+      result.validations.some(
+        (v) => v.status === "fail" && v.message.includes("Quarntine"),
+      ),
+    ).toBe(true);
+  });
+
+  it("fails on an unrecognized sp= value instead of calling it explicitly set", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=reject; sp=Rejectt; rua=mailto:r@mydomain.com"],
+      raw: "v=DMARC1; p=reject; sp=Rejectt; rua=mailto:r@mydomain.com",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(result.status).toBe("fail");
+    expect(
+      result.validations.some(
+        (v) => v.status === "fail" && v.message.includes("Rejectt"),
+      ),
+    ).toBe(true);
+    expect(
+      result.validations.some((v) =>
+        v.message.includes("Subdomain policy explicitly set"),
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps p=REJECT a pass (p= is case-insensitive per RFC 7489 §6.3)", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=REJECT; rua=mailto:r@mydomain.com"],
+      raw: "v=DMARC1; p=REJECT; rua=mailto:r@mydomain.com",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(result.status).toBe("pass");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "pass" && v.message.includes("Policy is set to reject"),
+      ),
+    ).toBe(true);
+    expect(
+      result.validations.some((v) => v.message.includes("Unrecognized")),
+    ).toBe(false);
+  });
+
+  it("leaves p=quarantine and p=none on their existing severities", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=quarantine; rua=mailto:r@mydomain.com"],
+      raw: "v=DMARC1; p=quarantine; rua=mailto:r@mydomain.com",
+    });
+    const quarantine = await analyzeDmarc("mydomain.com");
+    expect(
+      quarantine.validations.some(
+        (v) =>
+          v.status === "warn" &&
+          v.message.includes("Policy is set to quarantine"),
+      ),
+    ).toBe(true);
+
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=none; rua=mailto:r@mydomain.com"],
+      raw: "v=DMARC1; p=none; rua=mailto:r@mydomain.com",
+    });
+    const none = await analyzeDmarc("mydomain.com");
+    expect(
+      none.validations.some(
+        (v) =>
+          v.status === "fail" && v.message.includes("Policy is set to none"),
+      ),
+    ).toBe(true);
+    expect(
+      none.validations.some((v) => v.message.includes("Unrecognized")),
+    ).toBe(false);
+  });
+
+  it("emits no subdomain-policy validation when sp= is absent", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=reject; rua=mailto:r@mydomain.com"],
+      raw: "v=DMARC1; p=reject; rua=mailto:r@mydomain.com",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(result.status).toBe("pass");
+    expect(
+      result.validations.some((v) => v.message.toLowerCase().includes("sp=")),
+    ).toBe(false);
+    expect(
+      result.validations.some((v) =>
+        v.message.includes("Subdomain policy explicitly set"),
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps a valid sp= reported as explicitly set", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=reject; sp=quarantine; rua=mailto:r@mydomain.com"],
+      raw: "v=DMARC1; p=reject; sp=quarantine; rua=mailto:r@mydomain.com",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "pass" &&
+          v.message.includes("Subdomain policy explicitly set"),
+      ),
+    ).toBe(true);
+  });
+});

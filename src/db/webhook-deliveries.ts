@@ -2,6 +2,7 @@
 // view to surface recent deliveries; written by the dispatcher after every
 // POST attempt (success or failure). Bodies are not stored — only the
 // SHA-256 of the request body so support can correlate without holding PII.
+import { d1Read } from "./retry.js";
 
 export interface WebhookDeliveryRow {
   id: number;
@@ -58,14 +59,16 @@ export async function getRecentDeliveriesForUser(
   userId: string,
   limit = 10,
 ): Promise<WebhookDeliveryRow[]> {
-  const result = await db
-    .prepare(
-      `SELECT * FROM webhook_deliveries
-       WHERE user_id = ?
-       ORDER BY attempted_at DESC
-       LIMIT ?`,
-    )
-    .bind(userId, limit)
-    .all<WebhookDeliveryRow>();
+  const result = await d1Read(() =>
+    db
+      .prepare(
+        `SELECT * FROM webhook_deliveries
+         WHERE user_id = ?
+         ORDER BY attempted_at DESC
+         LIMIT ?`,
+      )
+      .bind(userId, limit)
+      .all<WebhookDeliveryRow>(),
+  );
   return result.results;
 }
