@@ -57,7 +57,10 @@ security-sensitive minority of changes.
 The CODEOWNERS gate is only *enforcing* once the autonomous routine runs as a
 distinct **non-admin** identity. Today the routines run with the maintainer's
 admin credentials, and the repo Admin role bypasses the ruleset — so for
-automation the CODEOWNERS gate is currently **advisory**. Closing this is
+automation the CODEOWNERS gate is **advisory for that routine specifically**. It is
+enforced for every other identity: merges attempted by an agent identity with write
+access are refused on owned paths and succeed on unowned ones (observed
+2026-09-22 across nine PRs). Closing this is
 tracked as the bot-identity split,
 [#299](https://github.com/schmug/dmarcheck/issues/299). The deterministic gate
 (control 2) and required CI (control 3) apply regardless of identity and are the

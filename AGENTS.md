@@ -115,6 +115,42 @@ Live at dmarc.mx | Repo: github.com/schmug/dmarcheck
 - After committing or merging work, check open issues (`gh issue list`) to see if any were resolved and should be closed
 - When a commit addresses an issue, close it with a comment referencing the commit hash
 
+## What an agent can merge
+
+A repository ruleset requires code owner review, and it is **scoped per path**.
+An agent identity with write access can open, green and merge a PR on its own as
+long as the PR stays outside the owned paths. Touch one of them and the merge is
+refused with `Waiting on code owner review from schmug`, however small or green
+the change is.
+
+Needs the owner's review (the rules in `.github/CODEOWNERS`, verbatim):
+
+- `/.github/`, `/package.json`, `/package-lock.json`, `/wrangler.toml`
+- `/SECURITY.md`, `/CLAUDE.md`, `/.claude/settings.json`
+- `/src/index.ts`, `/src/orchestrator.ts`, `/src/shared/scoring.ts`
+- `/src/analyzers/`, `/src/db/`, `/src/account/`, `/src/auth/`, `/src/billing/`,
+  `/src/webhooks/`
+- `/src/rate-limit.ts`, `/src/rate-limit-do.ts`
+- `/mta-sts-worker/`, `/scripts/routine-gate/`
+
+Mergeable by an agent: `src/routes/`, `src/views/`, `src/api/`, `src/alerts/`,
+`src/cron/`, `src/dns/`, `src/mcp/`, `src/shared/` (except `scoring.ts`),
+`test/`, `docs/`, `AGENTS.md`, `README.md`, and `scripts/` other than
+`routine-gate/`. Note `wrangler.staging.toml` is not owned, only `wrangler.toml`.
+
+Plan around this. A fix in `src/cron/` or a route file lands without waiting; the
+same fix routed through `src/index.ts`, an analyzer or `scoring.ts` waits for a
+human. Prefer adding a module and a route file over editing the entrypoint, which
+is also why `src/index.ts` is being split. Do not reshape a change purely to dodge
+review: the owned paths are the security-sensitive ones, and a change that belongs
+in an analyzer belongs there.
+
+One extra step for PRs raised by a non-owner identity: `pr-provenance.yml`
+trusts them only once the linked issue carries `spec-approved`, which needs repo
+write access to apply. If the label is added after the check ran, re-run that
+workflow run — the label alone does not re-trigger it, and neither does closing
+and reopening the PR.
+
 ## Documentation
 
 - Keep `AGENTS.md` and `README.md` up to date when adding features, changing architecture, or modifying conventions
