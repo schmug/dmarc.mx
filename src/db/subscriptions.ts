@@ -1,3 +1,5 @@
+import { d1Read } from "./retry.js";
+
 export interface Subscription {
   id: number;
   user_id: string;
@@ -26,20 +28,24 @@ export async function getSubscriptionByUserId(
   db: D1Database,
   userId: string,
 ): Promise<Subscription | null> {
-  return db
-    .prepare("SELECT * FROM subscriptions WHERE user_id = ?")
-    .bind(userId)
-    .first<Subscription>();
+  return d1Read(() =>
+    db
+      .prepare("SELECT * FROM subscriptions WHERE user_id = ?")
+      .bind(userId)
+      .first<Subscription>(),
+  );
 }
 
 export async function getPlanForUser(
   db: D1Database,
   userId: string,
 ): Promise<PlanTier> {
-  const row = await db
-    .prepare("SELECT status FROM subscriptions WHERE user_id = ?")
-    .bind(userId)
-    .first<{ status: string }>();
+  const row = await d1Read(() =>
+    db
+      .prepare("SELECT status FROM subscriptions WHERE user_id = ?")
+      .bind(userId)
+      .first<{ status: string }>(),
+  );
   return statusToPlan(row?.status);
 }
 
@@ -92,10 +98,12 @@ export async function isStripeEventRecorded(
   db: D1Database,
   eventId: string,
 ): Promise<boolean> {
-  const row = await db
-    .prepare("SELECT 1 AS exists FROM stripe_events WHERE event_id = ?")
-    .bind(eventId)
-    .first();
+  const row = await d1Read(() =>
+    db
+      .prepare("SELECT 1 AS exists FROM stripe_events WHERE event_id = ?")
+      .bind(eventId)
+      .first(),
+  );
   return row !== null;
 }
 

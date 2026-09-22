@@ -1,3 +1,5 @@
+import { d1Read } from "./retry.js";
+
 export interface User {
   id: string;
   email: string;
@@ -36,7 +38,9 @@ export async function getUserById(
   db: D1Database,
   id: string,
 ): Promise<User | null> {
-  return db.prepare("SELECT * FROM users WHERE id = ?").bind(id).first<User>();
+  return d1Read(() =>
+    db.prepare("SELECT * FROM users WHERE id = ?").bind(id).first<User>(),
+  );
 }
 
 // Hard-deletes a user and everything they own. The single DELETE cascades via
@@ -58,20 +62,21 @@ export async function getUserByEmail(
   db: D1Database,
   email: string,
 ): Promise<User | null> {
-  return db
-    .prepare("SELECT * FROM users WHERE email = ?")
-    .bind(email)
-    .first<User>();
+  return d1Read(() =>
+    db.prepare("SELECT * FROM users WHERE email = ?").bind(email).first<User>(),
+  );
 }
 
 export async function getUserByStripeCustomerId(
   db: D1Database,
   stripeCustomerId: string,
 ): Promise<User | null> {
-  return db
-    .prepare("SELECT * FROM users WHERE stripe_customer_id = ?")
-    .bind(stripeCustomerId)
-    .first<User>();
+  return d1Read(() =>
+    db
+      .prepare("SELECT * FROM users WHERE stripe_customer_id = ?")
+      .bind(stripeCustomerId)
+      .first<User>(),
+  );
 }
 
 export async function setStripeCustomerId(
@@ -111,10 +116,12 @@ export async function getMaxDomainsOverrideForUser(
   db: D1Database,
   userId: string,
 ): Promise<number | null> {
-  const row = await db
-    .prepare("SELECT max_domains_override FROM users WHERE id = ?")
-    .bind(userId)
-    .first<{ max_domains_override: number | null }>();
+  const row = await d1Read(() =>
+    db
+      .prepare("SELECT max_domains_override FROM users WHERE id = ?")
+      .bind(userId)
+      .first<{ max_domains_override: number | null }>(),
+  );
   return row?.max_domains_override ?? null;
 }
 

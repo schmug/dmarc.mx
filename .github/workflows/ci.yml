@@ -9,9 +9,18 @@ on:
 permissions:
   contents: read
 
+# Supersede in-flight runs for the same PR — a rapid push sequence otherwise
+# leaves stale jobs burning runner minutes and posting obsolete statuses.
+# NEVER cancel on `main`: release.yml keys off a completed CI run there, and a
+# cancelled run would silently skip a release.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  check:
+  lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -20,21 +29,72 @@ jobs:
           cache: "npm"
       - run: npm ci
       - run: npm run lint
+      # Added to the existing lint job rather than as a new job so it reaches
+      # the required `check` context through `needs` without adding a new
+      # required status context to the branch protection rule.
+      - name: Binding parity (wrangler.toml vs wrangler.staging.toml)
+        run: npx tsx scripts/binding-parity/check.ts
+      # `npm run typecheck` only covers src/**, so scripts/ would otherwise
+      # ship unchecked.
+      - name: Typecheck binding-parity scripts
+        run: npx tsc -p scripts/binding-parity/tsconfig.json
+
+  typecheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci
       - run: npm run typecheck
+
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci
       - run: npm test
-      # Supply-chain gate: block merges on HIGH/CRITICAL CVEs in runtime deps.
-      # --audit-level=high filters out perennial low/moderate noise in transitive
-      # chains that often have no patch available. --omit=dev excludes dev-only
-      # tooling (biome, vitest, wrangler, sharp) which never ships to the Worker
-      # runtime; dev-dep CVEs are still surfaced by Dependabot alerts in the
-      # Security tab, they just don't block PRs here. Tighten if the threat
-      # model expands to cover developer machines.
-      - run: npm audit --audit-level=high --omit=dev
+
+  supply-chain:
+    runs-on: ubuntu-latest
+    # Generous relative to the work: the audit gate retries an unresponsive
+    # advisory backend up to 3 times with backoff before giving up.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22"
+          cache: "npm"
+      - run: npm ci
+
+      # Blocks merges on HIGH/CRITICAL CVEs in runtime deps. The policy lives in
+      # scripts/audit-gate/classify.ts (with tests) rather than in npm's exit
+      # code, which cannot tell "advisories found" from "advisory backend
+      # unreachable" — both are exit 1. On 2026-09-19 an npm maintenance window
+      # failed this gate on every PR with a misleading "Invalid package tree,
+      # run npm install" message (#745). It still FAILS CLOSED on an outage
+      # (npm ci keeps working during one, so failing open would let a bad
+      # dependency bump merge unaudited) — it just says which one happened.
+      # --omit=dev is applied inside the gate: dev tooling CVEs (wrangler /
+      # vitest / sharp chains, often unpatchable) stay visible via Dependabot
+      # without blocking PRs. Tighten if the threat model grows to cover
+      # developer machines.
+      - name: Supply-chain audit (HIGH/CRITICAL in runtime deps)
+        run: npx tsx scripts/audit-gate/gate.ts
+
       # Action-pin integrity: verify every third-party SHA-pinned action in
       # .github/workflows/** resolves to a real commit in its upstream repo.
       # Catches typos and hallucinated pins before they reach a release run
-      # (the class of error that broke #469). Folded into the required `check`
-      # job so it always reports and never creates a merge-deadlock context.
+      # (the class of error that broke #469).
       - name: Verify pinned action SHAs resolve
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -66,3 +126,37 @@ jobs:
             exit 1
           fi
           echo "All pinned action SHAs resolve."
+
+  # Aggregator. `check` is the required status context in the `main-protection`
+  # ruleset, so this job MUST keep the id `check` and MUST NOT be given a
+  # different `name:` — renaming it deadlocks every merge (the ruleset merge
+  # trap this repo has hit before). It exists so the dimensions above can run in
+  # parallel while the ruleset still depends on exactly one context.
+  #
+  # `if: always()` is load-bearing: without it a failed dependency SKIPS this
+  # job, and a skipped required check never reports, which also deadlocks
+  # merges. It must run on every outcome and decide explicitly.
+  check:
+    needs: [lint, typecheck, test, supply-chain]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every upstream job to have succeeded
+        run: |
+          set -euo pipefail
+          results="${{ join(needs.*.result, ' ') }}"
+          echo "upstream results: ${results}"
+          # Fail closed on an empty expansion: an empty string would skip the
+          # loop entirely and report success, gating nothing.
+          if [ -z "${results// /}" ]; then
+            echo "::error::Could not read upstream job results — refusing to report success."
+            exit 1
+          fi
+          for result in ${results}; do
+            if [ "${result}" != "success" ]; then
+              echo "::error::An upstream CI job did not succeed (saw '${result}'). See the lint / typecheck / test / supply-chain jobs for the failure."
+              exit 1
+            fi
+          done
+          echo "All upstream CI jobs succeeded."
