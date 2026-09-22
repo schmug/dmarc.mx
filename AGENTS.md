@@ -125,25 +125,32 @@ the change is.
 
 Needs the owner's review (the rules in `.github/CODEOWNERS`, verbatim):
 
-- `/.github/`, `/package.json`, `/package-lock.json`, `/wrangler.toml`
-- `/SECURITY.md`, `/CLAUDE.md`, `/.claude/settings.json`
-- `/src/index.ts`, `/src/orchestrator.ts`, `/src/shared/scoring.ts`
-- `/src/analyzers/`, `/src/db/`, `/src/account/`, `/src/auth/`, `/src/billing/`,
-  `/src/webhooks/`
-- `/src/rate-limit.ts`, `/src/rate-limit-do.ts`
-- `/mta-sts-worker/`, `/scripts/routine-gate/`
+- `/.github/CODEOWNERS` — the gate itself
+- `/.github/workflows/`: `migrate.yml`, `deploy-mta-sts.yml`, `deploy-staging.yml`,
+  `release.yml`, `rollback.yml`, `pr-provenance.yml`, `factory.yml`
+- `/wrangler.toml`
+- `/src/auth/`, `/src/account/`, `/src/billing/`, `/src/webhooks/`
+- `/src/db/migrations/`, `/src/db/schema.sql`
+- `/package.json`, `/package-lock.json`, `/scripts/routine-gate/`,
+  `/mta-sts-worker/`, `/SECURITY.md`
 
-Mergeable by an agent: `src/routes/`, `src/views/`, `src/api/`, `src/alerts/`,
-`src/cron/`, `src/dns/`, `src/mcp/`, `src/shared/` (except `scoring.ts`),
-`test/`, `docs/`, `AGENTS.md`, `README.md`, and `scripts/` other than
-`routine-gate/`. Note `wrangler.staging.toml` is not owned, only `wrangler.toml`.
+Everything else is mergeable by an agent once CI is green and the linked issue is
+`spec-approved` — including `src/index.ts`, `src/analyzers/`, `src/orchestrator.ts`,
+`src/shared/scoring.ts`, `src/rate-limit.ts`, `src/rate-limit-do.ts`, the rest of
+`src/db/`, `CLAUDE.md`, the CI-only workflows (`ci.yml`, `codeql.yml`, `dco.yml`,
+`prod-smoke.yml`, `deploy-freshness.yml`), plus routes, views, API, alerts, cron,
+dns, mcp, tests, docs and `scripts/` other than `routine-gate/`. Note
+`wrangler.staging.toml` is not owned, only `wrangler.toml`.
 
-Plan around this. A fix in `src/cron/` or a route file lands without waiting; the
-same fix routed through `src/index.ts`, an analyzer or `scoring.ts` waits for a
-human. Prefer adding a module and a route file over editing the entrypoint, which
-is also why `src/index.ts` is being split. Do not reshape a change purely to dodge
-review: the owned paths are the security-sensitive ones, and a change that belongs
-in an analyzer belongs there.
+The gated set is deliberately narrow: identity and crypto, money, production
+schema, production deploy configuration, the dependency supply chain, and the
+merge gate. It was narrowed on 2026-09-22 by owner decision so that routes,
+tests, docs, internal metrics and refactors no longer wait for a human.
+
+Plan around this. Most changes land without waiting; anything touching auth,
+billing, webhooks, account deletion, a migration, `wrangler.toml`, a deploy
+workflow, a lockfile or the routine gate waits for a human. Do not reshape a change purely to dodge review: the owned paths are the
+security-sensitive ones, and a change that belongs in one of them belongs there.
 
 One extra step for PRs raised by a non-owner identity: `pr-provenance.yml`
 trusts them only once the linked issue carries `spec-approved`, which needs repo
