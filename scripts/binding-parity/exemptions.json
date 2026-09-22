@@ -1,0 +1,6 @@
+{
+  "prodOnly": [
+    { "binding": "EMAIL", "reason": "staging must never deliver real mail" }
+  ],
+  "stagingOnly": []
+}
