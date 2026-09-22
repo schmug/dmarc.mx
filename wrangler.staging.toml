@@ -21,15 +21,15 @@ compatibility_date = "2026-06-30"
 compatibility_flags = ["nodejs_compat", "nodejs_als"]
 upload_source_maps = true
 
-# Served on the workers.dev subdomain
-# (dmarcheck-staging.cory7593.workers.dev) until staging.dmarc.mx exists.
-# A `routes` entry naming a custom domain whose DNS record is absent fails
-# the deploy, so the route stays commented out until the owner creates the
-# hostname; uncommenting it is then the whole change.
+# Served at staging.dmarc.mx, a Workers custom domain the owner attached on
+# 2026-09-22 behind its own Cloudflare Access application (one-time PIN).
+# Declared here so a deploy keeps the attachment rather than drifting from it.
+# The workers.dev hostname stays on as a fallback; without an Access JWT it
+# answers 401, so it exposes nothing.
 workers_dev = true
-# routes = [
-#   { pattern = "staging.dmarc.mx", custom_domain = true },
-# ]
+routes = [
+  { pattern = "staging.dmarc.mx", custom_domain = true },
+]
 
 [observability]
 enabled = true
@@ -50,9 +50,12 @@ enabled = true
 port = 8791
 
 # Same keys as production so the Cloudflare Access middleware behaves
-# identically; the AUD and team domain are the account's, not per-environment.
+# identically. The team domain is the account's; the AUD is per Access
+# application, and staging.dmarc.mx has its own application, so this value
+# differs from production on purpose. A deploy with production's AUD here
+# makes every staging request fail JWT verification.
 [vars]
-ACCESS_AUD = "7b283d5d9b56f6fffa342280310a4ae68f13cbb05dc27f3c1d2faec2deae507a"
+ACCESS_AUD = "01f99207ae5f24a4f17bf2f0cb8c6333cff4f54db4e5a2b2e351eff34d7b8a50"
 ACCESS_TEAM_DOMAIN = "coryrankin.cloudflareaccess.com"
 
 [limits]
