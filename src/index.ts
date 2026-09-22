@@ -20,24 +20,14 @@ import type {
   SpfResult,
   TlsRptResult,
 } from "./analyzers/types.js";
-import {
-  getAgentSkillsIndexJson,
-  SCAN_DOMAIN_SKILL_MD,
-} from "./api/agent-skills.js";
 import { isValidGrade, renderBadgeSvg } from "./api/badge.js";
 import {
   BULK_IN_BAND_CAP,
   isCapExceeded,
   processBulkScan,
 } from "./api/bulk-scan.js";
-import {
-  AGENT_CARD_JSON,
-  API_CATALOG_JSON,
-  CANONICAL_ORIGIN,
-} from "./api/catalog.js";
+import { CANONICAL_ORIGIN } from "./api/catalog.js";
 import { clampHistoryLimit, fetchDomainHistory } from "./api/history.js";
-import { LLMS_TXT } from "./api/llms-txt.js";
-import { OPENAPI_JSON } from "./api/openapi.js";
 import { accessJwtMiddleware } from "./auth/access-jwt.js";
 import { type BearerIdentity, resolveBearer } from "./auth/api-key.js";
 import { authRoutes } from "./auth/routes.js";
@@ -56,7 +46,6 @@ import {
 } from "./db/users.js";
 import type { Env } from "./env.js";
 import { handleInboundEmail } from "./inbox/store.js";
-import { handleMcpRequest, MCP_SERVER_CARD } from "./mcp/handler.js";
 import type { ProtocolId, ProtocolResult } from "./orchestrator.js";
 import { scan, scanStreaming } from "./orchestrator.js";
 import {
@@ -65,15 +54,19 @@ import {
   type RateLimitResult,
   rateLimitHeaders,
 } from "./rate-limit.js";
+import { agentDiscoveryRoutes } from "./routes/agent-discovery.js";
 import { inboxRoutes } from "./routes/inbox.js";
 import { staticRoutes } from "./routes/static.js";
 import { scrubSentryEvent } from "./sentry-scrub.js";
 import { getClientIp } from "./shared/client.js";
+import {
+  markdownResponse,
+  wantsMarkdown,
+} from "./shared/content-negotiation.js";
 import { normalizeDomain } from "./shared/domain.js";
 import { watchlistCapFor } from "./shared/limits.js";
 import { parseScoringConfig } from "./shared/scoring-config.js";
 import {
-  renderApiDocs,
   renderBimiCard,
   renderDaneCard,
   renderDkimCard,
@@ -108,7 +101,6 @@ import {
 } from "./views/learn.js";
 import { renderPrivacyPage } from "./views/legal.js";
 import {
-  renderApiDocsMarkdown,
   renderErrorMarkdown,
   renderLandingMarkdown,
   renderLearnHubMarkdown,
@@ -367,30 +359,8 @@ app.route("/webhooks", stripeWebhookRoutes);
 
 // Static assets, health check, and crawler-facing infrastructure (#661).
 app.route("/", staticRoutes);
+app.route("/", agentDiscoveryRoutes);
 app.route("/", inboxRoutes);
-
-function markdownResponse(c: Context, body: string, status = 200) {
-  return c.body(body, status as 200, {
-    "Content-Type": "text/markdown; charset=utf-8",
-  });
-}
-
-// Returns true when the client explicitly asked for markdown (via `?format=md`
-// or an `Accept` header that lists `text/markdown` before `text/html`). HTML
-// stays the default for browsers that send wildcards like `*/*`.
-function wantsMarkdown(c: Context): boolean {
-  const format = c.req.query("format");
-  if (format === "md" || format === "markdown") return true;
-  const accept = c.req.header("Accept");
-  if (!accept) return false;
-  const types = accept.toLowerCase().split(",");
-  const mdIndex = types.findIndex((t) => t.trim().startsWith("text/markdown"));
-  if (mdIndex === -1) return false;
-  const htmlIndex = types.findIndex((t) => t.trim().startsWith("text/html"));
-  // Agents that send `Accept: text/markdown` (and nothing else, or markdown
-  // first) get markdown. Browsers that prefer HTML keep getting HTML.
-  return htmlIndex === -1 || mdIndex < htmlIndex;
-}
 
 // Resolves rate-limit identity + config for a request. Pro-authed bearers
 // lift to the per-user bucket (60/hour). Everyone else — anonymous callers,
@@ -829,95 +799,6 @@ app.get("/badge", async (c) => {
       "Cache-Control": "public, max-age=60",
     });
   }
-});
-
-// RFC 9727 API catalog — agents discover this via the Link header on HTML
-// pages or by fetching a well-known URI directly.
-app.get("/.well-known/api-catalog", (c) => {
-  return c.body(API_CATALOG_JSON, 200, {
-    "Content-Type": "application/linkset+json",
-    "Cache-Control": "public, max-age=3600",
-  });
-});
-
-// Agent Skills discovery index — Cloudflare RFC v0.2.0.
-// https://github.com/cloudflare/agent-skills-discovery-rfc
-app.get("/.well-known/agent-skills/index.json", async (c) => {
-  const json = await getAgentSkillsIndexJson();
-  return c.body(json, 200, {
-    "Content-Type": "application/json; charset=utf-8",
-    "Cache-Control": "public, max-age=3600",
-  });
-});
-
-app.get("/.well-known/agent-skills/scan-domain/SKILL.md", (c) => {
-  return c.body(SCAN_DOMAIN_SKILL_MD, 200, {
-    "Content-Type": "text/markdown; charset=utf-8",
-    "Cache-Control": "public, max-age=3600",
-  });
-});
-
-// DNS-AID agent metadata contract — draft-mozleywilliams-dnsop-dnsaid.
-// Publishes the scan_domain capability at the HTTP layer; the matching DNS
-// SVCB/TXT records under _agents.dmarc.mx are owner zone-admin work (#461).
-app.get("/.well-known/agent.json", (c) => {
-  return c.body(AGENT_CARD_JSON, 200, {
-    "Content-Type": "application/json; charset=utf-8",
-    "Cache-Control": "public, max-age=3600",
-  });
-});
-
-// Remote MCP server — streamable-HTTP transport (POST only; stateless).
-// Agents discover this endpoint via /.well-known/mcp/server-card.json and
-// the agent-skills index.
-app.post("/mcp", async (c) => {
-  let body: unknown;
-  try {
-    body = await c.req.json();
-  } catch {
-    return c.json(
-      {
-        jsonrpc: "2.0",
-        id: null,
-        error: { code: -32700, message: "Parse error" },
-      },
-      400,
-    );
-  }
-  return handleMcpRequest(body, {
-    executionCtx: c.executionCtx,
-    scoringConfig: parseScoringConfig(c.env?.SCORING_CONFIG),
-    dnsblKey: c.env?.DNSBL_DQS_KEY,
-  });
-});
-
-// SEP-1649 MCP server card — minimal shape, served before the RFC finalises.
-app.get("/.well-known/mcp/server-card.json", (c) => {
-  return c.body(MCP_SERVER_CARD, 200, {
-    "Content-Type": "application/json; charset=utf-8",
-    "Cache-Control": "public, max-age=3600",
-  });
-});
-
-app.get("/openapi.json", (c) => {
-  return c.body(OPENAPI_JSON, 200, {
-    "Content-Type": "application/openapi+json; charset=utf-8",
-    "Cache-Control": "public, max-age=3600",
-  });
-});
-
-app.get("/docs/api", (c) => {
-  if (wantsMarkdown(c)) return markdownResponse(c, renderApiDocsMarkdown());
-  return c.html(renderApiDocs());
-});
-
-// llmstxt.org — vendor-neutral pointer to the canonical markdown URLs LLM
-// clients should pull instead of scraping rendered HTML. See src/api/llms-txt.ts.
-app.get("/llms.txt", (c) => {
-  return c.body(LLMS_TXT, 200, {
-    "Content-Type": "text/plain; charset=utf-8",
-    "Cache-Control": "public, max-age=3600",
-  });
 });
 
 app.get("/", (c) => {
