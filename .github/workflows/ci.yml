@@ -29,6 +29,15 @@ jobs:
           cache: "npm"
       - run: npm ci
       - run: npm run lint
+      # Added to the existing lint job rather than as a new job so it reaches
+      # the required `check` context through `needs` without adding a new
+      # required status context to the branch protection rule.
+      - name: Binding parity (wrangler.toml vs wrangler.staging.toml)
+        run: npx tsx scripts/binding-parity/check.ts
+      # `npm run typecheck` only covers src/**, so scripts/ would otherwise
+      # ship unchecked.
+      - name: Typecheck binding-parity scripts
+        run: npx tsc -p scripts/binding-parity/tsconfig.json
 
   typecheck:
     runs-on: ubuntu-latest
