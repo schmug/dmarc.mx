@@ -125,3 +125,17 @@ Live at dmarc.mx | Repo: github.com/schmug/dmarcheck
 - Cloudflare MCP server (`@cloudflare/mcp-server-cloudflare`) is configured globally in `~/.Codex.json`
 - Provides tools for managing Workers, DNS, KV, D1, R2, and more from Codex
 - Account ID: `f0fc4ca5b74274f7ba892e6c9ec411a7`
+
+## Measuring the factory
+
+`scripts/factory-metrics/report.ts` computes the autonomous merge rate — the
+share of routine PRs merged without a human intervention label — from the
+GitHub API, so the number in the goals is measured rather than counted by hand:
+
+```
+GH_TOKEN=... npx tsx scripts/factory-metrics/report.ts --days 90
+```
+
+It prints the window, the merged and routine totals, the rate to one decimal
+place, and which PRs needed a human and under which label. `metrics.ts` holds
+the pure functions and is unit tested; `report.ts` only fetches and prints.
