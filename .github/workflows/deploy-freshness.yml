@@ -1,0 +1,143 @@
+name: Deploy freshness
+
+# Alerts when dmarc.mx is not running the current tip of main.
+#
+# WHY THIS IS A SEPARATE WORKFLOW from prod-smoke.yml: that file states, and
+# relies on, the invariant that no secrets are ever passed to it, since it
+# only probes the public surface. This check needs a Cloudflare API token, so
+# it lives on its own rather than weakening that guarantee.
+#
+# WHY IT EXISTS: production ships through the Cloudflare Git integration, not
+# a GitHub workflow, so a failed deploy is invisible from GitHub - the PR
+# shows as merged and the site stays up, serving the previous version. On
+# 2026-09-21 both Cloudflare build triggers shared a build token that was
+# rolled; every build failed with "the build token selected for this build has
+# been deleted or rolled" and nothing alerted, because prod-smoke asks whether
+# dmarc.mx answers, not whether it answers with the code we merged.
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  schedule:
+    # Every two hours. A missed deploy is not urgent to the minute, but it
+    # should never survive a working day unnoticed.
+    - cron: "25 */2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  freshness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - run: npm ci
+
+      # Give a Git-integration build time to finish before judging it.
+      - name: Wait for a deploy to roll out
+        if: ${{ github.event_name == 'workflow_run' }}
+        run: sleep 120
+
+      - name: Read the tip of main
+        id: main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          sha=$(gh api repos/${{ github.repository }}/commits/main --jq '.sha')
+          when=$(gh api repos/${{ github.repository }}/commits/main \
+            --jq '.commit.committer.date')
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "when=$when" >> "$GITHUB_OUTPUT"
+          echo "main is at ${sha:0:8} committed $when"
+
+      - name: Read the active production deployment
+        id: deployed
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          body=$(curl -fsS \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/dmarcheck/deployments")
+          when=$(printf '%s' "$body" \
+            | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const d=JSON.parse(s).result.deployments[0];if(!d)throw new Error("no deployments returned");process.stdout.write(d.created_on)})')
+          version=$(printf '%s' "$body" \
+            | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{process.stdout.write(JSON.parse(s).result.deployments[0].versions[0].version_id)})')
+          echo "when=$when" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "production is serving version $version deployed $when"
+
+      - name: Compare
+        id: compare
+        env:
+          MAIN_COMMIT_ISO: ${{ steps.main.outputs.when }}
+          ACTIVE_DEPLOY_ISO: ${{ steps.deployed.outputs.when }}
+          GRACE_SECONDS: "900"
+        run: npx tsx scripts/deploy-freshness/check.ts
+
+      - name: Open or update the stale-deploy incident issue
+        if: ${{ failure() && steps.compare.outcome == 'failure' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          MAIN_SHA: ${{ steps.main.outputs.sha }}
+          MAIN_WHEN: ${{ steps.main.outputs.when }}
+          DEPLOY_WHEN: ${{ steps.deployed.outputs.when }}
+          DEPLOY_VERSION: ${{ steps.deployed.outputs.version }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          title="Production is not running the tip of main"
+          body=$(cat <<EOF
+          dmarc.mx is serving an older version than main.
+
+          - main tip: \`${MAIN_SHA:0:8}\` committed \`$MAIN_WHEN\`
+          - active deployment: \`$DEPLOY_VERSION\` deployed \`$DEPLOY_WHEN\`
+          - detected by: $RUN_URL
+
+          Production ships through the Cloudflare Git integration, so this
+          means a build or deploy failed without failing anything on GitHub.
+          The site is most likely still up and serving the previous version.
+
+          Where to look, likeliest first:
+
+          1. Cloudflare dashboard, Workers -> dmarcheck -> Builds. Check the
+             most recent build's outcome. A build token that has been rolled
+             fails every build with "the build token selected for this build
+             has been deleted or rolled"; both triggers must then be given a
+             fresh token. This was the cause on 2026-09-21.
+          2. The build log itself, for an install or bundle failure.
+          3. \`wrangler deployments list\` locally, to confirm what is live.
+
+          This issue is updated, not duplicated, while the condition persists.
+          EOF
+          )
+          # The heredoc body carries this file's YAML indentation; strip it.
+          body=$(printf '%s\n' "$body" | sed 's/^          //')
+          # Matched on title rather than a label, so the workflow cannot fail
+          # just because a label was never created in the repo.
+          existing=$(gh issue list --repo "$REPO" --state open \
+            --search "in:title $title" --json number,title \
+            --jq "[.[] | select(.title == \"$title\")][0].number" || true)
+          if [ -n "$existing" ] && [ "$existing" != "null" ]; then
+            gh issue comment "$existing" --repo "$REPO" --body "$body"
+            echo "Updated issue #$existing"
+          else
+            gh issue create --repo "$REPO" --title "$title" --body "$body"
+          fi
