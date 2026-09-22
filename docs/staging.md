@@ -32,6 +32,13 @@ tracking state exactly — production's table holds the same nine filenames.
 After that the normal `migrate` step is a no-op and every future migration
 reaches staging first, which is the point of the environment.
 
+Bootstrapped and verified on 2026-09-22 by run `35736538302`, dispatched with
+`bootstrap: true` **and** `migrate: true`. Pass both: the inputs are independent,
+and a run with `migrate` alone skips the bootstrap step and then fails on
+migration `0002` exactly as described above (run `35736377992`). Afterwards
+`dmarcheck-db-staging` held the same eleven application tables as production and
+all nine migrations `0002`–`0010` in `d1_migrations`.
+
 It refuses to run if a `users` table already exists. Re-running `schema.sql`
 would be harmless, since every `CREATE` is `IF NOT EXISTS`, but re-seeding
 `d1_migrations` would mask genuinely pending migrations — worse than a failed
