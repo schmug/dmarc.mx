@@ -2,7 +2,8 @@ import { describe, it, expect } from "vitest";
 import { CONFIG } from "../config.js";
 import { parseClosesIssue, isProvenanceTrusted, closesIssueRefs } from "../gate-core.js";
 import { touchesRiskPath, withinSizeEnvelope, scopeDrift } from "../gate-core.js";
-import { evaluateGate, type GateInput } from "../gate-core.js";
+import { ciReasons, evaluateGate, type GateInput } from "../gate-core.js";
+import { toCheckState } from "../github.js";
 
 describe("CONFIG", () => {
   it("only allowlists the repo owner", () => {
@@ -14,6 +15,7 @@ describe("CONFIG", () => {
       number: 1,
       author: "andonos[bot]",
       labels: ["spec-approved"],
+      filePointers: [],
     };
     expect(isProvenanceTrusted(labelled, CONFIG)).toBe(true);
     expect(
@@ -86,7 +88,7 @@ describe("touchesRiskPath", () => {
 });
 
 describe("withinSizeEnvelope", () => {
-  const base = { number: 1, body: "", changedFiles: ["a.ts"], ciAllGreen: true };
+  const base = { number: 1, body: "", changedFiles: ["a.ts"], checks: [{ name: "check", outcome: "success" as const }] };
   it("accepts a small diff", () => {
     expect(withinSizeEnvelope({ ...base, additions: 100, deletions: 40 }, CONFIG)).toBe(true);
   });
@@ -96,6 +98,52 @@ describe("withinSizeEnvelope", () => {
   it("rejects too many files", () => {
     expect(withinSizeEnvelope(
       { ...base, additions: 10, deletions: 0, changedFiles: Array(9).fill("x.ts") }, CONFIG)).toBe(false);
+  });
+});
+
+describe("ciReasons", () => {
+  it("accepts skipped checks: a conditional job that did not run is not a failure", () => {
+    expect(ciReasons([
+      { name: "check", outcome: "success" },
+      { name: "land", outcome: "skipped" },
+    ])).toEqual([]);
+  });
+  it("names the failing checks", () => {
+    expect(ciReasons([
+      { name: "typecheck", outcome: "failed" },
+      { name: "lint", outcome: "failed" },
+      { name: "check", outcome: "success" },
+    ])).toEqual(["CI failing: lint, typecheck"]);
+  });
+  it("distinguishes a still-running check from a failed one", () => {
+    expect(ciReasons([{ name: "test", outcome: "pending" }]))
+      .toEqual(["CI still running: test"]);
+  });
+  it("fails closed when no checks are reported", () => {
+    expect(ciReasons([])).toEqual(["no CI checks reported (fail-closed)"]);
+  });
+});
+
+describe("toCheckState", () => {
+  it("reads a completed check-run conclusion", () => {
+    expect(toCheckState({ name: "lint", status: "COMPLETED", conclusion: "SUCCESS" }))
+      .toEqual({ name: "lint", outcome: "success" });
+  });
+  it("treats an unfinished check-run as pending, not failed", () => {
+    expect(toCheckState({ name: "test", status: "IN_PROGRESS", conclusion: "" }))
+      .toEqual({ name: "test", outcome: "pending" });
+  });
+  it("reads a commit status by context and state", () => {
+    expect(toCheckState({ context: "Workers Builds: dmarcheck", state: "SUCCESS" }))
+      .toEqual({ name: "Workers Builds: dmarcheck", outcome: "success" });
+  });
+  it("maps a skipped job to skipped", () => {
+    expect(toCheckState({ name: "land", conclusion: "SKIPPED" }).outcome).toBe("skipped");
+  });
+  it("maps failure, cancellation and timeout to failed", () => {
+    for (const c of ["FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "ERROR"]) {
+      expect(toCheckState({ name: "x", conclusion: c }).outcome).toBe("failed");
+    }
   });
 });
 
@@ -119,7 +167,7 @@ function baseInput(): GateInput {
       number: 100,
       body: "Implements analyzer tweak.\n\nCloses #42",
       changedFiles: ["src/analyzers/spf.ts"],
-      additions: 30, deletions: 5, ciAllGreen: true,
+      additions: 30, deletions: 5, checks: [{ name: "check", outcome: "success" as const }],
     },
   };
 }
@@ -164,7 +212,7 @@ describe("evaluateGate", () => {
     expect(v.reasons.join(" ")).toMatch(/scope drift/);
   });
   it("FAILS on red CI", () => {
-    const i = baseInput(); i.pr.ciAllGreen = false;
+    const i = baseInput(); i.pr.checks = [{ name: "test", outcome: "failed" }];
     expect(evaluateGate(i).pass).toBe(false);
   });
   it("FAILS when PR closes a different issue than evaluated", () => {
@@ -206,7 +254,7 @@ describe("evaluateGate ambiguity + provenance source-of-truth", () => {
       cfg: CONFIG,
       issue: { number: 42, author: "schmug", labels: ["spec-approved"], filePointers: ["src/analyzers/**"] },
       pr: { number: 100, body: "Implements analyzer tweak.\n\nCloses #42",
-            changedFiles: ["src/analyzers/spf.ts"], additions: 30, deletions: 5, ciAllGreen: true },
+            changedFiles: ["src/analyzers/spf.ts"], additions: 30, deletions: 5, checks: [{ name: "check", outcome: "success" as const }] },
     };
   }
   it("FAILS with an ambiguous reason on multiple Closes refs", () => {
@@ -255,7 +303,7 @@ describe("denylist hardening + normalization", () => {
     expect(scopeDrift(["./src/analyzers/spf.ts"], ["src/analyzers/**"])).toEqual([]);
   });
   it("size envelope exact boundary passes (<=)", () => {
-    const pr = { number: 1, body: "", changedFiles: Array(8).fill("a.ts"), additions: 200, deletions: 50, ciAllGreen: true };
+    const pr = { number: 1, body: "", changedFiles: Array(8).fill("a.ts"), additions: 200, deletions: 50, checks: [{ name: "check", outcome: "success" as const }] };
     expect(withinSizeEnvelope(pr, CONFIG)).toBe(true);
   });
 });
