@@ -45,7 +45,7 @@ resource, or if bindings have diverged from production without an exemption.
 
 | | production | staging | why |
 |---|---|---|---|
-| hostname | `dmarc.mx` custom domain | `workers.dev` subdomain | `staging.dmarc.mx` does not exist yet; uncommenting the `routes` block is the whole change once it does |
+| hostname | `dmarc.mx` custom domain | `staging.dmarc.mx` custom domain, plus the `workers.dev` subdomain | each hostname has its own Access application, so `ACCESS_AUD` differs |
 | cron | `17 6 * * *` | none | a timer here would rescan the same 361 real domains twice a night for no signal |
 | `EMAIL` binding | present | absent | staging must never mail real subscribers; `dispatchPendingAlerts()` records `skipped:no_binding` instead |
 | traces | on, 1% | off | synthetic traffic, and traces are the path that would leak a DNSBL key |
@@ -67,6 +67,6 @@ reads the file.
 
 1. `wrangler kv namespace create INBOX_TOKENS_STAGING`, then commit the
    returned id over `REPLACE_WITH_STAGING_NAMESPACE_ID`.
-2. Optionally a `staging.dmarc.mx` DNS record, then uncomment `routes`.
+2. The `staging.dmarc.mx` custom domain and its Access application (done 2026-09-22; sign in with a one-time PIN).
 3. Nothing else: the workflow reuses the existing `CLOUDFLARE_API_TOKEN`,
    `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_D1_TOKEN` repository secrets.
