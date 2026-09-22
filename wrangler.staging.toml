@@ -91,13 +91,11 @@ migrations_dir = "src/db/migrations"
 # marking alerts `skipped:no_binding` (src/alerts/dispatcher.ts), so the
 # alert path stays testable up to the point of delivery.
 
-# Staging INBOX_TOKENS namespace. The id below is a placeholder and MUST be
-# replaced with the output of
-#   wrangler kv namespace create INBOX_TOKENS_STAGING
-# before the first staging deploy; deploying with a foreign namespace id
-# would let staging read and overwrite production's inbox reservations,
-# which are capability tokens. deploy-staging.yml fails fast on this
-# placeholder rather than trusting a reviewer to notice it.
+# Staging's own INBOX_TOKENS namespace, created for this purpose on
+# 2026-09-21. It must never be production's: inbox reservations are
+# capability tokens, so a shared namespace would let staging read and
+# overwrite them. deploy-staging.yml still fails fast if this line ever
+# reverts to a placeholder.
 [[kv_namespaces]]
 binding = "INBOX_TOKENS"
-id = "REPLACE_WITH_STAGING_NAMESPACE_ID"
+id = "578fc71063fe4d31894dda60e9fcf9e1"
