@@ -30,15 +30,23 @@ export const CONFIG = {
   } as Record<string, string>,
 
   // Condition 4: any match -> escalate, never auto-merge. Globs are minimatch with { dot: true }.
+  // Aligned to the narrowed CODEOWNERS policy. Owner decision, 2026-09-22.
   riskPathDenylist: [
-    "**/auth/**", "**/auth*/**", "**/authz/**", "**/*auth*", "**/*authz*",
-    "**/crypto/**", "**/*jwt*",
-    "**/.github/workflows/**", "**/migrations/**",
-    "**/*.env*", "**/.dev.vars",
-    "**/*mta-sts*", "**/*mta_sts*",
-    "**/*cloudflare*access*", "**/*access*cloudflare*",
-    "infra/**", "**/terraform/**", "**/*.tf",
-    "**/wrangler.toml", "**/wrangler.jsonc",
-    "scripts/routine-gate/**", "scripts/routine-pipeline/**",
+    "src/auth/**", "src/account/**",
+    "src/billing/**", "src/webhooks/**",
+    "src/db/migrations/**", "src/db/schema.sql",
+    "wrangler.toml",
+    ".github/workflows/migrate.yml",
+    ".github/workflows/deploy-mta-sts.yml",
+    ".github/workflows/deploy-staging.yml",
+    ".github/workflows/release.yml",
+    ".github/workflows/rollback.yml",
+    ".github/workflows/pr-provenance.yml",
+    ".github/workflows/factory.yml",
+    ".github/CODEOWNERS",
+    "package.json", "package-lock.json",
+    "scripts/routine-gate/**",
+    "mta-sts-worker/**",
+    "SECURITY.md",
   ],
 };

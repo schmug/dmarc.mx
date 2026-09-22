@@ -74,16 +74,23 @@ describe("isProvenanceTrusted", () => {
 });
 
 describe("touchesRiskPath", () => {
-  it("flags a workflow file", () => {
-    expect(touchesRiskPath([".github/workflows/ci.yml"], CONFIG.riskPathDenylist))
-      .toEqual([".github/workflows/ci.yml"]);
+  it("flags a migration-deploy workflow file", () => {
+    expect(touchesRiskPath([".github/workflows/migrate.yml"], CONFIG.riskPathDenylist))
+      .toEqual([".github/workflows/migrate.yml"]);
   });
-  it("flags an mta-sts source file", () => {
-    expect(touchesRiskPath(["src/mta-sts-fetch.ts"], CONFIG.riskPathDenylist))
-      .toEqual(["src/mta-sts-fetch.ts"]);
+  it("flags an mta-sts worker file", () => {
+    expect(touchesRiskPath(["mta-sts-worker/index.ts"], CONFIG.riskPathDenylist))
+      .toEqual(["mta-sts-worker/index.ts"]);
+  });
+  it("passes a CI-only workflow file", () => {
+    expect(touchesRiskPath([".github/workflows/ci.yml"], CONFIG.riskPathDenylist)).toEqual([]);
   });
   it("passes an ordinary source file", () => {
     expect(touchesRiskPath(["src/analyzers/spf.ts"], CONFIG.riskPathDenylist)).toEqual([]);
+  });
+  it("flags an auth source file", () => {
+    expect(touchesRiskPath(["src/auth/session.ts"], CONFIG.riskPathDenylist))
+      .toEqual(["src/auth/session.ts"]);
   });
 });
 
@@ -196,7 +203,7 @@ describe("evaluateGate", () => {
     expect(v.pass).toBe(false);
   });
   it("FAILS on risk path even if everything else is fine", () => {
-    const i = baseInput(); i.pr.changedFiles = [".github/workflows/ci.yml"]; i.issue!.filePointers = [".github/workflows/**"];
+    const i = baseInput(); i.pr.changedFiles = ["src/auth/session.ts"]; i.issue!.filePointers = ["src/auth/**"];
     const v = evaluateGate(i);
     expect(v.pass).toBe(false);
     expect(v.reasons.join(" ")).toMatch(/risk-path/);
@@ -272,8 +279,8 @@ describe("gate self-modification is denylisted", () => {
   it("blocks changes to the gate config", () => {
     expect(touchesRiskPath(["scripts/routine-gate/config.ts"], CONFIG.riskPathDenylist).length).toBe(1);
   });
-  it("blocks changes to pipeline scripts/prompts", () => {
-    expect(touchesRiskPath(["scripts/routine-pipeline/routine-reviewer.md"], CONFIG.riskPathDenylist).length).toBe(1);
+  it("no longer blocks pipeline scripts/prompts (un-gated, owner decision 2026-09-22)", () => {
+    expect(touchesRiskPath(["scripts/routine-pipeline/routine-reviewer.md"], CONFIG.riskPathDenylist).length).toBe(0);
   });
   it("still allows ordinary source", () => {
     expect(touchesRiskPath(["src/analyzers/spf.ts"], CONFIG.riskPathDenylist).length).toBe(0);
@@ -281,23 +288,27 @@ describe("gate self-modification is denylisted", () => {
 });
 
 describe("denylist hardening + normalization", () => {
-  it("blocks nested wrangler.toml", () => {
-    expect(touchesRiskPath(["packages/x/wrangler.toml"], CONFIG.riskPathDenylist).length).toBe(1);
+  it("blocks the root wrangler.toml", () => {
+    expect(touchesRiskPath(["wrangler.toml"], CONFIG.riskPathDenylist).length).toBe(1);
   });
-  it("blocks nested .github/workflows", () => {
-    expect(touchesRiskPath(["apps/web/.github/workflows/ci.yml"], CONFIG.riskPathDenylist).length).toBe(1);
+  it("does not block an unrelated nested wrangler.toml (not a genuine risk area)", () => {
+    expect(touchesRiskPath(["packages/x/wrangler.toml"], CONFIG.riskPathDenylist).length).toBe(0);
   });
-  it("blocks an authz directory file", () => {
-    expect(touchesRiskPath(["src/authz/policy.ts"], CONFIG.riskPathDenylist).length).toBe(1);
+  it("does not block nested/unlisted .github/workflows files", () => {
+    expect(touchesRiskPath(["apps/web/.github/workflows/ci.yml"], CONFIG.riskPathDenylist).length).toBe(0);
   });
-  it("blocks capitalized AuthGuard via case-insensitive denylist", () => {
-    expect(touchesRiskPath(["src/AuthGuard.ts"], CONFIG.riskPathDenylist).length).toBe(1);
+  it("does not block an authz directory file outside src/auth/**", () => {
+    expect(touchesRiskPath(["src/authz/policy.ts"], CONFIG.riskPathDenylist).length).toBe(0);
   });
-  it("blocks reversed access*cloudflare order", () => {
-    expect(touchesRiskPath(["src/access-cloudflare.ts"], CONFIG.riskPathDenylist).length).toBe(1);
+  it("does not block a file merely named AuthGuard outside src/auth/**", () => {
+    expect(touchesRiskPath(["src/AuthGuard.ts"], CONFIG.riskPathDenylist).length).toBe(0);
   });
   it("normalizes ./-prefixed risky paths", () => {
     expect(touchesRiskPath(["./src/auth/login.ts"], CONFIG.riskPathDenylist).length).toBe(1);
+  });
+  it("blocks a db migration file but not other db code", () => {
+    expect(touchesRiskPath(["src/db/migrations/0001_init.sql"], CONFIG.riskPathDenylist).length).toBe(1);
+    expect(touchesRiskPath(["src/db/client.ts"], CONFIG.riskPathDenylist).length).toBe(0);
   });
   it("scopeDrift normalizes ./-prefixed in-scope paths", () => {
     expect(scopeDrift(["./src/analyzers/spf.ts"], ["src/analyzers/**"])).toEqual([]);
