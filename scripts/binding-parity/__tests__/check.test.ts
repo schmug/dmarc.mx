@@ -1,12 +1,8 @@
-import { describe, it, expect } from "vitest";
-import { existsSync } from "node:fs";
-import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
-import { execFileSync } from "node:child_process";
-import { compareBindings, type Exemptions } from "../check-core.js";
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const repoRoot = join(__dirname, "..", "..", "..");
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+import { compareBindings, runCheck, type Exemptions } from "../check-core.js";
 
 const noExemptions: Exemptions = { prodOnly: [], stagingOnly: [] };
 
@@ -95,18 +91,47 @@ database_name = "x" # comment on value
   });
 });
 
-describe("check.ts CLI", () => {
-  it("exits 0 and prints a clear message when wrangler.staging.toml is absent", () => {
-    expect(existsSync(join(repoRoot, "wrangler.staging.toml"))).toBe(false);
+describe("runCheck", () => {
+  function fixtureRoot(files: Record<string, string>): string {
+    const root = mkdtempSync(join(tmpdir(), "binding-parity-"));
+    mkdirSync(join(root, "scripts", "binding-parity"), { recursive: true });
+    for (const [name, body] of Object.entries(files)) {
+      writeFileSync(join(root, name), body);
+    }
+    return root;
+  }
 
-    const output = execFileSync(
-      "npx",
-      ["tsx", join(repoRoot, "scripts", "binding-parity", "check.ts")],
-      { cwd: repoRoot, encoding: "utf8" },
-    );
+  const noExemptionsJson = JSON.stringify(noExemptions);
 
-    expect(output.trim()).toBe(
+  it("exits 0 and says so when wrangler.staging.toml is absent", () => {
+    const root = fixtureRoot({ "wrangler.toml": base });
+    const lines: string[] = [];
+
+    expect(runCheck(root, (l) => lines.push(l))).toBe(0);
+    expect(lines).toEqual([
       "wrangler.staging.toml not present, nothing to compare",
-    );
+    ]);
+  });
+
+  it("exits 0 when both configs are present and agree", () => {
+    const root = fixtureRoot({
+      "wrangler.toml": base,
+      "wrangler.staging.toml": base,
+      "scripts/binding-parity/exemptions.json": noExemptionsJson,
+    });
+
+    expect(runCheck(root, () => {})).toBe(0);
+  });
+
+  it("exits 1 when a binding is missing from staging", () => {
+    const root = fixtureRoot({
+      "wrangler.toml": `${base}\n[[kv_namespaces]]\nbinding = "CACHE"\n`,
+      "wrangler.staging.toml": base,
+      "scripts/binding-parity/exemptions.json": noExemptionsJson,
+    });
+    const lines: string[] = [];
+
+    expect(runCheck(root, (l) => lines.push(l))).toBe(1);
+    expect(lines.join("\n")).toContain("CACHE");
   });
 });

@@ -1,3 +1,5 @@
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { parseMiniToml } from "./toml-mini.js";
 
 export interface Exemption {
@@ -63,6 +65,38 @@ export interface CompareResult {
   unexemptedStagingOnly: Difference[];
   staleExemptions: Exemption[];
   lines: string[];
+}
+
+/**
+ * Reads the two configs and the exemptions out of `rootDir` and reports
+ * whether they agree. Returns the process exit code. Takes the root as an
+ * argument so it can be exercised against a fixture directory instead of
+ * whichever tree it happens to be running in.
+ */
+export function runCheck(
+  rootDir: string,
+  log: (line: string) => void = console.log,
+): number {
+  const stagingPath = join(rootDir, "wrangler.staging.toml");
+  if (!existsSync(stagingPath)) {
+    log("wrangler.staging.toml not present, nothing to compare");
+    return 0;
+  }
+
+  const exemptions: Exemptions = JSON.parse(
+    readFileSync(
+      join(rootDir, "scripts", "binding-parity", "exemptions.json"),
+      "utf8",
+    ),
+  );
+
+  const result = compareBindings(
+    readFileSync(join(rootDir, "wrangler.toml"), "utf8"),
+    readFileSync(stagingPath, "utf8"),
+    exemptions,
+  );
+  for (const line of result.lines) log(line);
+  return result.ok ? 0 : 1;
 }
 
 export function compareBindings(
