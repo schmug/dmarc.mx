@@ -55,6 +55,7 @@ import {
   rateLimitHeaders,
 } from "./rate-limit.js";
 import { agentDiscoveryRoutes } from "./routes/agent-discovery.js";
+import { contentRoutes } from "./routes/content.js";
 import { inboxRoutes } from "./routes/inbox.js";
 import { staticRoutes } from "./routes/static.js";
 import { scrubSentryEvent } from "./sentry-scrub.js";
@@ -74,45 +75,18 @@ import {
   renderDnsblCard,
   renderDnssecCard,
   renderError,
-  renderLandingPage,
   renderMtaStsCard,
   renderMxCard,
   renderReport,
   renderReportFooter,
   renderReportHeader,
   renderScoreBreakdown,
-  renderScoringRubric,
   renderSecurityTxtCard,
   renderSpfCard,
   renderStreamingLoading,
   renderTlsRptCard,
 } from "./views/html.js";
-import {
-  renderLearnBimi,
-  renderLearnDane,
-  renderLearnDkim,
-  renderLearnDmarc,
-  renderLearnDnssec,
-  renderLearnHub,
-  renderLearnMtaSts,
-  renderLearnSecurityTxt,
-  renderLearnSpf,
-  renderLearnTlsRpt,
-} from "./views/learn.js";
-import { renderPrivacyPage } from "./views/legal.js";
-import {
-  renderErrorMarkdown,
-  renderLandingMarkdown,
-  renderLearnHubMarkdown,
-  renderMxHubMarkdown,
-  renderMxProviderMarkdown,
-  renderPricingMarkdown,
-  renderPrivacyMarkdown,
-  renderReportMarkdown,
-  renderScoringRubricMarkdown,
-} from "./views/markdown.js";
-import { renderMxHub, renderMxProviderPage } from "./views/mx.js";
-import { renderPricingPage } from "./views/pricing.js";
+import { renderErrorMarkdown, renderReportMarkdown } from "./views/markdown.js";
 import { fireBulkScanWebhooks } from "./webhooks/triggers.js";
 
 // Durable Object class for the atomic rate limiter (GHSA-v7qc-7qh8-h69g).
@@ -801,58 +775,9 @@ app.get("/badge", async (c) => {
   }
 });
 
-app.get("/", (c) => {
-  if (wantsMarkdown(c)) return markdownResponse(c, renderLandingMarkdown());
-  return c.html(renderLandingPage());
-});
-
-app.get("/scoring", (c) => {
-  if (wantsMarkdown(c))
-    return markdownResponse(
-      c,
-      renderScoringRubricMarkdown(parseScoringConfig(c.env?.SCORING_CONFIG)),
-    );
-  return c.html(renderScoringRubric(parseScoringConfig(c.env?.SCORING_CONFIG)));
-});
-
-app.get("/learn", (c) => {
-  if (wantsMarkdown(c)) return markdownResponse(c, renderLearnHubMarkdown());
-  return c.html(renderLearnHub());
-});
-app.get("/learn/dmarc", (c) => c.html(renderLearnDmarc()));
-app.get("/learn/spf", (c) => c.html(renderLearnSpf()));
-app.get("/learn/dkim", (c) => c.html(renderLearnDkim()));
-app.get("/learn/bimi", (c) => c.html(renderLearnBimi()));
-app.get("/learn/mta-sts", (c) => c.html(renderLearnMtaSts()));
-app.get("/learn/security-txt", (c) => c.html(renderLearnSecurityTxt()));
-app.get("/learn/tls-rpt", (c) => c.html(renderLearnTlsRpt()));
-app.get("/learn/dnssec", (c) => c.html(renderLearnDnssec()));
-app.get("/learn/dane", (c) => c.html(renderLearnDane()));
-
-app.get("/mx", (c) => {
-  if (wantsMarkdown(c)) return markdownResponse(c, renderMxHubMarkdown());
-  return c.html(renderMxHub());
-});
-app.get("/mx/:slug", (c) => {
-  const slug = c.req.param("slug");
-  if (wantsMarkdown(c)) {
-    const md = renderMxProviderMarkdown(slug);
-    if (!md) return c.notFound();
-    return markdownResponse(c, md);
-  }
-  const html = renderMxProviderPage(slug);
-  if (!html) return c.notFound();
-  return c.html(html);
-});
-
-app.get("/pricing", (c) => {
-  if (wantsMarkdown(c)) return markdownResponse(c, renderPricingMarkdown());
-  return c.html(renderPricingPage());
-});
-app.get("/legal/privacy", (c) => {
-  if (wantsMarkdown(c)) return markdownResponse(c, renderPrivacyMarkdown());
-  return c.html(renderPrivacyPage());
-});
+// Marketing/content pages (#666). Keep this mount below the rate-limit
+// `app.use()` block: a sub-router mounted above an `app.use()` skips it.
+app.route("/", contentRoutes);
 
 app.get("/api/check", async (c) => {
   const domain = normalizeDomain(c.req.query("domain"));
