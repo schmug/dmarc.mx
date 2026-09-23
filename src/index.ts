@@ -330,11 +330,6 @@ app.get("/_dev/dashboard", async (c) => {
 // isBillingEnabled so self-host deploys without Stripe env still boot.
 app.route("/webhooks", stripeWebhookRoutes);
 
-// Static assets, health check, and crawler-facing infrastructure (#661).
-app.route("/", staticRoutes);
-app.route("/", agentDiscoveryRoutes);
-app.route("/", inboxRoutes);
-
 // Rate limit scan endpoints (not the landing page)
 app.use(
   "/check",
@@ -459,6 +454,21 @@ app.use(
     c.json({ error: blockedMessage(result) }, { status: 429, headers }),
   ),
 );
+
+// INVARIANT: every sub-router mounted at "/" mounts AFTER the rate-limit block
+// above. Hono runs handlers in registration order and `app.route()` copies the
+// sub-router's handlers in at the point it is called, so a sub-router mounted
+// above the block answers the request before its limiter ever runs
+// (GHSA-j7p5-95v7-29v9: /mcp, /check/email and /api/check/email/stream were
+// unmetered after #751 / #761). The /auth, /dashboard and /webhooks routers
+// above serve no metered path. test/rate-limit-mount-order.test.ts asserts a
+// 429 at the ceiling for each path this block meters; add a row there when
+// adding a limiter here.
+//
+// Static assets, health check, and crawler-facing infrastructure (#661).
+app.route("/", staticRoutes);
+app.route("/", agentDiscoveryRoutes);
+app.route("/", inboxRoutes);
 
 const protocolRenderers: Record<
   ProtocolId,
