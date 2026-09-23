@@ -63,6 +63,10 @@ inboxRoutes.get("/check/email", async (c) => {
   return c.html(renderInboxScanPage(token));
 });
 
+// Stream the verdict for a test-email token (issue #417). Mirrors
+// /api/check/stream: emits a "waiting" state, polls KV server-side, pushes the
+// parsed verdict when the message lands, then closes. An unknown/expired token
+// yields a clean "closed" event — never a 500.
 inboxRoutes.get("/api/check/email/stream", async (c) => {
   const token = c.req.query("token");
   if (!token || !isValidToken(token)) {
