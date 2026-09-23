@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { MAX_SELECTORS } from "../src/index.js";
 import {
   handleMcpRequest,
   MCP_PROTOCOL_VERSION,
   MCP_SERVER_CARD,
 } from "../src/mcp/handler.js";
+import { MAX_SELECTORS } from "../src/security/selectors.js";
 
 vi.mock("../src/cache.js", () => ({
   getCachedScan: vi.fn().mockResolvedValue(null),

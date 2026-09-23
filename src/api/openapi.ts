@@ -30,9 +30,10 @@ const validations = {
 } as const;
 
 // The four headers rateLimitHeaders() (src/rate-limit.ts) actually emits.
-// rateLimitMiddleware attaches these to both the successful response and the
-// 429 it returns on block, so every route it guards documents the same set —
-// there is no Retry-After header (see #709).
+// rateLimitMiddleware (src/security/rate-limit-middleware.ts) attaches these
+// to both the successful response and the 429 it returns on block, so every
+// route it guards documents the same set — there is no Retry-After header
+// (see #709).
 const rateLimitResponseHeaders = {
   "X-RateLimit-Limit": {
     description: "Requests allowed in the current window.",

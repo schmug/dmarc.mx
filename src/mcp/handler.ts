@@ -8,10 +8,11 @@ import { scan } from "../orchestrator.js";
 import { normalizeDomain } from "../shared/domain.js";
 import type { ScoringConfig } from "../shared/scoring.js";
 
-// DKIM selector charset per RFC 6376 §3.1 — mirrors VALID_SELECTOR in index.ts.
+// DKIM selector charset per RFC 6376 §3.1 — mirrors VALID_SELECTOR in
+// src/security/selectors.ts.
 const VALID_SELECTOR = /^[A-Za-z0-9._-]+$/;
 
-// Mirrors MAX_SELECTOR_LENGTH / MAX_SELECTORS in src/index.ts
+// Mirrors MAX_SELECTOR_LENGTH / MAX_SELECTORS in src/security/selectors.ts
 // (GHSA-6fqp-4vhc-59mf). Enforced server-side regardless of the inputSchema
 // maxItems/maxLength below, which are advisory only — handleToolCall never
 // validates arguments against the schema.
