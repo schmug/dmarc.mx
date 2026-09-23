@@ -1,13 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { COMMON_SELECTORS } from "../src/analyzers/dkim.js";
+import { app, normalizeDomain } from "../src/index.js";
+import { _memoryStore } from "../src/rate-limit.js";
 import {
-  app,
   MAX_SELECTOR_LENGTH,
   MAX_SELECTORS,
-  normalizeDomain,
   parseSelectors,
-} from "../src/index.js";
-import { _memoryStore } from "../src/rate-limit.js";
+} from "../src/security/selectors.js";
 import { LEARN_MODIFIED, LEARN_SIBLINGS } from "../src/views/learn.js";
 import { MX_MODIFIED } from "../src/views/mx.js";
 

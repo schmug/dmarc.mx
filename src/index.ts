@@ -29,7 +29,7 @@ import {
 import { CANONICAL_ORIGIN } from "./api/catalog.js";
 import { clampHistoryLimit, fetchDomainHistory } from "./api/history.js";
 import { accessJwtMiddleware } from "./auth/access-jwt.js";
-import { type BearerIdentity, resolveBearer } from "./auth/api-key.js";
+import type { BearerIdentity } from "./auth/api-key.js";
 import { authRoutes } from "./auth/routes.js";
 import { stripeWebhookRoutes } from "./billing/routes.js";
 import { getCachedScan, setCachedScan } from "./cache.js";
@@ -48,18 +48,17 @@ import type { Env } from "./env.js";
 import { handleInboundEmail } from "./inbox/store.js";
 import type { ProtocolId, ProtocolResult } from "./orchestrator.js";
 import { scan, scanStreaming } from "./orchestrator.js";
-import {
-  checkRateLimit,
-  getRateLimitConfig,
-  type RateLimitResult,
-  rateLimitHeaders,
-} from "./rate-limit.js";
 import { agentDiscoveryRoutes } from "./routes/agent-discovery.js";
 import { contentRoutes } from "./routes/content.js";
 import { inboxRoutes } from "./routes/inbox.js";
 import { staticRoutes } from "./routes/static.js";
+import {
+  blockedMessage,
+  bulkScanWeight,
+  rateLimitMiddleware,
+} from "./security/rate-limit-middleware.js";
+import { parseSelectors } from "./security/selectors.js";
 import { scrubSentryEvent } from "./sentry-scrub.js";
-import { getClientIp } from "./shared/client.js";
 import {
   markdownResponse,
   wantsMarkdown,
@@ -335,115 +334,6 @@ app.route("/webhooks", stripeWebhookRoutes);
 app.route("/", staticRoutes);
 app.route("/", agentDiscoveryRoutes);
 app.route("/", inboxRoutes);
-
-// Resolves rate-limit identity + config for a request. Pro-authed bearers
-// lift to the per-user bucket (60/hour). Everyone else — anonymous callers,
-// bearers whose subscription isn't active, free-plan bearers — falls through
-// to the per-IP anon bucket (10/60s). Free-authed keeps on IP on purpose: a
-// free bearer hitting from two IPs gets two anon buckets, which matches what
-// anonymous scanners already see and avoids making a free account worse than
-// no account. Bearer identity is stashed on context so downstream handlers
-// (/api/check scan-history persistence) can read it without re-verifying.
-export async function resolveRateLimitScope(c: Context): Promise<{
-  identity: string;
-  config: ReturnType<typeof getRateLimitConfig>;
-}> {
-  const bearer = await resolveBearer(c);
-  if (bearer) {
-    c.set("bearer" as never, bearer);
-    const db = (c.env as { DB?: D1Database }).DB;
-    if (db) {
-      const plan = await getPlanForUser(db, bearer.userId);
-      if (plan === "pro") {
-        return {
-          identity: `user:${bearer.userId}`,
-          config: getRateLimitConfig("pro"),
-        };
-      }
-    }
-  }
-  return {
-    identity: `ip:${getClientIp(c)}`,
-    config: getRateLimitConfig("free"),
-  };
-}
-
-type RateLimitBlockedResponder = (
-  c: Context,
-  result: RateLimitResult,
-  headers: Record<string, string>,
-) => Response | Promise<Response>;
-
-export function rateLimitMiddleware(
-  onBlocked: RateLimitBlockedResponder,
-  // Optional per-route weight resolver (issue #619). Omitted → every request
-  // costs 1 token, the historical behavior. Bulk-scan uses this to charge
-  // proportional to its in-band scan count instead of counting as one request.
-  weightFn?: (c: Context) => Promise<number>,
-) {
-  return async (c: Context, next: () => Promise<void>) => {
-    const { identity, config } = await resolveRateLimitScope(c);
-    const weight = weightFn ? await weightFn(c) : 1;
-    // The Durable Object RPC is awaited end-to-end, so the counter is durably
-    // updated before the decision is used — no deferred write to drain.
-    // `c.env` is always present at runtime; the optional chain keeps the
-    // limiter working in lightweight unit tests that call `app.request(path)`
-    // without an env (falls back to the in-memory limiter).
-    const result = await checkRateLimit(
-      identity,
-      config,
-      c.env?.RATE_LIMITER,
-      weight,
-    );
-
-    const headers = rateLimitHeaders(result);
-
-    if (!result.allowed) {
-      return onBlocked(c, result, headers);
-    }
-
-    await next();
-    // ⚡ Bolt Optimization: Use for...in instead of Object.entries() on hot paths.
-    // Avoids allocating an array of key-value tuples for headers on every request,
-    // reducing GC pressure for high-traffic middleware.
-    for (const key in headers) {
-      c.res.headers.set(key, headers[key]);
-    }
-  };
-}
-
-function blockedMessage(result: RateLimitResult): string {
-  const waitSec = Math.max(1, result.resetAt - Math.floor(Date.now() / 1000));
-  return `Rate limit exceeded. Try again in ${waitSec} seconds.`;
-}
-
-// Rate-limit weight for /api/bulk-scan (issue #619): the number of distinct
-// valid domains in the request body, capped at BULK_IN_BAND_CAP — mirrors the
-// normalize+dedupe step `processBulkScan` runs before dispatching in-band
-// scans, without its DB-backed watchlist-cap lookup, so the charge is known
-// before the expensive work runs. `c.req.json()` is cached by Hono, so the
-// handler's own body parse below reuses this same parse rather than
-// re-reading the request stream. Malformed/absent bodies fall back to the
-// default weight of 1 — the handler's own validation still rejects them.
-async function bulkScanWeight(c: Context): Promise<number> {
-  let body: unknown;
-  try {
-    body = await c.req.json();
-  } catch {
-    return 1;
-  }
-  const rawDomains = (body as { domains?: unknown })?.domains;
-  if (!Array.isArray(rawDomains)) return 1;
-  const distinct = new Set<string>();
-  for (const d of rawDomains) {
-    if (typeof d !== "string") continue;
-    const trimmed = d.trim();
-    if (!trimmed) continue;
-    const normalized = normalizeDomain(trimmed);
-    if (normalized) distinct.add(normalized);
-  }
-  return Math.min(Math.max(distinct.size, 1), BULK_IN_BAND_CAP);
-}
 
 // Rate limit scan endpoints (not the landing page)
 app.use(
@@ -1145,35 +1035,6 @@ app.get("/check", async (c) => {
 // Re-exported so long-standing callers (and tests) that import from
 // `src/index.js` keep working. Canonical location: src/shared/domain.ts.
 export { normalizeDomain };
-
-// DKIM selector charset per RFC 6376 §3.1: sub-domain syntax, which is
-// letters / digits / hyphens, with dot-separated labels. We also allow
-// underscores since some providers use them in practice. Anything else
-// is dropped silently — an invalid selector cannot match a real DKIM key.
-const VALID_SELECTOR = /^[A-Za-z0-9._-]+$/;
-
-// DoS guard (GHSA-6fqp-4vhc-59mf): every custom selector becomes one concurrent
-// DNS lookup in analyzeDkim, so an unbounded attacker-supplied list is a DNS
-// amplification vector charged against a single rate-limit token. Bound both
-// the per-item length (RFC 1035 label limit) and the count. 16 custom selectors
-// is generous given ~37 built-in COMMON_SELECTORS. parseSelectorsFromArray in
-// src/mcp/handler.ts mirrors these limits for the MCP path.
-export const MAX_SELECTOR_LENGTH = 63;
-export const MAX_SELECTORS = 16;
-
-export function parseSelectors(raw: string | undefined): string[] {
-  if (!raw) return [];
-  return raw
-    .split(",")
-    .map((s) => s.trim())
-    .filter(
-      (s) =>
-        s.length > 0 &&
-        s.length <= MAX_SELECTOR_LENGTH &&
-        VALID_SELECTOR.test(s),
-    )
-    .slice(0, MAX_SELECTORS);
-}
 
 // Cron handler — runs nightly per the `[triggers] crons` entry in wrangler.toml.
 // Rescans domains whose cadence has come due (monthly or weekly), persists
