@@ -228,6 +228,23 @@ describe("analyzeDkim", () => {
     expect(result.selectors["cf2024-1"].key_bits).toBe(2048);
   });
 
+  it("finds AgentMail selector (agentmail)", async () => {
+    mockQueryTxt.mockImplementation(async (name: string) => {
+      if (name === "agentmail._domainkey.example.com") {
+        const fakeKey = btoa("x".repeat(294));
+        return {
+          entries: [`v=DKIM1; k=rsa; p=${fakeKey}`],
+          raw: `v=DKIM1; k=rsa; p=${fakeKey}`,
+        };
+      }
+      return null;
+    });
+
+    const result = await analyzeDkim("example.com");
+    expect(result.status).toBe("pass");
+    expect(result.selectors.agentmail.found).toBe(true);
+  });
+
   it("defaults key_type to rsa when k= tag is absent", async () => {
     mockQueryTxt.mockImplementation(async (name: string) => {
       if (name === "google._domainkey.example.com") {
