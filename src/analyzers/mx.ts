@@ -181,15 +181,29 @@ export async function analyzeMx(
   if (rawRecords.length === 1) {
     const exchange = rawRecords[0].exchange.replace(/\.$/, "");
     if (exchange === "") {
+      const preference = rawRecords[0].priority;
+      if (preference === 0) {
+        return {
+          status: "info",
+          records: [],
+          providers: [],
+          validations: [
+            {
+              status: "info",
+              message:
+                "Null MX (RFC 7505) — domain explicitly accepts no mail (no mail server configured by design)",
+            },
+          ],
+        };
+      }
       return {
-        status: "info",
+        status: "warn",
         records: [],
         providers: [],
         validations: [
           {
-            status: "info",
-            message:
-              "Null MX (RFC 7505) — domain explicitly accepts no mail (no mail server configured by design)",
+            status: "warn",
+            message: `Malformed Null MX — RFC 7505 requires preference 0, found ${preference}`,
           },
         ],
       };
