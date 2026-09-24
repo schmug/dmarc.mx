@@ -47,6 +47,37 @@ function extractMailtoDomain(uri: string): string | null {
 }
 
 /**
+ * Tag names that appear more than once in the record, lowercased and in
+ * first-seen order. `parseTags` keeps only the last value for a repeated key
+ * (src/shared/parse-tags.ts:27-28), so "v=DMARC1; p=none; p=reject" silently
+ * parses as p=reject. RFC 7489 §6.3 allows each tag once — detect the
+ * collision here rather than changing parseTags, which other analyzers rely
+ * on for its lenient last-value-wins behavior.
+ */
+function findDuplicateTagNames(record: string): string[] {
+  const seen = new Set<string>();
+  const duplicates: string[] = [];
+  let start = 0;
+  const len = record.length;
+  while (start < len) {
+    let end = record.indexOf(";", start);
+    if (end === -1) end = len;
+    const part = record.slice(start, end).trim();
+    start = end + 1;
+    if (!part) continue;
+    const eqIdx = part.indexOf("=");
+    if (eqIdx === -1) continue;
+    const key = part.slice(0, eqIdx).trim().toLowerCase();
+    if (seen.has(key)) {
+      if (!duplicates.includes(key)) duplicates.push(key);
+    } else {
+      seen.add(key);
+    }
+  }
+  return duplicates;
+}
+
+/**
  * Parse a comma-separated rua/ruf tag value and return the list of mailto URIs.
  */
 function parseReportUris(tagValue: string): string[] {
@@ -195,6 +226,17 @@ export async function analyzeDmarc(
     validations.push({ status: "pass", message: "DMARC record found" });
   } else {
     validations.push({ status: "fail", message: "Invalid version tag" });
+  }
+
+  // Duplicate-tag check: RFC 7489 §6.3 allows each tag name once, but
+  // parseTags keeps only the last value for a repeated key — flag it before
+  // any tag-specific check reads (and silently trusts) that merged value.
+  const duplicateTags = findDuplicateTagNames(dmarcRecord);
+  if (duplicateTags.length > 0) {
+    validations.push({
+      status: "fail",
+      message: `Duplicate tag(s) in DMARC record: ${duplicateTags.join(", ")} — RFC 7489 §6.3 allows each tag only once; only the last value is honored`,
+    });
   }
 
   // Multiple-record check: more than one DMARC record means receivers ignore
