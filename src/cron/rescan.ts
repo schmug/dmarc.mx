@@ -178,7 +178,11 @@ function deferralExhausted(domain: Domain, now: number): boolean {
 // path is. The two are only distinguishable by how much of the RUN looks that
 // way, which is not known until the run ends. So such a scan is held back
 // rather than written immediately, and the run adjudicates it at the end.
-type HeldScan = { domain: Domain; result: ScanResult };
+// `forced` marks a domain past the MAX_DEFERRAL_SECONDS backstop: it is written
+// whatever the verdict, but still counts toward it — dropping it from the tally
+// would let a long outage dilute the fraction and flip the whole run to
+// "record everything".
+type HeldScan = { domain: Domain; result: ScanResult; forced: boolean };
 
 function allCriticalLookupsFailed(result: ScanResult): boolean {
   return GRADE_CRITICAL_PROTOCOLS.every(
@@ -228,10 +232,14 @@ async function rescanOne(
 
   // Domain-side fault on every grade-critical protocol: plausible for one
   // domain, and exactly what a dead resolver looks like for all of them. Hand it
-  // to the run to adjudicate (#752). The staleness backstop above still wins, so
-  // no domain can be held back forever.
+  // to the run to adjudicate (#752). A domain past the staleness backstop is
+  // held too, but marked forced so a run-level discard still writes it — no
+  // domain can be held back forever.
   if (errorCode && allCriticalLookupsFailed(result)) {
-    return { alerts: 0, held: { domain, result } };
+    return {
+      alerts: 0,
+      held: { domain, result, forced: deferralExhausted(domain, deps.now) },
+    };
   }
 
   await recordScan(deps.db, {
@@ -430,17 +438,22 @@ export async function runDueRescans(deps: RescanDeps): Promise<RescanResult> {
   // that describes our resolver. Otherwise they are findings about those
   // domains and are recorded as before — still never alerted on or sent to a
   // webhook, since rescanOne suppresses both for any scan with a lookup_error.
+  // Forced scans are written either way (MAX_DEFERRAL_SECONDS backstop).
   const runLevelFailure =
     processed >= UNVERIFIABLE_RUN_MINIMUM &&
     held.length / processed > UNVERIFIABLE_RUN_FRACTION;
+  const toRecord = runLevelFailure ? held.filter((e) => e.forced) : held;
   if (runLevelFailure) {
-    errors += held.length;
+    const discarded = held.length - toRecord.length;
+    errors += discarded;
     Sentry.captureMessage(
-      `Discarding ${held.length} of ${processed} scans: every grade-critical lookup failed across the run, so the fault is ours, not the domains'`,
+      `Discarding ${discarded} of ${processed} scans: every grade-critical lookup failed across the run, so the fault is ours, not the domains'`,
       "error",
     );
-  } else {
-    for (const entry of held) {
+  }
+  for (const entry of toRecord) {
+    // Same rule as the batch loop: a DB error is counted, never halts the run.
+    try {
       await recordScan(deps.db, {
         domainId: entry.domain.id,
         grade: entry.result.grade,
@@ -449,6 +462,9 @@ export async function runDueRescans(deps: RescanDeps): Promise<RescanResult> {
         scannedAt: deps.now,
       });
       scanned += 1;
+    } catch (err) {
+      errors += 1;
+      Sentry.captureException(err);
     }
   }
 

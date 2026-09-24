@@ -927,6 +927,103 @@ describe("cron/runDueRescans", () => {
       expect(domains.get(1)?.last_scanned_at).toBe(previous);
     });
 
+    // #752 acceptance 4 — the run-level discard must not become a permanent
+    // deferral. A resolver outage that outlasts cadence + MAX_DEFERRAL_SECONDS
+    // would otherwise discard the same stale domains every night, forever.
+    function makeStale(id: number): void {
+      const row = domains.get(id);
+      if (!row) throw new Error(`no domain ${id}`);
+      domains.set(id, {
+        ...row,
+        last_scanned_at: now - weekSeconds - 30 * 24 * 60 * 60,
+      });
+    }
+
+    it.each([
+      ["DNS_TIMEOUT", makeUnreachableScanResult],
+      ["EBADQUERY", makeDegradedScanResult],
+    ])("records a %s domain past the deferral ceiling even when the run is discarded", async (_code, makeStaleResult) => {
+      seedDueDomains(20);
+      makeStale(1);
+
+      const scanFn = vi.fn(async (domain: string) =>
+        domain === "d1.example"
+          ? makeStaleResult(domain)
+          : makeUnreachableScanResult(domain),
+      );
+
+      const result = await runDueRescans({
+        db: makeD1Mock(),
+        now,
+        scanFn: scanFn as never,
+        fireWebhookFn: vi.fn().mockResolvedValue(undefined) as never,
+      });
+
+      expect(history.size).toBe(1);
+      expect([...history.values()][0]?.domain_id).toBe(1);
+      expect(domains.get(1)?.last_scanned_at).toBe(now);
+      expect(domains.get(2)?.last_scanned_at).toBeLessThan(now - weekSeconds);
+      expect(alerts.size).toBe(0);
+      expect(result.scanned).toBe(1);
+      expect(result.errors).toBe(19);
+    });
+
+    // A forced-through scan is still an all-lookups-failed outcome, so it still
+    // counts toward the run-level verdict. Recording it mid-run and dropping it
+    // from the tally would let a long outage dilute the fraction below 50% and
+    // flip the whole run to "record everything".
+    it("still counts scans past the deferral ceiling toward the run-level verdict", async () => {
+      seedDueDomains(20);
+      for (let i = 1; i <= 11; i++) makeStale(i);
+
+      const result = await runDueRescans({
+        db: makeD1Mock(),
+        now,
+        scanFn: vi.fn(async (domain: string) =>
+          makeUnreachableScanResult(domain),
+        ) as never,
+        fireWebhookFn: vi.fn().mockResolvedValue(undefined) as never,
+      });
+
+      // The 11 stale domains are forced through; the 9 fresh ones are still
+      // discarded as a run-level failure.
+      expect(history.size).toBe(11);
+      for (let i = 12; i <= 20; i++) {
+        expect(domains.get(i)?.last_scanned_at).toBeLessThan(now - weekSeconds);
+      }
+      expect(result.scanned).toBe(11);
+      expect(result.errors).toBe(9);
+    });
+
+    // The end-of-run write of held scans is the same kind of D1 write that
+    // rescanOne's callers already survive: one failed row is counted, not
+    // allowed to abort the run and lose the rest.
+    it("counts a D1 failure while recording held scans and keeps recording the rest", async () => {
+      seedDueDomains(3);
+      const db = makeD1Mock();
+      const batch = db.batch.bind(db);
+      let batchCalls = 0;
+      db.batch = (async (stmts: D1PreparedStatement[]) => {
+        batchCalls++;
+        if (batchCalls === 2) throw new Error("D1_ERROR: internal error");
+        return batch(stmts);
+      }) as typeof db.batch;
+
+      const result = await runDueRescans({
+        db,
+        now,
+        scanFn: vi.fn(async (domain: string) =>
+          makeUnreachableScanResult(domain),
+        ) as never,
+        fireWebhookFn: vi.fn().mockResolvedValue(undefined) as never,
+      });
+
+      expect(history.size).toBe(2);
+      expect(domains.get(3)?.last_scanned_at).toBe(now);
+      expect(result.scanned).toBe(2);
+      expect(result.errors).toBe(1);
+    });
+
     it("caps a run below the per-invocation subrequest ceiling and defers the rest", async () => {
       seedDueDomains(260);
 
