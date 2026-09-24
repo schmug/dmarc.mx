@@ -86,6 +86,20 @@ export async function analyzeSpf(
     });
   }
 
+  // Empty redirect=/exp= modifier target (RFC 7208 §6.1/§6.2 require a domain-spec)
+  if (tree.mechanisms.some((m) => m.replace(/^[+\-~?]/, "") === "redirect=")) {
+    validations.push({
+      status: "fail",
+      message: "Empty redirect= target — SPF will permerror (RFC 7208 §6.1)",
+    });
+  }
+  if (tree.mechanisms.some((m) => m.replace(/^[+\-~?]/, "") === "exp=")) {
+    validations.push({
+      status: "fail",
+      message: "Empty exp= target — SPF will permerror (RFC 7208 §6.2)",
+    });
+  }
+
   // Void-lookup limit check
   if (ctx.voidLookups > MAX_VOID_LOOKUPS) {
     validations.push({

@@ -317,6 +317,42 @@ describe("analyzeSpf", () => {
     expect(result.include_tree?.includes.length).toBeGreaterThan(0);
   });
 
+  it("flags empty redirect= target as permerror (RFC 7208 §6.1)", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=spf1 redirect= -all"],
+      raw: "v=spf1 redirect= -all",
+    });
+
+    const result = await analyzeSpf("example.com");
+    expect(result.status).toBe("fail");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "fail" &&
+          v.message.includes("Empty redirect=") &&
+          v.message.includes("permerror"),
+      ),
+    ).toBe(true);
+  });
+
+  it("flags empty exp= target as permerror (RFC 7208 §6.2)", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=spf1 exp= -all"],
+      raw: "v=spf1 exp= -all",
+    });
+
+    const result = await analyzeSpf("example.com");
+    expect(result.status).toBe("fail");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "fail" &&
+          v.message.includes("Empty exp=") &&
+          v.message.includes("permerror"),
+      ),
+    ).toBe(true);
+  });
+
   it("handles bare v=spf1 record", async () => {
     mockQueryTxt.mockResolvedValue({
       entries: ["v=spf1"],
