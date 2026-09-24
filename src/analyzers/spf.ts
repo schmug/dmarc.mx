@@ -15,6 +15,8 @@ export async function analyzeSpf(
     hasCycle: false,
     voidLookups: 0,
     multipleRootRecords: false,
+    duplicateRedirect: false,
+    duplicateExp: false,
   };
 
   let tree: SpfIncludeNode | null;
@@ -83,6 +85,22 @@ export async function analyzeSpf(
       status: "fail",
       message:
         "Multiple SPF records published — SPF will permerror (RFC 7208 §4.5)",
+    });
+  }
+
+  // Repeated redirect=/exp= modifier (RFC 7208 §6: a modifier MUST NOT appear
+  // more than once in a record)
+  if (ctx.duplicateRedirect) {
+    validations.push({
+      status: "fail",
+      message:
+        "Duplicate redirect= modifier — SPF will permerror (RFC 7208 §6)",
+    });
+  }
+  if (ctx.duplicateExp) {
+    validations.push({
+      status: "fail",
+      message: "Duplicate exp= modifier — SPF will permerror (RFC 7208 §6)",
     });
   }
 
@@ -198,6 +216,10 @@ interface ResolutionContext {
   // RFC 7208 §4.5: more than one v=spf1 record at the queried name is a
   // permerror. We only flag this for the published (root) domain.
   multipleRootRecords: boolean;
+  // RFC 7208 §6: a record MUST NOT repeat the redirect= or exp= modifier.
+  // Set if any record in the tree (root or included) repeats either.
+  duplicateRedirect: boolean;
+  duplicateExp: boolean;
 }
 
 const MAX_VOID_LOOKUPS = 2;
@@ -244,6 +266,8 @@ async function resolveSpfTree(
   // Find include targets and redirect
   const includeTargets: string[] = [];
   let redirect: string | null = null;
+  let redirectCount = 0;
+  let expCount = 0;
 
   for (const mech of mechanisms) {
     if (ctx.lookups > MAX_LOOKUPS) break;
@@ -254,7 +278,10 @@ async function resolveSpfTree(
       includeTargets.push(bare.slice("include:".length));
     } else if (bare.startsWith("redirect=")) {
       ctx.lookups++;
+      redirectCount++;
       redirect = bare.slice("redirect=".length);
+    } else if (bare.startsWith("exp=")) {
+      expCount++;
     } else if (bare.startsWith("a:") || bare === "a") {
       ctx.lookups++;
     } else if (bare.startsWith("mx:") || bare === "mx") {
@@ -265,6 +292,9 @@ async function resolveSpfTree(
       ctx.lookups++;
     }
   }
+
+  if (redirectCount > 1) ctx.duplicateRedirect = true;
+  if (expCount > 1) ctx.duplicateExp = true;
 
   // Resolve includes in parallel
   // ⚡ Bolt: Only recurse on includes if we haven't already exceeded the DNS lookup limit
