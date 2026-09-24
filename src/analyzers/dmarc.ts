@@ -319,8 +319,17 @@ export async function analyzeDmarc(
   }
 
   // Alignment mode (adkim / aspf). Default is relaxed ("r"); strict ("s")
-  // requires an exact domain match for the passing identifier.
+  // requires an exact domain match for the passing identifier. RFC 7489 §6.3
+  // defines only r and s — anything else is not a valid alignment mode, but
+  // (unlike p=/sp=) has no defined fallback behavior of its own, so we warn
+  // rather than fail and still describe the relaxed-default handling below.
   const adkim = tags.adkim?.toLowerCase();
+  if (adkim && adkim !== "r" && adkim !== "s") {
+    validations.push({
+      status: "warn",
+      message: `Unrecognized DKIM alignment mode (adkim=${tags.adkim}) — RFC 7489 §6.3 only defines r and s`,
+    });
+  }
   validations.push({
     status: "info",
     message:
@@ -329,6 +338,12 @@ export async function analyzeDmarc(
         : "DKIM alignment is relaxed (adkim=r, the default) — organizational-domain match is sufficient",
   });
   const aspf = tags.aspf?.toLowerCase();
+  if (aspf && aspf !== "r" && aspf !== "s") {
+    validations.push({
+      status: "warn",
+      message: `Unrecognized SPF alignment mode (aspf=${tags.aspf}) — RFC 7489 §6.3 only defines r and s`,
+    });
+  }
   validations.push({
     status: "info",
     message:

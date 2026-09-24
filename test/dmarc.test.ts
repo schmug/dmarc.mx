@@ -561,6 +561,72 @@ describe("analyzeDmarc — alignment and failure-reporting tags", () => {
     ).toBe(true);
   });
 
+  it("warns on an invalid adkim value and still describes relaxed handling", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=reject; adkim=x; rua=mailto:r@mydomain.com"],
+      raw: "v=DMARC1; p=reject; adkim=x; rua=mailto:r@mydomain.com",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" &&
+          v.message.includes("adkim=x") &&
+          v.message.includes("only defines r and s"),
+      ),
+    ).toBe(true);
+    expect(
+      result.validations.some(
+        (v) =>
+          v.message.includes("DKIM alignment") &&
+          v.message.includes("relaxed") &&
+          v.message.includes("default"),
+      ),
+    ).toBe(true);
+  });
+
+  it("warns on an invalid aspf value and still describes relaxed handling", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=reject; aspf=foo; rua=mailto:r@mydomain.com"],
+      raw: "v=DMARC1; p=reject; aspf=foo; rua=mailto:r@mydomain.com",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" &&
+          v.message.includes("aspf=foo") &&
+          v.message.includes("only defines r and s"),
+      ),
+    ).toBe(true);
+    expect(
+      result.validations.some(
+        (v) =>
+          v.message.includes("SPF alignment") &&
+          v.message.includes("relaxed") &&
+          v.message.includes("default"),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not warn on valid adkim=r / aspf=r values", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: [
+        "v=DMARC1; p=reject; adkim=r; aspf=r; rua=mailto:r@mydomain.com",
+      ],
+      raw: "v=DMARC1; p=reject; adkim=r; aspf=r; rua=mailto:r@mydomain.com",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(
+      result.validations.some((v) =>
+        v.message.includes("only defines r and s"),
+      ),
+    ).toBe(false);
+  });
+
   it("explains the fo=1 failure-reporting option when present", async () => {
     mockQueryTxt.mockResolvedValueOnce({
       entries: [
