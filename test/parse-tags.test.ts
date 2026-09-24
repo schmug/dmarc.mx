@@ -53,4 +53,19 @@ describe("parseTags", () => {
   it("returns empty object for empty string", () => {
     expect(parseTags("")).toEqual({});
   });
+
+  it("stores a __proto__ tag as a normal own key without altering the prototype", () => {
+    const result = parseTags("v=DMARC1; __proto__=evil");
+    expect(result.v).toBe("DMARC1");
+    expect(Object.getPrototypeOf({})).toBe(Object.prototype);
+    expect(Object.prototype).not.toHaveProperty("evil");
+    expect(Object.getOwnPropertyDescriptor(result, "__proto__")?.value).toBe(
+      "evil",
+    );
+  });
+
+  it("stores a constructor tag as a normal own key", () => {
+    const result = parseTags("v=DMARC1; constructor=evil");
+    expect(result.constructor).toBe("evil");
+  });
 });
