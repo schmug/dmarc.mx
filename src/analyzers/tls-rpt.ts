@@ -106,7 +106,14 @@ export async function analyzeTlsRpt(
       validations.push({ status: "warn", message: "rua= tag is empty" });
     } else {
       const invalid = ruas.filter((r) => {
-        if (r.startsWith("https://")) return false;
+        if (r.startsWith("https://")) {
+          try {
+            const url = new URL(r);
+            return url.protocol !== "https:" || url.hostname === "";
+          } catch {
+            return true;
+          }
+        }
         if (r.startsWith("mailto:")) return !MAILTO_ADDRESS_RE.test(r);
         return true;
       });
