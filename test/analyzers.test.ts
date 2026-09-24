@@ -242,6 +242,35 @@ describe("analyzeSpf", () => {
     ).toBe(true);
   });
 
+  it("warns on terms following the all mechanism (RFC 7208 §5.1)", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=spf1 -all ip4:192.0.2.1"],
+      raw: "v=spf1 -all ip4:192.0.2.1",
+    });
+
+    const result = await analyzeSpf("example.com");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" &&
+          v.message.includes("unreachable") &&
+          v.message.includes("ip4:192.0.2.1"),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not warn when all is the last term", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=spf1 ip4:192.0.2.1 -all"],
+      raw: "v=spf1 ip4:192.0.2.1 -all",
+    });
+
+    const result = await analyzeSpf("example.com");
+    expect(
+      result.validations.some((v) => v.message.includes("unreachable")),
+    ).toBe(false);
+  });
+
   it("warns on deprecated ptr mechanism", async () => {
     mockQueryTxt.mockResolvedValue({
       entries: ["v=spf1 ptr -all"],

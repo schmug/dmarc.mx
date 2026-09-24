@@ -109,7 +109,8 @@ export async function analyzeSpf(
   }
 
   // all mechanism check
-  const allMech = tree.mechanisms.find((m) => m.endsWith("all"));
+  const allIndex = tree.mechanisms.findIndex((m) => m.endsWith("all"));
+  const allMech = allIndex === -1 ? undefined : tree.mechanisms[allIndex];
   if (allMech) {
     if (allMech === "-all") {
       validations.push({
@@ -130,6 +131,15 @@ export async function analyzeSpf(
       validations.push({
         status: "warn",
         message: "Uses ?all (neutral) — provides no guidance to receivers",
+      });
+    }
+
+    // RFC 7208 §5.1: terms after "all" are never evaluated
+    const termsAfterAll = tree.mechanisms.slice(allIndex + 1);
+    if (termsAfterAll.length > 0) {
+      validations.push({
+        status: "warn",
+        message: `Terms after ${allMech} are unreachable and never evaluated (RFC 7208 §5.1): ${termsAfterAll.join(", ")}`,
       });
     }
   }
