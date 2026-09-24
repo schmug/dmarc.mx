@@ -155,6 +155,36 @@ describe("analyzeTlsRpt", () => {
     ).toBe(true);
   });
 
+  it("warns for a bare https:// with no host", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=TLSRPTv1; rua=https://"],
+      raw: "v=TLSRPTv1; rua=https://",
+    });
+    const result = await analyzeTlsRpt("example.com");
+    expect(result.status).toBe("warn");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" && v.message.includes("mailto:/https:// format"),
+      ),
+    ).toBe(true);
+  });
+
+  it("warns for an https:// destination with a space in the host", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=TLSRPTv1; rua=https:// bad"],
+      raw: "v=TLSRPTv1; rua=https:// bad",
+    });
+    const result = await analyzeTlsRpt("example.com");
+    expect(result.status).toBe("warn");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" && v.message.includes("mailto:/https:// format"),
+      ),
+    ).toBe(true);
+  });
+
   it("warns for a bare mailto: with no address", async () => {
     mockQueryTxt.mockResolvedValue({
       entries: ["v=TLSRPTv1; rua=mailto:"],
