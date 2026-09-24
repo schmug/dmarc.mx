@@ -297,8 +297,14 @@ export async function analyzeDmarc(
 
   // pct check
   if (tags.pct !== undefined && tags.pct !== null && tags.pct !== "") {
-    const pctVal = parseInt(tags.pct, 10);
-    if (pctVal === 0) {
+    const isWholeNumber = /^\d+$/.test(tags.pct);
+    const pctVal = isWholeNumber ? Number(tags.pct) : NaN;
+    if (!isWholeNumber || pctVal > 100) {
+      validations.push({
+        status: "warn",
+        message: `pct=${tags.pct} is not a valid percentage (0-100); receivers will treat it as 100`,
+      });
+    } else if (pctVal === 0) {
       validations.push({
         status: "warn",
         message:
