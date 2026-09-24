@@ -216,6 +216,50 @@ describe("analyzeDane — malformed generic-format TLSA", () => {
     expect(result.hosts[0].tlsaRecords).toHaveLength(0);
     expect(result.status).toBe("info");
   });
+
+  it("accepts a generic record whose RDLENGTH matches the hex octet count", async () => {
+    // 4 octets: usage, selector, matching-type, 1 data byte. RDLENGTH=4 matches.
+    queryDoh.mockResolvedValue({
+      Status: 0,
+      AD: true,
+      Answer: [makeTlsaAnswer("\\# 4 03 01 01 0f")],
+    });
+    const result = await analyzeDane("example.com", ["mx.example.com"]);
+    expect(result.hosts[0].tlsaRecords).toHaveLength(1);
+    expect(result.hosts[0].tlsaRecords[0]).toMatchObject({
+      usage: 3,
+      selector: 1,
+      matchingType: 1,
+      data: "0f",
+    });
+    expect(result.status).toBe("pass");
+  });
+
+  it("drops a generic record whose hex octets are truncated relative to RDLENGTH", async () => {
+    // RDLENGTH claims 35 octets (as in the real Cloudflare fixture above) but
+    // only 4 octets of hex are actually present — RFC 3597 §5 requires these
+    // to match, so this must be rejected rather than decoded as a short record.
+    queryDoh.mockResolvedValue({
+      Status: 0,
+      AD: true,
+      Answer: [makeTlsaAnswer("\\# 35 03 01 01 0f")],
+    });
+    const result = await analyzeDane("example.com", ["mx.example.com"]);
+    expect(result.hosts[0].tlsaRecords).toHaveLength(0);
+    expect(result.status).toBe("info");
+  });
+
+  it("drops a generic record whose hex octets exceed RDLENGTH", async () => {
+    // RDLENGTH claims only 4 octets but more hex data is present than declared.
+    queryDoh.mockResolvedValue({
+      Status: 0,
+      AD: true,
+      Answer: [makeTlsaAnswer("\\# 4 03 01 01 0f 0c 6c")],
+    });
+    const result = await analyzeDane("example.com", ["mx.example.com"]);
+    expect(result.hosts[0].tlsaRecords).toHaveLength(0);
+    expect(result.status).toBe("info");
+  });
 });
 
 describe("analyzeDane — mixed validated and unvalidated", () => {

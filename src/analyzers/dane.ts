@@ -19,19 +19,22 @@ function parseTlsaRecord(data: string): DaneTlsaRecord | null {
   const trimmed = data.trim();
 
   if (trimmed.startsWith("\\#")) {
-    // Drop the "\#" marker and the leading rdlength token, then concatenate the
+    // Drop the "\#" marker, keep the rdlength token, then concatenate the
     // remaining (possibly space-separated) hex octets into one lowercase string.
-    const hex = trimmed
-      .slice(2)
-      .trim()
-      .split(/\s+/)
-      .slice(1)
-      .join("")
-      .toLowerCase();
+    const tokens = trimmed.slice(2).trim().split(/\s+/);
+    if (tokens.length < 2) return null;
+    const rdlength = parseInt(tokens[0], 10);
+    if (Number.isNaN(rdlength)) return null;
+    const hex = tokens.slice(1).join("").toLowerCase();
     // Need at least the 3 header octets (6 hex chars); reject anything non-hex.
     // After this guard every two-char slice is valid hex, so parseInt base-16
     // can never return NaN — no further NaN check needed in this branch.
     if (hex.length < 6 || !/^[0-9a-f]+$/.test(hex)) return null;
+    // RFC 3597 §5: RDLENGTH must equal the actual octet count. A mismatch
+    // means the hex octets are truncated (or padded) relative to what the
+    // record claims, so the data can't be trusted — reject rather than
+    // silently decode a partial/misleading TLSA record.
+    if (hex.length !== rdlength * 2) return null;
     const usage = parseInt(hex.slice(0, 2), 16);
     const selector = parseInt(hex.slice(2, 4), 16);
     const matchingType = parseInt(hex.slice(4, 6), 16);
