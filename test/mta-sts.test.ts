@@ -359,6 +359,70 @@ describe("analyzeMtaSts", () => {
     expect(result.status).toBe("pass");
   });
 
+  // #789 — a policy missing (or misspelling) the version line looked healthy
+  // because nothing checked it.
+  it("fails when policy version is not STSv1", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=STSv1; id=20240101"],
+      raw: "v=STSv1; id=20240101",
+    });
+    mockFetchPolicy(
+      `version: STSv2\nmode: enforce\nmx: *.example.com\nmax_age: 86400`,
+    );
+
+    const result = await analyzeMtaSts("example.com");
+    expect(result.status).toBe("fail");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "fail" &&
+          v.message.includes('Unknown policy version "STSv2"'),
+      ),
+    ).toBe(true);
+  });
+
+  // #789 — a policy with no version line at all (e.g. malformed/omitted) must
+  // also fail, not silently pass with an empty version string.
+  it("fails when policy has no version line", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=STSv1; id=20240101"],
+      raw: "v=STSv1; id=20240101",
+    });
+    mockFetchPolicy(`mode: enforce\nmx: *.example.com\nmax_age: 86400`);
+
+    const result = await analyzeMtaSts("example.com");
+    expect(result.status).toBe("fail");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "fail" &&
+          v.message.includes('Unknown policy version "(missing)"'),
+      ),
+    ).toBe(true);
+  });
+
+  // #789 — a typo'd mode (e.g. "enfroce") fell through the enforce/testing/none
+  // if-chain with no validation entry at all, so the scan looked clean.
+  it("fails when policy mode is not enforce, testing, or none", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=STSv1; id=20240101"],
+      raw: "v=STSv1; id=20240101",
+    });
+    mockFetchPolicy(
+      `version: STSv1\nmode: enfroce\nmx: *.example.com\nmax_age: 86400`,
+    );
+
+    const result = await analyzeMtaSts("example.com");
+    expect(result.status).toBe("fail");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "fail" &&
+          v.message.includes('Unknown policy mode "enfroce"'),
+      ),
+    ).toBe(true);
+  });
+
   // Regression guard for PRs #58 and #92: the policy fetch must use
   // redirect:"manual", NOT "error". `"error"` throws in the Cloudflare
   // Workers fetch runtime and breaks every scan. See src/analyzers/mta-sts.ts
