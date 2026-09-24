@@ -42,6 +42,7 @@ export interface DkimSelectorResult {
   key_bits?: number;
   testing?: boolean;
   revoked?: boolean;
+  invalid_base64?: boolean;
 }
 
 export interface DkimResult {

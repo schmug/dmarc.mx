@@ -91,6 +91,7 @@ export async function analyzeDkim(
   const ed25519Names: string[] = [];
   const revokedNames: string[] = [];
   const testingNames: string[] = [];
+  const invalidBase64Names: string[] = [];
 
   for (const name in selectors) {
     const v = selectors[name];
@@ -103,6 +104,7 @@ export async function analyzeDkim(
       }
       if (v.revoked) revokedNames.push(name);
       if (v.testing) testingNames.push(name);
+      if (v.invalid_base64) invalidBase64Names.push(name);
     }
   }
 
@@ -155,6 +157,14 @@ export async function analyzeDkim(
     });
   }
 
+  // Check for malformed base64 in p= (RFC 6376 3.6.1)
+  if (invalidBase64Names.length > 0) {
+    validations.push({
+      status: "fail",
+      message: `${invalidBase64Names.join(", ")} — DKIM key p= is not valid base64`,
+    });
+  }
+
   const hasFailure = validations.some((v) => v.status === "fail");
   const hasWarn = validations.some((v) => v.status === "warn");
   const status = hasFailure ? "fail" : hasWarn ? "warn" : "pass";
@@ -184,9 +194,14 @@ async function probeSelector(
 
   // Estimate key bits from DER-encoded public key byte length
   let keyBits: number | undefined;
+  let invalidBase64 = false;
   if (publicKey && keyType === "rsa") {
-    const decoded = atob(publicKey.replace(/\s/g, ""));
-    keyBits = estimateRsaKeyBits(decoded.length);
+    try {
+      const decoded = atob(publicKey.replace(/\s/g, ""));
+      keyBits = estimateRsaKeyBits(decoded.length);
+    } catch {
+      invalidBase64 = true;
+    }
   }
 
   return {
@@ -195,6 +210,7 @@ async function probeSelector(
     key_bits: keyBits,
     testing,
     revoked,
+    invalid_base64: invalidBase64,
   };
 }
 
