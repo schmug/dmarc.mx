@@ -155,6 +155,80 @@ Preferred-Languages: en, de
     ).toBe(true);
   });
 
+  it("warns when Contact: is a bare email with no URI scheme", async () => {
+    const future = new Date(
+      Date.now() + 30 * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    mockFetchByUrl({
+      "https://example.com/.well-known/security.txt": {
+        body: `Contact: security@example.com\nExpires: ${future}\n`,
+      },
+    });
+    const result = await analyzeSecurityTxt("example.com");
+    expect(
+      result.validations.some(
+        (v) => v.status === "warn" && v.message.includes("is not a URI"),
+      ),
+    ).toBe(true);
+  });
+
+  it("warns when Contact: uses http: instead of https:", async () => {
+    const future = new Date(
+      Date.now() + 30 * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    mockFetchByUrl({
+      "https://example.com/.well-known/security.txt": {
+        body: `Contact: http://example.com/security\nExpires: ${future}\n`,
+      },
+    });
+    const result = await analyzeSecurityTxt("example.com");
+    expect(
+      result.validations.some(
+        (v) => v.status === "warn" && v.message.includes("use https: instead"),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not warn on a valid mailto: Contact:", async () => {
+    const future = new Date(
+      Date.now() + 30 * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    mockFetchByUrl({
+      "https://example.com/.well-known/security.txt": {
+        body: `Contact: mailto:security@example.com\nExpires: ${future}\n`,
+      },
+    });
+    const result = await analyzeSecurityTxt("example.com");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" &&
+          (v.message.includes("is not a URI") ||
+            v.message.includes("use https: instead")),
+      ),
+    ).toBe(false);
+  });
+
+  it("does not warn on a valid https: Contact:", async () => {
+    const future = new Date(
+      Date.now() + 30 * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    mockFetchByUrl({
+      "https://example.com/.well-known/security.txt": {
+        body: `Contact: https://example.com/security\nExpires: ${future}\n`,
+      },
+    });
+    const result = await analyzeSecurityTxt("example.com");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" &&
+          (v.message.includes("is not a URI") ||
+            v.message.includes("use https: instead")),
+      ),
+    ).toBe(false);
+  });
+
   it("warns when Expires: is missing", async () => {
     mockFetchByUrl({
       "https://example.com/.well-known/security.txt": {
