@@ -115,6 +115,73 @@ describe("analyzeDmarc — external rua/ruf authorization", () => {
     ).toBe(true);
   });
 
+  it("does not warn when the external authorization record is exactly v=DMARC1", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=reject; rua=mailto:reports@example.com"],
+      raw: "v=DMARC1; p=reject; rua=mailto:reports@example.com",
+    });
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1"],
+      raw: "v=DMARC1",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" &&
+          v.message.includes("rua") &&
+          v.message.includes("authorized"),
+      ),
+    ).toBe(false);
+  });
+
+  it("warns when the external authorization record is a v=DMARC10 look-alike, not an exact v=DMARC1 match", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=reject; rua=mailto:reports@example.com"],
+      raw: "v=DMARC1; p=reject; rua=mailto:reports@example.com",
+    });
+    // Not a valid DMARC record — "v=DMARC10" only shares a prefix with
+    // "v=DMARC1" and must not be treated as authorizing the report.
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC10; p=reject"],
+      raw: "v=DMARC10; p=reject",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" &&
+          v.message.includes("rua") &&
+          v.message.includes("example.com") &&
+          v.message.includes("not authorized"),
+      ),
+    ).toBe(true);
+  });
+
+  it("warns when the authorization name resolves to unrelated TXT content", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=reject; rua=mailto:reports@example.com"],
+      raw: "v=DMARC1; p=reject; rua=mailto:reports@example.com",
+    });
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["google-site-verification=abc123"],
+      raw: "google-site-verification=abc123",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" &&
+          v.message.includes("rua") &&
+          v.message.includes("example.com") &&
+          v.message.includes("not authorized"),
+      ),
+    ).toBe(true);
+  });
+
   it("warns when ruf points to external domain and authorization record is absent", async () => {
     // First call: _dmarc.mydomain.com
     mockQueryTxt.mockResolvedValueOnce({
