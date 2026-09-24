@@ -53,6 +53,13 @@ export async function analyzeMtaSts(
       message: `Policy file fetched from https://mta-sts.${domain}/.well-known/mta-sts.txt`,
     });
 
+    if (policy.version !== "STSv1") {
+      validations.push({
+        status: "fail",
+        message: `Unknown policy version "${policy.version || "(missing)"}" — expected STSv1`,
+      });
+    }
+
     if (policy.mode === "enforce") {
       validations.push({
         status: "pass",
@@ -67,6 +74,11 @@ export async function analyzeMtaSts(
       validations.push({
         status: "warn",
         message: "Policy mode is none (MTA-STS effectively disabled)",
+      });
+    } else {
+      validations.push({
+        status: "fail",
+        message: `Unknown policy mode "${policy.mode || "(missing)"}" — expected enforce, testing, or none`,
       });
     }
 
