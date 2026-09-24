@@ -353,6 +353,66 @@ describe("analyzeSpf", () => {
     ).toBe(true);
   });
 
+  it("flags duplicate redirect= modifier as permerror (RFC 7208 §6)", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: [
+        "v=spf1 redirect=_spf1.example.com redirect=_spf2.example.com -all",
+      ],
+      raw: "v=spf1 redirect=_spf1.example.com redirect=_spf2.example.com -all",
+    });
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=spf1 ip4:10.0.0.1 -all"],
+      raw: "v=spf1 ip4:10.0.0.1 -all",
+    });
+
+    const result = await analyzeSpf("example.com");
+    expect(result.status).toBe("fail");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "fail" &&
+          v.message.includes("Duplicate redirect=") &&
+          v.message.includes("permerror"),
+      ),
+    ).toBe(true);
+  });
+
+  it("flags duplicate exp= modifier as permerror (RFC 7208 §6)", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: [
+        "v=spf1 exp=explain1.example.com exp=explain2.example.com -all",
+      ],
+      raw: "v=spf1 exp=explain1.example.com exp=explain2.example.com -all",
+    });
+
+    const result = await analyzeSpf("example.com");
+    expect(result.status).toBe("fail");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "fail" &&
+          v.message.includes("Duplicate exp=") &&
+          v.message.includes("permerror"),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not flag a single redirect= modifier as a duplicate", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=spf1 redirect=_spf.example.com"],
+      raw: "v=spf1 redirect=_spf.example.com",
+    });
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=spf1 ip4:192.0.2.0/24 -all"],
+      raw: "v=spf1 ip4:192.0.2.0/24 -all",
+    });
+
+    const result = await analyzeSpf("example.com");
+    expect(
+      result.validations.some((v) => v.message.includes("Duplicate redirect=")),
+    ).toBe(false);
+  });
+
   it("handles bare v=spf1 record", async () => {
     mockQueryTxt.mockResolvedValue({
       entries: ["v=spf1"],
