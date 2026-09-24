@@ -129,6 +129,20 @@ describe("analyzeMx", () => {
     ).toBe(false);
   });
 
+  it("warns on a Null MX with nonzero preference (malformed per RFC 7505)", async () => {
+    mockQueryMx.mockResolvedValue([{ priority: 10, exchange: "." }]);
+    const result = await analyzeMx("example.com");
+    expect(result.status).toBe("warn");
+    expect(
+      result.validations.some(
+        (v) => v.status === "warn" && v.message.includes("Malformed Null MX"),
+      ),
+    ).toBe(true);
+    expect(
+      result.records.some((r) => r.exchange === "" || r.exchange === "."),
+    ).toBe(false);
+  });
+
   it("sorts records by priority ascending", async () => {
     mockQueryMx.mockResolvedValue([
       { priority: 30, exchange: "backup.example.com" },
