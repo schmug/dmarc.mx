@@ -8,6 +8,11 @@ import type { TlsRptResult, Validation } from "./types.js";
 // MTAs where to send TLS failure reports, but its presence or absence does
 // not change the enforcement posture.
 
+// Requires a local@domain address with a dotted domain — rejects `mailto:`
+// and `mailto:not-an-address`, which the bare startsWith("mailto:") check
+// used to accept.
+const MAILTO_ADDRESS_RE = /^mailto:[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export async function analyzeTlsRpt(
   domain: string,
   budget?: ScanBudget,
@@ -100,9 +105,11 @@ export async function analyzeTlsRpt(
     if (ruas.length === 0) {
       validations.push({ status: "warn", message: "rua= tag is empty" });
     } else {
-      const invalid = ruas.filter(
-        (r) => !r.startsWith("mailto:") && !r.startsWith("https://"),
-      );
+      const invalid = ruas.filter((r) => {
+        if (r.startsWith("https://")) return false;
+        if (r.startsWith("mailto:")) return !MAILTO_ADDRESS_RE.test(r);
+        return true;
+      });
       if (invalid.length > 0) {
         validations.push({
           status: "warn",

@@ -155,6 +155,66 @@ describe("analyzeTlsRpt", () => {
     ).toBe(true);
   });
 
+  it("warns for a bare mailto: with no address", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=TLSRPTv1; rua=mailto:"],
+      raw: "v=TLSRPTv1; rua=mailto:",
+    });
+    const result = await analyzeTlsRpt("example.com");
+    expect(result.status).toBe("warn");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" && v.message.includes("mailto:/https:// format"),
+      ),
+    ).toBe(true);
+  });
+
+  it("warns for a malformed mailto: address", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=TLSRPTv1; rua=mailto:not-an-address"],
+      raw: "v=TLSRPTv1; rua=mailto:not-an-address",
+    });
+    const result = await analyzeTlsRpt("example.com");
+    expect(result.status).toBe("warn");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" && v.message.includes("mailto:/https:// format"),
+      ),
+    ).toBe(true);
+  });
+
+  it("accepts a valid mailto: address", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=TLSRPTv1; rua=mailto:tlsrpt@example.com"],
+      raw: "v=TLSRPTv1; rua=mailto:tlsrpt@example.com",
+    });
+    const result = await analyzeTlsRpt("example.com");
+    expect(result.status).toBe("pass");
+    expect(
+      result.validations.some(
+        (v) => v.status === "info" && v.message.includes("tlsrpt@example.com"),
+      ),
+    ).toBe(true);
+  });
+
+  it("accepts a valid https:// destination", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=TLSRPTv1; rua=https://example.com/tlsrpt"],
+      raw: "v=TLSRPTv1; rua=https://example.com/tlsrpt",
+    });
+    const result = await analyzeTlsRpt("example.com");
+    expect(result.status).toBe("pass");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "info" &&
+          v.message.includes("https://example.com/tlsrpt"),
+      ),
+    ).toBe(true);
+  });
+
   it("accepts multiple comma-separated rua destinations", async () => {
     mockQueryTxt.mockResolvedValue({
       entries: [
