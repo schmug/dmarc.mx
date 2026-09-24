@@ -278,6 +278,74 @@ describe("analyzeDmarc — pct warnings", () => {
       ),
     ).toBe(false);
   });
+
+  it("warns with the invalid-percentage message when pct is non-numeric", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=reject; rua=mailto:r@mydomain.com; pct=oops"],
+      raw: "v=DMARC1; p=reject; rua=mailto:r@mydomain.com; pct=oops",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" &&
+          v.message ===
+            "pct=oops is not a valid percentage (0-100); receivers will treat it as 100",
+      ),
+    ).toBe(true);
+  });
+
+  it("warns with the invalid-percentage message when pct has trailing junk", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=reject; rua=mailto:r@mydomain.com; pct=50junk"],
+      raw: "v=DMARC1; p=reject; rua=mailto:r@mydomain.com; pct=50junk",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" &&
+          v.message ===
+            "pct=50junk is not a valid percentage (0-100); receivers will treat it as 100",
+      ),
+    ).toBe(true);
+  });
+
+  it("warns with the invalid-percentage message when pct is negative", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=reject; rua=mailto:r@mydomain.com; pct=-5"],
+      raw: "v=DMARC1; p=reject; rua=mailto:r@mydomain.com; pct=-5",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" &&
+          v.message ===
+            "pct=-5 is not a valid percentage (0-100); receivers will treat it as 100",
+      ),
+    ).toBe(true);
+  });
+
+  it("warns with the invalid-percentage message when pct is above 100", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=reject; rua=mailto:r@mydomain.com; pct=150"],
+      raw: "v=DMARC1; p=reject; rua=mailto:r@mydomain.com; pct=150",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" &&
+          v.message ===
+            "pct=150 is not a valid percentage (0-100); receivers will treat it as 100",
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("analyzeDmarc — p=none learn link (#524)", () => {
