@@ -256,6 +256,34 @@ describe("analyzeSpf", () => {
     ).toBe(true);
   });
 
+  it("warns on deprecated ptr mechanism with a + qualifier", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=spf1 +ptr -all"],
+      raw: "v=spf1 +ptr -all",
+    });
+
+    const result = await analyzeSpf("example.com");
+    expect(
+      result.validations.some(
+        (v) => v.status === "warn" && v.message.includes("deprecated ptr"),
+      ),
+    ).toBe(true);
+  });
+
+  it("warns on deprecated qualified ptr:domain mechanism with a - qualifier", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=spf1 -ptr:example.com -all"],
+      raw: "v=spf1 -ptr:example.com -all",
+    });
+
+    const result = await analyzeSpf("example.com");
+    expect(
+      result.validations.some(
+        (v) => v.status === "warn" && v.message.includes("deprecated ptr"),
+      ),
+    ).toBe(true);
+  });
+
   it("reports no deprecated ptr when not present", async () => {
     mockQueryTxt.mockResolvedValue({
       entries: ["v=spf1 ip4:192.0.2.0/24 -all"],
