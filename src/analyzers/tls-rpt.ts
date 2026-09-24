@@ -49,12 +49,11 @@ export async function analyzeTlsRpt(
 
   const validations: Validation[] = [];
 
-  const tlsRptEntries = txt.entries.filter((e) =>
-    e.toLowerCase().startsWith("v=tlsrptv1"),
-  );
-  const otherEntries = txt.entries.filter(
-    (e) => !e.toLowerCase().startsWith("v=tlsrptv1"),
-  );
+  // RFC 8460 §3: the version tag is exactly "v=TLSRPTv1", terminated by
+  // ";", whitespace, or end of string — "v=TLSRPTv10" is not a match.
+  const isTlsRptVersion = (e: string) => /^v=tlsrptv1(?:;|\s|$)/i.test(e);
+  const tlsRptEntries = txt.entries.filter(isTlsRptVersion);
+  const otherEntries = txt.entries.filter((e) => !isTlsRptVersion(e));
 
   if (otherEntries.length > 0) {
     validations.push({

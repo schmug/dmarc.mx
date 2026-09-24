@@ -174,6 +174,21 @@ describe("analyzeTlsRpt", () => {
     ).toBe(true);
   });
 
+  it("rejects a v=TLSRPTv10 record as not TLS-RPT (RFC 8460 §3 exact version match)", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=TLSRPTv10; rua=mailto:r@example.com"],
+      raw: "v=TLSRPTv10; rua=mailto:r@example.com",
+    });
+    const result = await analyzeTlsRpt("example.com");
+    expect(result.status).toBe("warn");
+    expect(result.record).toBeNull();
+    expect(
+      result.validations.some(
+        (v) => v.status === "warn" && v.message.includes("v=TLSRPTv1"),
+      ),
+    ).toBe(true);
+  });
+
   it("is case-insensitive for v=TLSRPTv1", async () => {
     mockQueryTxt.mockResolvedValue({
       entries: ["V=TLSRPTV1; rua=mailto:r@example.com"],
