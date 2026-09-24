@@ -8,6 +8,17 @@ import type { MtaStsPolicy, MtaStsResult, Validation } from "./types.js";
 // MAX_BODY_BYTES ceiling that src/analyzers/security-txt.ts already applies.
 export const MAX_POLICY_BYTES = 64 * 1024;
 
+// RFC 8461 §3.2: `max_age = "max_age" ":" 1*10DIGIT`, recommended ceiling
+// 31557600 (one year). A wholly-numeric, in-range value is required —
+// parseInt's leading-digit-only parsing previously accepted "86400junk" as
+// 86400 (#788).
+const MAX_MAX_AGE = 31557600;
+const MAX_AGE_DIGITS_RE = /^\d{1,10}$/;
+
+// Internal-only: carries whether max_age failed strict validation, without
+// widening the public MtaStsPolicy shape other modules consume.
+type ParsedMtaStsPolicy = MtaStsPolicy & { max_age_invalid: boolean };
+
 export async function analyzeMtaSts(
   domain: string,
   budget?: ScanBudget,
@@ -70,7 +81,12 @@ export async function analyzeMtaSts(
       });
     }
 
-    if (policy.max_age < 86400) {
+    if (policy.max_age_invalid) {
+      validations.push({
+        status: "warn",
+        message: `Invalid max_age value — must be a positive integer (seconds) up to ${MAX_MAX_AGE}`,
+      });
+    } else if (policy.max_age < 86400) {
       validations.push({
         status: "warn",
         message: `max_age is ${policy.max_age}s (less than 1 day) — consider increasing`,
@@ -97,7 +113,7 @@ export async function analyzeMtaSts(
   return { status, dns_record: dnsRecord, policy, validations };
 }
 
-async function fetchPolicy(domain: string): Promise<MtaStsPolicy | null> {
+async function fetchPolicy(domain: string): Promise<ParsedMtaStsPolicy | null> {
   try {
     const url = `https://mta-sts.${domain}/.well-known/mta-sts.txt`;
     const resp = await fetch(url, {
@@ -201,11 +217,12 @@ function concatCapped(
   return out;
 }
 
-function parsePolicy(text: string): MtaStsPolicy {
+function parsePolicy(text: string): ParsedMtaStsPolicy {
   let version = "";
   let mode = "";
   const mx: string[] = [];
   let maxAge = 0;
+  let maxAgeInvalid = false;
 
   // Performance optimization:
   // Use a single-pass `indexOf` loop instead of `text.split('\n').map(...).filter(...)`
@@ -238,11 +255,17 @@ function parsePolicy(text: string): MtaStsPolicy {
       case "mx":
         mx.push(value);
         break;
-      case "max_age":
-        maxAge = parseInt(value, 10) || 0;
+      case "max_age": {
+        const parsed = MAX_AGE_DIGITS_RE.test(value) ? Number(value) : null;
+        if (parsed !== null && parsed >= 1 && parsed <= MAX_MAX_AGE) {
+          maxAge = parsed;
+        } else {
+          maxAgeInvalid = true;
+        }
         break;
+      }
     }
   }
 
-  return { version, mode, mx, max_age: maxAge };
+  return { version, mode, mx, max_age: maxAge, max_age_invalid: maxAgeInvalid };
 }
