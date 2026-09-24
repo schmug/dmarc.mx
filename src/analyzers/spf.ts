@@ -144,10 +144,12 @@ export async function analyzeSpf(
     }
   }
 
-  // Deprecated ptr check
-  const hasPtr = tree.mechanisms.some(
-    (m) => m === "ptr" || m.startsWith("ptr:"),
-  );
+  // Deprecated ptr check. Strip the optional qualifier (+ - ~ ?) so
+  // "+ptr"/"~ptr"/"-ptr:host" are recognized, not just the bare form.
+  const hasPtr = tree.mechanisms.some((m) => {
+    const bare = m.replace(/^[+\-~?]/, "");
+    return bare === "ptr" || bare.startsWith("ptr:");
+  });
   if (hasPtr) {
     validations.push({
       status: "warn",
