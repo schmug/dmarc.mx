@@ -57,6 +57,19 @@ function parseReportUris(tagValue: string): string[] {
 }
 
 /**
+ * True when `entry` is exactly a "v=DMARC1" record per RFC 7489 §7.1: the
+ * literal tag followed by a tag separator (`;`), whitespace, or end of
+ * string. A bare `startsWith("v=DMARC1")` also accepts a look-alike version
+ * like "v=DMARC10" as a valid authorization record.
+ */
+function hasExactDmarcVersionTag(entry: string): boolean {
+  const trimmed = entry.trimStart();
+  if (!trimmed.startsWith("v=DMARC1")) return false;
+  const next = trimmed.charAt("v=DMARC1".length);
+  return next === "" || next === ";" || /\s/.test(next);
+}
+
+/**
  * Check external report destination authorization per RFC 7489 §7.1.
  * For each reporting address whose domain differs from the sending domain,
  * query <sending-domain>._report._dmarc.<reporting-domain> for v=DMARC1.
@@ -107,8 +120,7 @@ async function checkReportingAuthorization(
       throw err;
     }
     const isAuthorized =
-      authRecord?.entries.some((e) => e.trimStart().startsWith("v=DMARC1")) ??
-      false;
+      authRecord?.entries.some((e) => hasExactDmarcVersionTag(e)) ?? false;
     if (!isAuthorized) {
       validations.push({
         status: "warn",
