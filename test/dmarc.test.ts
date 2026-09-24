@@ -581,6 +581,76 @@ describe("analyzeDmarc — alignment and failure-reporting tags", () => {
       ),
     ).toBe(true);
   });
+
+  it("explains a valid colon-separated fo combination (fo=1:d)", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: [
+        "v=DMARC1; p=reject; fo=1:d; ruf=mailto:f@mydomain.com; rua=mailto:r@mydomain.com",
+      ],
+      raw: "v=DMARC1; p=reject; fo=1:d; ruf=mailto:f@mydomain.com; rua=mailto:r@mydomain.com",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.message.includes("fo=1:d") &&
+          v.message.includes("any authentication mechanism fails") &&
+          v.message.includes("DKIM evaluation fails"),
+      ),
+    ).toBe(true);
+    // Both tokens are valid — no unrecognized-token warning.
+    expect(
+      result.validations.some((v) => v.message.includes("unrecognized")),
+    ).toBe(false);
+  });
+
+  it("warns on an unrecognized fo value (fo=bogus)", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: [
+        "v=DMARC1; p=reject; fo=bogus; ruf=mailto:f@mydomain.com; rua=mailto:r@mydomain.com",
+      ],
+      raw: "v=DMARC1; p=reject; fo=bogus; ruf=mailto:f@mydomain.com; rua=mailto:r@mydomain.com",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" &&
+          v.message.includes("fo=bogus") &&
+          v.message.includes("bogus"),
+      ),
+    ).toBe(true);
+  });
+
+  it("warns on a trailing empty fo token (fo=0:)", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: [
+        "v=DMARC1; p=reject; fo=0:; ruf=mailto:f@mydomain.com; rua=mailto:r@mydomain.com",
+      ],
+      raw: "v=DMARC1; p=reject; fo=0:; ruf=mailto:f@mydomain.com; rua=mailto:r@mydomain.com",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    // The valid "0" token still gets its explanation...
+    expect(
+      result.validations.some(
+        (v) =>
+          v.message.includes("fo=0:") &&
+          v.message.includes("all authentication mechanisms fail"),
+      ),
+    ).toBe(true);
+    // ...and the empty token after the trailing colon is flagged.
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" &&
+          v.message.includes("fo=0:") &&
+          v.message.includes("(empty)"),
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("analyzeDmarc — unrecognized policy values (#738)", () => {

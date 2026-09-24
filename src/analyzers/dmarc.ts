@@ -331,34 +331,51 @@ export async function analyzeDmarc(
         : "SPF alignment is relaxed (aspf=r, the default) — organizational-domain match is sufficient",
   });
 
-  // Failure-reporting options (fo). Default is "0" when absent.
-  // Only meaningful when ruf is configured.
+  // Failure-reporting options (fo). Default is "0" when absent. RFC 7489
+  // §6.3 defines fo as a colon-separated list of single-character flags
+  // (0, 1, d, s) — e.g. fo=1:d requests a report on any SPF/DKIM failure
+  // OR a DKIM-specific failure.
   const foSuffix = tags.ruf ? "" : " (no effect without a ruf address)";
+  const FO_TOKEN_EXPLANATIONS: Record<string, string> = {
+    "0": "a forensic report is generated only when all authentication mechanisms fail",
+    "1": "a forensic report is generated when any authentication mechanism fails (SPF or DKIM)",
+    d: "a forensic report is generated when DKIM evaluation fails, regardless of SPF",
+    s: "a forensic report is generated when SPF evaluation fails, regardless of DKIM",
+  };
   if (!tags.fo || tags.fo === "0") {
     validations.push({
       status: "info",
-      message: `Failure-reporting option fo=0 (the default) — a forensic report is generated only when all authentication mechanisms fail${foSuffix}`,
-    });
-  } else if (tags.fo === "1") {
-    validations.push({
-      status: "info",
-      message: `Failure-reporting option fo=1 — a forensic report is generated when any authentication mechanism fails (SPF or DKIM)${foSuffix}`,
-    });
-  } else if (tags.fo === "d") {
-    validations.push({
-      status: "info",
-      message: `Failure-reporting option fo=d — a forensic report is generated when DKIM evaluation fails, regardless of SPF${foSuffix}`,
-    });
-  } else if (tags.fo === "s") {
-    validations.push({
-      status: "info",
-      message: `Failure-reporting option fo=s — a forensic report is generated when SPF evaluation fails, regardless of DKIM${foSuffix}`,
+      message: `Failure-reporting option fo=0 (the default) — ${FO_TOKEN_EXPLANATIONS["0"]}${foSuffix}`,
     });
   } else {
-    validations.push({
-      status: "info",
-      message: `Failure-reporting options fo=${tags.fo} configured${foSuffix}`,
-    });
+    const foTokens = tags.fo.split(":");
+    const validTokens = foTokens.filter((t) => t in FO_TOKEN_EXPLANATIONS);
+    const invalidTokens = foTokens.filter((t) => !(t in FO_TOKEN_EXPLANATIONS));
+
+    if (foTokens.length === 1 && validTokens.length === 1) {
+      const token = validTokens[0];
+      validations.push({
+        status: "info",
+        message: `Failure-reporting option fo=${token} — ${FO_TOKEN_EXPLANATIONS[token]}${foSuffix}`,
+      });
+    } else {
+      if (validTokens.length > 0) {
+        const explanations = validTokens
+          .map((t) => FO_TOKEN_EXPLANATIONS[t])
+          .join("; or ");
+        validations.push({
+          status: "info",
+          message: `Failure-reporting options fo=${tags.fo} configured — ${explanations}${foSuffix}`,
+        });
+      }
+      if (invalidTokens.length > 0) {
+        const labeled = invalidTokens.map((t) => (t === "" ? "(empty)" : t));
+        validations.push({
+          status: "warn",
+          message: `Failure-reporting options fo=${tags.fo} include unrecognized token(s): ${labeled.join(", ")} — RFC 7489 §6.3 only defines 0, 1, d, s${foSuffix}`,
+        });
+      }
+    }
   }
 
   const hasFailure = validations.some((v) => v.status === "fail");
