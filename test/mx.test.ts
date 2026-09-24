@@ -194,4 +194,34 @@ describe("analyzeMx", () => {
     const result = await analyzeMx("example.com");
     expect(result.status).toBe("info");
   });
+
+  it("warns when an MX exchange is an IPv4 address literal", async () => {
+    mockQueryMx.mockResolvedValue([{ priority: 10, exchange: "192.0.2.1" }]);
+    const result = await analyzeMx("example.com");
+    expect(result.status).toBe("info");
+    expect(
+      result.validations.some(
+        (v) => v.status === "warn" && v.message.includes("192.0.2.1"),
+      ),
+    ).toBe(true);
+  });
+
+  it("warns when an MX exchange is an IPv6 address literal", async () => {
+    mockQueryMx.mockResolvedValue([{ priority: 10, exchange: "2001:db8::1" }]);
+    const result = await analyzeMx("example.com");
+    expect(result.status).toBe("info");
+    expect(
+      result.validations.some(
+        (v) => v.status === "warn" && v.message.includes("2001:db8::1"),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not warn for a normal hostname exchange", async () => {
+    mockQueryMx.mockResolvedValue([
+      { priority: 10, exchange: "mail.example.com" },
+    ]);
+    const result = await analyzeMx("example.com");
+    expect(result.validations.some((v) => v.status === "warn")).toBe(false);
+  });
 });
