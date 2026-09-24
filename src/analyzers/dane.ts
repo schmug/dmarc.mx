@@ -38,7 +38,9 @@ function parseTlsaRecord(data: string): DaneTlsaRecord | null {
     const usage = parseInt(hex.slice(0, 2), 16);
     const selector = parseInt(hex.slice(2, 4), 16);
     const matchingType = parseInt(hex.slice(4, 6), 16);
-    return { usage, selector, matchingType, data: hex.slice(6) };
+    const associationData = hex.slice(6);
+    if (!isValidAssociationData(matchingType, associationData)) return null;
+    return { usage, selector, matchingType, data: associationData };
   }
 
   const parts = trimmed.split(/\s+/);
@@ -47,7 +49,27 @@ function parseTlsaRecord(data: string): DaneTlsaRecord | null {
   const selector = parseTlsaField(parts[1], 1);
   const matchingType = parseTlsaField(parts[2], 2);
   if (usage === null || selector === null || matchingType === null) return null;
-  return { usage, selector, matchingType, data: parts.slice(3).join("") };
+  const associationData = parts.slice(3).join("");
+  if (!isValidAssociationData(matchingType, associationData)) return null;
+  return { usage, selector, matchingType, data: associationData };
+}
+
+// RFC 6698 §2.1: certificate association data is hex, and matching type
+// pins its length — 1 (SHA-256) is exactly 32 octets, 2 (SHA-512) is
+// exactly 64 octets. Matching type 0 (exact match) carries the full
+// certificate/SPKI and has no fixed length. Reject non-hex data or a
+// length mismatch rather than accepting a truncated/malformed hash that
+// could never match a real certificate.
+const ASSOCIATION_DATA_OCTETS: Partial<Record<number, number>> = {
+  1: 32,
+  2: 64,
+};
+
+function isValidAssociationData(matchingType: number, data: string): boolean {
+  if (!/^[0-9a-f]*$/i.test(data)) return false;
+  const expectedOctets = ASSOCIATION_DATA_OCTETS[matchingType];
+  if (expectedOctets === undefined) return true;
+  return data.length === expectedOctets * 2;
 }
 
 // RFC 6698 §2.1: certificate usage is 0-3, selector is 0-1, matching type is
