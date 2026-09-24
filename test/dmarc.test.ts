@@ -548,6 +548,58 @@ describe("analyzeDmarc — multiple records", () => {
   });
 });
 
+describe("analyzeDmarc — duplicate tags (#819)", () => {
+  it("fails on a duplicate p= tag", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=none; p=reject"],
+      raw: "v=DMARC1; p=none; p=reject",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(result.status).toBe("fail");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "fail" &&
+          v.message.includes("Duplicate tag") &&
+          v.message.includes("p"),
+      ),
+    ).toBe(true);
+  });
+
+  it("fails on a duplicate rua= tag", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: [
+        "v=DMARC1; p=reject; rua=mailto:a@mydomain.com; rua=mailto:b@mydomain.com",
+      ],
+      raw: "v=DMARC1; p=reject; rua=mailto:a@mydomain.com; rua=mailto:b@mydomain.com",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(result.status).toBe("fail");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "fail" &&
+          v.message.includes("Duplicate tag") &&
+          v.message.includes("rua"),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not flag a record with no duplicate tags", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=reject; rua=mailto:r@mydomain.com"],
+      raw: "v=DMARC1; p=reject; rua=mailto:r@mydomain.com",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(
+      result.validations.some((v) => v.message.includes("Duplicate tag")),
+    ).toBe(false);
+  });
+});
+
 describe("analyzeDmarc — alignment and failure-reporting tags", () => {
   it("explains strict alignment when adkim=s and aspf=s", async () => {
     mockQueryTxt.mockResolvedValueOnce({
