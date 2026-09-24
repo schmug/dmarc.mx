@@ -262,6 +262,79 @@ describe("analyzeDane — malformed generic-format TLSA", () => {
   });
 });
 
+describe("analyzeDane — presentation-format field range validation", () => {
+  it("accepts a valid record (usage 3, selector 1, matching type 1)", async () => {
+    queryDoh.mockResolvedValue({
+      Status: 0,
+      AD: true,
+      Answer: [makeTlsaAnswer("3 1 1 abcdef1234")],
+    });
+    const result = await analyzeDane("example.com", ["mx.example.com"]);
+    expect(result.hosts[0].tlsaRecords).toHaveLength(1);
+    expect(result.hosts[0].tlsaRecords[0]).toMatchObject({
+      usage: 3,
+      selector: 1,
+      matchingType: 1,
+    });
+    expect(result.status).toBe("pass");
+  });
+
+  it("drops a record with trailing garbage on the usage token (3x)", async () => {
+    queryDoh.mockResolvedValue({
+      Status: 0,
+      AD: true,
+      Answer: [makeTlsaAnswer("3x 1 1 abcdef1234")],
+    });
+    const result = await analyzeDane("example.com", ["mx.example.com"]);
+    expect(result.hosts[0].tlsaRecords).toHaveLength(0);
+    expect(result.status).toBe("info");
+  });
+
+  it("drops a record with an out-of-range usage (9)", async () => {
+    queryDoh.mockResolvedValue({
+      Status: 0,
+      AD: true,
+      Answer: [makeTlsaAnswer("9 1 1 abcdef1234")],
+    });
+    const result = await analyzeDane("example.com", ["mx.example.com"]);
+    expect(result.hosts[0].tlsaRecords).toHaveLength(0);
+    expect(result.status).toBe("info");
+  });
+
+  it("drops a record with an out-of-range selector (7)", async () => {
+    queryDoh.mockResolvedValue({
+      Status: 0,
+      AD: true,
+      Answer: [makeTlsaAnswer("3 7 1 abcdef1234")],
+    });
+    const result = await analyzeDane("example.com", ["mx.example.com"]);
+    expect(result.hosts[0].tlsaRecords).toHaveLength(0);
+    expect(result.status).toBe("info");
+  });
+
+  it("drops a record with an out-of-range matching type (8)", async () => {
+    queryDoh.mockResolvedValue({
+      Status: 0,
+      AD: true,
+      Answer: [makeTlsaAnswer("3 1 8 abcdef1234")],
+    });
+    const result = await analyzeDane("example.com", ["mx.example.com"]);
+    expect(result.hosts[0].tlsaRecords).toHaveLength(0);
+    expect(result.status).toBe("info");
+  });
+
+  it("drops a record with a negative field", async () => {
+    queryDoh.mockResolvedValue({
+      Status: 0,
+      AD: true,
+      Answer: [makeTlsaAnswer("-1 1 1 abcdef1234")],
+    });
+    const result = await analyzeDane("example.com", ["mx.example.com"]);
+    expect(result.hosts[0].tlsaRecords).toHaveLength(0);
+    expect(result.status).toBe("info");
+  });
+});
+
 describe("analyzeDane — mixed validated and unvalidated", () => {
   it("returns pass with warn validation when one host is validated and another is not", async () => {
     queryDoh
