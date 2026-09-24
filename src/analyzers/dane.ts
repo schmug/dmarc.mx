@@ -40,16 +40,21 @@ function parseTlsaRecord(data: string): DaneTlsaRecord | null {
 
   const parts = trimmed.split(/\s+/);
   if (parts.length < 4) return null;
-  const usage = parseInt(parts[0], 10);
-  const selector = parseInt(parts[1], 10);
-  const matchingType = parseInt(parts[2], 10);
-  if (
-    Number.isNaN(usage) ||
-    Number.isNaN(selector) ||
-    Number.isNaN(matchingType)
-  )
-    return null;
+  const usage = parseTlsaField(parts[0], 3);
+  const selector = parseTlsaField(parts[1], 1);
+  const matchingType = parseTlsaField(parts[2], 2);
+  if (usage === null || selector === null || matchingType === null) return null;
   return { usage, selector, matchingType, data: parts.slice(3).join("") };
+}
+
+// RFC 6698 §2.1: certificate usage is 0-3, selector is 0-1, matching type is
+// 0-2. `parseInt` alone accepts trailing garbage ("3x" -> 3) and out-of-range
+// values (9, 7, 8), so require the token to be a whole, non-negative number
+// within [0, max] or treat the record as malformed.
+function parseTlsaField(token: string, max: number): number | null {
+  if (!/^\d+$/.test(token)) return null;
+  const value = Number(token);
+  return value <= max ? value : null;
 }
 
 export async function analyzeDane(
