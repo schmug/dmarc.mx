@@ -193,6 +193,20 @@ function finalize(sourceUrl: string, raw: string): SecurityTxtResult {
         fields.contact.length === 1 ? "y" : "ies"
       }`,
     });
+    for (const contact of fields.contact) {
+      const scheme = contactUriScheme(contact);
+      if (!scheme) {
+        validations.push({
+          status: "warn",
+          message: `Contact: "${contact}" is not a URI (RFC 9116 §2.5.3 requires a scheme such as mailto:, https:, or tel:)`,
+        });
+      } else if (scheme === "http") {
+        validations.push({
+          status: "warn",
+          message: `Contact: "${contact}" uses http: — use https: instead`,
+        });
+      }
+    }
   }
 
   // RFC 9116 §2.5.5: Expires is REQUIRED, ISO 8601 format, MUST NOT be in
@@ -266,6 +280,17 @@ function stripPgpArmor(raw: string): { body: string; signed: boolean } {
     body: raw.slice(afterCleartextHeader + 2, bodyEnd),
     signed: true,
   };
+}
+
+// RFC 9116 §2.5.3: Contact MUST be a URI (e.g. mailto:, https:, tel:) — a
+// bare value with no scheme (a plain email address) isn't one. RFC 9116
+// doesn't ban plaintext http: outright, but a security contact channel
+// shouldn't be one, so it's flagged separately from "not a URI at all".
+const URI_SCHEME_RE = /^([a-zA-Z][a-zA-Z0-9+.-]*):/;
+
+function contactUriScheme(value: string): string | null {
+  const match = URI_SCHEME_RE.exec(value);
+  return match ? match[1].toLowerCase() : null;
 }
 
 function parseFields(body: string): SecurityTxtFields {
