@@ -251,6 +251,18 @@ function finalize(sourceUrl: string, raw: string): SecurityTxtResult {
     }
   }
 
+  // RFC 9116 §2.5.8: Preferred-Languages is optional, but when present each
+  // comma-separated entry must be a valid RFC 5646 (BCP 47) language tag.
+  if (fields.preferred_languages) {
+    const invalidTags = invalidLanguageTags(fields.preferred_languages);
+    for (const tag of invalidTags) {
+      validations.push({
+        status: "warn",
+        message: `Preferred-Languages: "${tag}" is not a valid BCP 47 language tag (RFC 9116 §2.5.8)`,
+      });
+    }
+  }
+
   return {
     status: "info",
     source_url: sourceUrl,
@@ -291,6 +303,20 @@ const URI_SCHEME_RE = /^([a-zA-Z][a-zA-Z0-9+.-]*):/;
 function contactUriScheme(value: string): string | null {
   const match = URI_SCHEME_RE.exec(value);
   return match ? match[1].toLowerCase() : null;
+}
+
+// RFC 9116 §2.5.8: Preferred-Languages is a comma-separated list of RFC 5646
+// (BCP 47) language tags. Full BCP 47 grammar (extlang, script, variant,
+// extension, privateuse subtags) is far more than this needs — a simple
+// shape check (primary subtag, then hyphen-separated alphanumeric subtags)
+// catches malformed tags without hand-rolling the full RFC 5646 ABNF.
+const BCP47_TAG_RE = /^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$/;
+
+function invalidLanguageTags(preferredLanguages: string): string[] {
+  return preferredLanguages
+    .split(",")
+    .map((tag) => tag.trim())
+    .filter((tag) => tag.length > 0 && !BCP47_TAG_RE.test(tag));
 }
 
 function parseFields(body: string): SecurityTxtFields {
