@@ -213,7 +213,7 @@ export async function analyzeBimi(
   }
 
   const bimiRecord = txt.entries.find((e) =>
-    e.trimStart().startsWith("v=BIMI1"),
+    /^v=BIMI1(;|\s|$)/.test(e.trimStart()),
   );
   if (!bimiRecord) {
     return {
