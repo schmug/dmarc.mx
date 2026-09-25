@@ -24,15 +24,15 @@ dmarcheck is currently maintained by a single person in their spare time.
 ## Automation identity
 
 Autonomous [Claude Code Routines](docs/routine-pipeline.md) open and merge
-routine PRs unattended. Today those commits are authored by **@schmug** because
-the routines run with the maintainer's credentials. Splitting them onto a
-dedicated non-admin `dmarcheck-bot` identity — which is what makes the
-[`CODEOWNERS`](.github/CODEOWNERS) human-review gate *enforcing* rather than
-advisory — is tracked in
-[#299](https://github.com/schmug/dmarcheck/issues/299). Until #299 lands, treat
-the CODEOWNERS gate on security-sensitive paths as advisory for automation. See
-[docs/OSPS-DEVIATIONS.md](docs/OSPS-DEVIATIONS.md) for the full rationale and
-compensating controls.
+routine PRs. Ruleset `main-protection` (id `14716629`) sets
+`require_code_owner_review: true`, `required_approving_review_count: 0`, and has
+no bypass actors. The zero general approval count is the autonomy carve-out:
+paths not listed in [`.github/CODEOWNERS`](.github/CODEOWNERS) can merge with no
+review. On owned paths, GitHub enforces code-owner review for identities that
+are not code owners; merges by the agent `andonos[bot]` were refused with 405.
+The gate is inert only for **@schmug's own merges**. The owned paths are exactly
+the entries in CODEOWNERS, narrowed on 2026-09-22. See
+[docs/OSPS-DEVIATIONS.md](docs/OSPS-DEVIATIONS.md) for related controls.
 
 ## Becoming a maintainer
 
