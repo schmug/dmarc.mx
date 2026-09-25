@@ -372,6 +372,20 @@ export async function analyzeDmarc(
     }
   }
 
+  // ri= check (RFC 7489 §6.3): reporting interval in seconds for aggregate
+  // reports, a 32-bit unsigned integer, default 86400. Anything else has no
+  // defined receiver fallback, so warn rather than fail.
+  if (tags.ri !== undefined && tags.ri !== null && tags.ri !== "") {
+    const isWholeNumber = /^\d+$/.test(tags.ri);
+    const riVal = isWholeNumber ? Number(tags.ri) : NaN;
+    if (!isWholeNumber || riVal <= 0) {
+      validations.push({
+        status: "warn",
+        message: `ri=${tags.ri} is not a valid reporting interval — RFC 7489 §6.3 requires a whole positive integer of seconds (default 86400)`,
+      });
+    }
+  }
+
   // Alignment mode (adkim / aspf). Default is relaxed ("r"); strict ("s")
   // requires an exact domain match for the passing identifier. RFC 7489 §6.3
   // defines only r and s — anything else is not a valid alignment mode, but

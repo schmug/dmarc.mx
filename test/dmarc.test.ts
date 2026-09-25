@@ -415,6 +415,87 @@ describe("analyzeDmarc — pct warnings", () => {
   });
 });
 
+describe("analyzeDmarc — ri warnings (#837)", () => {
+  it("does not warn when ri=3600", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=reject; rua=mailto:r@mydomain.com; ri=3600"],
+      raw: "v=DMARC1; p=reject; rua=mailto:r@mydomain.com; ri=3600",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(
+      result.validations.some(
+        (v) => v.status === "warn" && v.message.includes("ri="),
+      ),
+    ).toBe(false);
+  });
+
+  it("does not warn when ri is absent (default is 86400)", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=reject; rua=mailto:r@mydomain.com"],
+      raw: "v=DMARC1; p=reject; rua=mailto:r@mydomain.com",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(
+      result.validations.some(
+        (v) => v.status === "warn" && v.message.includes("ri="),
+      ),
+    ).toBe(false);
+  });
+
+  it("warns with the invalid-interval message when ri is non-numeric", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=reject; rua=mailto:r@mydomain.com; ri=oops"],
+      raw: "v=DMARC1; p=reject; rua=mailto:r@mydomain.com; ri=oops",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" &&
+          v.message ===
+            "ri=oops is not a valid reporting interval — RFC 7489 §6.3 requires a whole positive integer of seconds (default 86400)",
+      ),
+    ).toBe(true);
+  });
+
+  it("warns when ri=0", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=reject; rua=mailto:r@mydomain.com; ri=0"],
+      raw: "v=DMARC1; p=reject; rua=mailto:r@mydomain.com; ri=0",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" &&
+          v.message ===
+            "ri=0 is not a valid reporting interval — RFC 7489 §6.3 requires a whole positive integer of seconds (default 86400)",
+      ),
+    ).toBe(true);
+  });
+
+  it("warns when ri is negative", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=reject; rua=mailto:r@mydomain.com; ri=-5"],
+      raw: "v=DMARC1; p=reject; rua=mailto:r@mydomain.com; ri=-5",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" &&
+          v.message ===
+            "ri=-5 is not a valid reporting interval — RFC 7489 §6.3 requires a whole positive integer of seconds (default 86400)",
+      ),
+    ).toBe(true);
+  });
+});
+
 describe("analyzeDmarc — p=none learn link (#524)", () => {
   it("links the p=none finding to the DMARC learn page", async () => {
     mockQueryTxt.mockResolvedValueOnce({
