@@ -229,6 +229,95 @@ Preferred-Languages: en, de
     ).toBe(false);
   });
 
+  it("warns when Encryption: is not a URI", async () => {
+    const future = new Date(
+      Date.now() + 30 * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    mockFetchByUrl({
+      "https://example.com/.well-known/security.txt": {
+        body: `Contact: mailto:s@example.com\nExpires: ${future}\nEncryption: not-a-uri\n`,
+      },
+    });
+    const result = await analyzeSecurityTxt("example.com");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" &&
+          v.message.includes('Encryption: "not-a-uri" is not a URI'),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not warn on a valid Encryption: URI", async () => {
+    const future = new Date(
+      Date.now() + 30 * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    mockFetchByUrl({
+      "https://example.com/.well-known/security.txt": {
+        body: `Contact: mailto:s@example.com\nExpires: ${future}\nEncryption: https://example.com/pgp.asc\n`,
+      },
+    });
+    const result = await analyzeSecurityTxt("example.com");
+    expect(
+      result.validations.some(
+        (v) => v.status === "warn" && v.message.includes("Encryption:"),
+      ),
+    ).toBe(false);
+  });
+
+  it("warns when Canonical: is not a URI", async () => {
+    const future = new Date(
+      Date.now() + 30 * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    mockFetchByUrl({
+      "https://example.com/.well-known/security.txt": {
+        body: `Contact: mailto:s@example.com\nExpires: ${future}\nCanonical: not-a-uri\n`,
+      },
+    });
+    const result = await analyzeSecurityTxt("example.com");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" &&
+          v.message.includes('Canonical: "not-a-uri" is not a URI'),
+      ),
+    ).toBe(true);
+  });
+
+  it("warns when Canonical: is a URI but not https:", async () => {
+    const future = new Date(
+      Date.now() + 30 * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    mockFetchByUrl({
+      "https://example.com/.well-known/security.txt": {
+        body: `Contact: mailto:s@example.com\nExpires: ${future}\nCanonical: http://example.com/.well-known/security.txt\n`,
+      },
+    });
+    const result = await analyzeSecurityTxt("example.com");
+    expect(
+      result.validations.some(
+        (v) => v.status === "warn" && v.message.includes("must use https:"),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not warn on a valid https Canonical:", async () => {
+    const future = new Date(
+      Date.now() + 30 * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    mockFetchByUrl({
+      "https://example.com/.well-known/security.txt": {
+        body: `Contact: mailto:s@example.com\nExpires: ${future}\nCanonical: https://example.com/.well-known/security.txt\n`,
+      },
+    });
+    const result = await analyzeSecurityTxt("example.com");
+    expect(
+      result.validations.some(
+        (v) => v.status === "warn" && v.message.includes("Canonical:"),
+      ),
+    ).toBe(false);
+  });
+
   it("warns when Expires: is missing", async () => {
     mockFetchByUrl({
       "https://example.com/.well-known/security.txt": {
