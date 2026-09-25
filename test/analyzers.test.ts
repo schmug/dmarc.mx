@@ -660,4 +660,100 @@ describe("analyzeSpf", () => {
       false,
     );
   });
+
+  it("flags an ip4 prefix length over 32 (RFC 7208 §5.6)", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=spf1 ip4:192.0.2.1/33 -all"],
+      raw: "v=spf1 ip4:192.0.2.1/33 -all",
+    });
+
+    const result = await analyzeSpf("example.com");
+    expect(result.status).toBe("fail");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "fail" &&
+          v.message.includes("Invalid ip4/ip6") &&
+          v.message.includes("ip4:192.0.2.1/33"),
+      ),
+    ).toBe(true);
+  });
+
+  it("flags an invalid ip4 address with an out-of-range octet", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=spf1 ip4:999.1.1.1 -all"],
+      raw: "v=spf1 ip4:999.1.1.1 -all",
+    });
+
+    const result = await analyzeSpf("example.com");
+    expect(result.status).toBe("fail");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "fail" &&
+          v.message.includes("Invalid ip4/ip6") &&
+          v.message.includes("ip4:999.1.1.1"),
+      ),
+    ).toBe(true);
+  });
+
+  it("flags an ip6 prefix length over 128 (RFC 7208 §5.6)", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=spf1 ip6:2001:db8::/129 -all"],
+      raw: "v=spf1 ip6:2001:db8::/129 -all",
+    });
+
+    const result = await analyzeSpf("example.com");
+    expect(result.status).toBe("fail");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "fail" &&
+          v.message.includes("Invalid ip4/ip6") &&
+          v.message.includes("ip6:2001:db8::/129"),
+      ),
+    ).toBe(true);
+  });
+
+  it("flags an invalid ip6 address", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=spf1 ip6:gggg::1 -all"],
+      raw: "v=spf1 ip6:gggg::1 -all",
+    });
+
+    const result = await analyzeSpf("example.com");
+    expect(result.status).toBe("fail");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "fail" &&
+          v.message.includes("Invalid ip4/ip6") &&
+          v.message.includes("ip6:gggg::1"),
+      ),
+    ).toBe(true);
+  });
+
+  it("accepts valid ip4 boundary prefixes /0 and /32", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=spf1 ip4:0.0.0.0/0 ip4:192.0.2.1/32 -all"],
+      raw: "v=spf1 ip4:0.0.0.0/0 ip4:192.0.2.1/32 -all",
+    });
+
+    const result = await analyzeSpf("example.com");
+    expect(
+      result.validations.some((v) => v.message.includes("Invalid ip4/ip6")),
+    ).toBe(false);
+  });
+
+  it("accepts valid ip6 boundary prefixes /0 and /128", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=spf1 ip6:::/0 ip6:2001:db8::1/128 -all"],
+      raw: "v=spf1 ip6:::/0 ip6:2001:db8::1/128 -all",
+    });
+
+    const result = await analyzeSpf("example.com");
+    expect(
+      result.validations.some((v) => v.message.includes("Invalid ip4/ip6")),
+    ).toBe(false);
+  });
 });
