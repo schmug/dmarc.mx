@@ -430,6 +430,30 @@ describe("computeGrade", () => {
     expect(grade100).toBe(gradeAbsent);
   });
 
+  it("treats a malformed pct (non-numeric or out of range) as pct=100, not a downgrade", () => {
+    const makeGrade = (pct: string) =>
+      computeGrade({
+        dmarc: makeDmarc({
+          tags: { v: "DMARC1", p: "reject", pct, rua: "mailto:x@x.com" },
+        }),
+        spf: makeSpf({ lookups_used: 7 }),
+        dkim: makeDkim({
+          selectors: {
+            google: { found: true, key_type: "rsa", key_bits: 2048 },
+          },
+        }),
+        bimi: makeBimi(),
+        mta_sts: makeMtaSts(),
+      });
+    const grade100 = makeGrade("100");
+    // "1junk" must not parse as 1 (Number.parseInt would) and trigger the
+    // low-pct downgrade; "150" is out of the valid 0-100 range.
+    expect(makeGrade("1junk")).toBe(grade100);
+    expect(makeGrade("150")).toBe(grade100);
+    // A well-formed low pct still downgrades as before.
+    expect(makeGrade("50")).not.toBe(grade100);
+  });
+
   // ── B-tier extras tests ────────────────────────────────────
 
   it("gives separate +1 for BIMI and MTA-STS at B-tier", () => {
