@@ -36,6 +36,9 @@ interface ReportAuthBudget {
  * Extract the domain portion from a mailto: URI.
  * Returns null if the URI is not a mailto: or has no @ sign.
  * Does NOT use new URL() — that throws on mailto: in some runtimes.
+ * Strips a trailing RFC 7489 §6.2 size limit (e.g. "!10m") before returning
+ * the domain — otherwise "mailto:r@example.net!10m" yields the bogus
+ * reporting domain "example.net!10m".
  */
 function extractMailtoDomain(uri: string): string | null {
   const trimmed = uri.trim();
@@ -43,7 +46,10 @@ function extractMailtoDomain(uri: string): string | null {
   const address = trimmed.slice("mailto:".length);
   const atIndex = address.indexOf("@");
   if (atIndex === -1) return null;
-  return address.slice(atIndex + 1).toLowerCase();
+  const domainPart = address.slice(atIndex + 1);
+  const sizeIndex = domainPart.indexOf("!");
+  const domain = sizeIndex === -1 ? domainPart : domainPart.slice(0, sizeIndex);
+  return domain.toLowerCase();
 }
 
 /**

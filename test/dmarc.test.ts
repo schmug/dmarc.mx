@@ -95,6 +95,35 @@ describe("analyzeDmarc — external rua/ruf authorization", () => {
     ).toBe(false);
   });
 
+  it("strips a RFC 7489 §6.2 size limit suffix (!10m) before extracting the reporting domain", async () => {
+    // First call: _dmarc.mydomain.com
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=reject; rua=mailto:reports@example.net!10m"],
+      raw: "v=DMARC1; p=reject; rua=mailto:reports@example.net!10m",
+    });
+    // Second call: mydomain.com._report._dmarc.example.net → valid auth record
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1"],
+      raw: "v=DMARC1",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(mockQueryTxt).toHaveBeenCalledTimes(2);
+    expect(mockQueryTxt).toHaveBeenNthCalledWith(
+      2,
+      "mydomain.com._report._dmarc.example.net",
+      undefined,
+    );
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" &&
+          v.message.includes("rua") &&
+          v.message.includes("authorized"),
+      ),
+    ).toBe(false);
+  });
+
   it("warns instead of throwing when external authorization lookup fails with DnsLookupError", async () => {
     mockQueryTxt.mockResolvedValueOnce({
       entries: ["v=DMARC1; p=reject; rua=mailto:reports@example.com"],
