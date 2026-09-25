@@ -214,6 +214,25 @@ export async function analyzeSpf(
     });
   }
 
+  // Invalid a/mx dual-cidr-length suffix (RFC 7208 §5.3/5.4: optional
+  // "/" ip4-cidr-length 0-32 and/or "//" ip6-cidr-length 0-128)
+  const invalidAmxTerms = tree.mechanisms.filter((m) => {
+    const bare = m.replace(/^[+\-~?]/, "");
+    if (bare === "a" || bare.startsWith("a:") || bare.startsWith("a/")) {
+      return !isValidDualCidrLength(extractDualCidrLength(bare, "a"));
+    }
+    if (bare === "mx" || bare.startsWith("mx:") || bare.startsWith("mx/")) {
+      return !isValidDualCidrLength(extractDualCidrLength(bare, "mx"));
+    }
+    return false;
+  });
+  if (invalidAmxTerms.length > 0) {
+    validations.push({
+      status: "fail",
+      message: `Invalid a/mx dual-cidr-length ${invalidAmxTerms.length === 1 ? "suffix" : "suffixes"} — receivers will permerror (RFC 7208 §5.3/5.4): ${invalidAmxTerms.join(", ")}`,
+    });
+  }
+
   const hasFailure = validations.some((v) => v.status === "fail");
   const hasWarn = validations.some((v) => v.status === "warn");
   const status = hasFailure ? "fail" : hasWarn ? "warn" : "pass";
@@ -461,6 +480,29 @@ function hasMalformedMacro(domainSpec: string): boolean {
     i = close;
   }
   return false;
+}
+
+// RFC 7208 §5.3: strips an a/mx term down to its optional dual-cidr-length
+// suffix, skipping past the optional ":domain-spec" first (a domain-spec
+// never itself starts with "/").
+function extractDualCidrLength(bare: string, keyword: "a" | "mx"): string {
+  let rest = bare.slice(keyword.length);
+  if (rest.startsWith(":")) {
+    const slashIndex = rest.indexOf("/");
+    rest = slashIndex === -1 ? "" : rest.slice(slashIndex);
+  }
+  return rest;
+}
+
+// RFC 7208 §5.3/5.4: dual-cidr-length = ["/" ip4-cidr-length] ["//" ip6-cidr-length],
+// each an optional length with no other separators or trailing characters.
+function isValidDualCidrLength(suffix: string): boolean {
+  const match = /^(?:\/(\d{1,2}))?(?:\/\/(\d{1,3}))?$/.exec(suffix);
+  if (!match) return false;
+  const [, ip4, ip6] = match;
+  if (ip4 !== undefined && Number(ip4) > 32) return false;
+  if (ip6 !== undefined && Number(ip6) > 128) return false;
+  return true;
 }
 
 function parseSpfMechanisms(record: string): string[] {
