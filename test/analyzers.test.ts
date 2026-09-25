@@ -893,4 +893,72 @@ describe("analyzeSpf", () => {
       ),
     ).toBe(true);
   });
+
+  it("accepts valid a/mx dual-cidr-length suffixes", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=spf1 a/24 mx//64 a:host.example.com/24//64 -all"],
+      raw: "v=spf1 a/24 mx//64 a:host.example.com/24//64 -all",
+    });
+
+    const result = await analyzeSpf("example.com");
+    expect(
+      result.validations.some((v) =>
+        v.message.includes("Invalid a/mx dual-cidr-length"),
+      ),
+    ).toBe(false);
+  });
+
+  it("flags an a mechanism with an ip4-cidr-length over 32 (RFC 7208 §5.3)", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=spf1 a/33 -all"],
+      raw: "v=spf1 a/33 -all",
+    });
+
+    const result = await analyzeSpf("example.com");
+    expect(result.status).toBe("fail");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "fail" &&
+          v.message.includes("Invalid a/mx dual-cidr-length") &&
+          v.message.includes("a/33"),
+      ),
+    ).toBe(true);
+  });
+
+  it("flags an mx mechanism with an ip6-cidr-length over 128 (RFC 7208 §5.4)", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=spf1 mx//129 -all"],
+      raw: "v=spf1 mx//129 -all",
+    });
+
+    const result = await analyzeSpf("example.com");
+    expect(result.status).toBe("fail");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "fail" &&
+          v.message.includes("Invalid a/mx dual-cidr-length") &&
+          v.message.includes("mx//129"),
+      ),
+    ).toBe(true);
+  });
+
+  it("flags an a mechanism with a malformed trailing-slash cidr suffix", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=spf1 a/24/ -all"],
+      raw: "v=spf1 a/24/ -all",
+    });
+
+    const result = await analyzeSpf("example.com");
+    expect(result.status).toBe("fail");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "fail" &&
+          v.message.includes("Invalid a/mx dual-cidr-length") &&
+          v.message.includes("a/24/"),
+      ),
+    ).toBe(true);
+  });
 });
