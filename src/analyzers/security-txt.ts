@@ -194,7 +194,7 @@ function finalize(sourceUrl: string, raw: string): SecurityTxtResult {
       }`,
     });
     for (const contact of fields.contact) {
-      const scheme = contactUriScheme(contact);
+      const scheme = uriScheme(contact);
       if (!scheme) {
         validations.push({
           status: "warn",
@@ -251,6 +251,32 @@ function finalize(sourceUrl: string, raw: string): SecurityTxtResult {
     }
   }
 
+  // RFC 9116 §2.5.2: Encryption MUST be a URI (e.g. a link to a public key).
+  for (const encryption of fields.encryption) {
+    if (!uriScheme(encryption)) {
+      validations.push({
+        status: "warn",
+        message: `Encryption: "${encryption}" is not a URI (RFC 9116 §2.5.2 requires an absolute URI)`,
+      });
+    }
+  }
+
+  // RFC 9116 §2.5.4: Canonical MUST be a URI, and MUST use the https scheme.
+  for (const canonical of fields.canonical) {
+    const scheme = uriScheme(canonical);
+    if (!scheme) {
+      validations.push({
+        status: "warn",
+        message: `Canonical: "${canonical}" is not a URI (RFC 9116 §2.5.4 requires an absolute URI)`,
+      });
+    } else if (scheme !== "https") {
+      validations.push({
+        status: "warn",
+        message: `Canonical: "${canonical}" must use https: (RFC 9116 §2.5.4)`,
+      });
+    }
+  }
+
   return {
     status: "info",
     source_url: sourceUrl,
@@ -286,9 +312,11 @@ function stripPgpArmor(raw: string): { body: string; signed: boolean } {
 // bare value with no scheme (a plain email address) isn't one. RFC 9116
 // doesn't ban plaintext http: outright, but a security contact channel
 // shouldn't be one, so it's flagged separately from "not a URI at all".
+// Encryption (§2.5.2) and Canonical (§2.5.4) share the same "MUST be a URI"
+// requirement, so this scheme extraction is reused for all three fields.
 const URI_SCHEME_RE = /^([a-zA-Z][a-zA-Z0-9+.-]*):/;
 
-function contactUriScheme(value: string): string | null {
+function uriScheme(value: string): string | null {
   const match = URI_SCHEME_RE.exec(value);
   return match ? match[1].toLowerCase() : null;
 }
