@@ -116,28 +116,30 @@ export function collectSendingSources(
   return { ips: [...ips], hosts };
 }
 
-// Spamhaus ZEN return codes. 127.255.255.x are DQS signalling/error codes
-// (e.g. .254 = query through an unauthorized/public resolver), NOT real
-// listings — they must surface as "could not verify", never as "listed".
+// Spamhaus ZEN return codes. Only the documented listing codes count as a
+// real listing; 127.255.255.x are DQS signalling/error codes (e.g. .254 =
+// query through an unauthorized/public resolver), and any other, undocumented
+// code is unrecognized — neither is a confirmed listing, so both surface as
+// "could not verify" rather than a false "listed" (issue #839).
+const ZONES: Record<string, string> = {
+  "127.0.0.2": "SBL",
+  "127.0.0.3": "SBL CSS",
+  "127.0.0.4": "XBL (CBL)",
+  "127.0.0.9": "SBL DROP/EDROP",
+  "127.0.0.10": "PBL",
+  "127.0.0.11": "PBL",
+};
+
 function classifyDqsCode(code: string): {
   kind: "listed" | "error";
   zone: string;
 } {
+  const zone = ZONES[code];
+  if (zone) return { kind: "listed", zone };
   if (code.startsWith("127.255.255.")) {
     return { kind: "error", zone: "DQS error code" };
   }
-  const ZONES: Record<string, string> = {
-    "127.0.0.2": "SBL",
-    "127.0.0.3": "SBL CSS",
-    "127.0.0.4": "XBL (CBL)",
-    "127.0.0.5": "XBL (CBL)",
-    "127.0.0.6": "XBL (CBL)",
-    "127.0.0.7": "XBL (CBL)",
-    "127.0.0.9": "SBL DROP/EDROP",
-    "127.0.0.10": "PBL",
-    "127.0.0.11": "PBL",
-  };
-  return { kind: "listed", zone: ZONES[code] ?? `listed (${code})` };
+  return { kind: "error", zone: `unrecognized code (${code})` };
 }
 
 function noOp(): DnsblResult {
