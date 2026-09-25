@@ -215,6 +215,34 @@ describe("normalizeDomain — XSS payload rejection", () => {
   });
 });
 
+describe("normalizeDomain — DNS label validation (RFC 1035 / RFC 1123)", () => {
+  it("rejects an empty label from adjacent dots", () => {
+    expect(normalizeDomain("a..com")).toBeNull();
+  });
+
+  it("rejects a label over 63 characters", () => {
+    const label64 = "a".repeat(64);
+    expect(normalizeDomain(`${label64}.com`)).toBeNull();
+  });
+
+  it("accepts a label exactly 63 characters", () => {
+    const label63 = "a".repeat(63);
+    expect(normalizeDomain(`${label63}.com`)).toBe(`${label63}.com`);
+  });
+
+  it("rejects a leading hyphen in a label", () => {
+    expect(normalizeDomain("-bad.com")).toBeNull();
+  });
+
+  it("rejects a trailing hyphen in a label", () => {
+    expect(normalizeDomain("bad-.com")).toBeNull();
+  });
+
+  it("accepts a hyphen in the middle of a label", () => {
+    expect(normalizeDomain("bad-domain.com")).toBe("bad-domain.com");
+  });
+});
+
 describe("normalizeDomain — IPv4 literal rejection", () => {
   // DMARC/SPF/DKIM/BIMI/MTA-STS records are published in DNS at domain names,
   // not IP addresses — there is no legitimate dmarcheck use case for scanning
