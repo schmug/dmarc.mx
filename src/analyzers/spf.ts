@@ -189,6 +189,21 @@ export async function analyzeSpf(
     });
   }
 
+  // Invalid ip4:/ip6: address or CIDR prefix length (RFC 7208 §5.6: ip4
+  // prefix 0-32, ip6 prefix 0-128)
+  const invalidIpTerms = tree.mechanisms.filter((m) => {
+    const bare = m.replace(/^[+\-~?]/, "");
+    if (bare.startsWith("ip4:")) return !isValidIp4Cidr(bare.slice(4));
+    if (bare.startsWith("ip6:")) return !isValidIp6Cidr(bare.slice(4));
+    return false;
+  });
+  if (invalidIpTerms.length > 0) {
+    validations.push({
+      status: "fail",
+      message: `Invalid ip4/ip6 ${invalidIpTerms.length === 1 ? "address" : "addresses"} — receivers will permerror (RFC 7208 §5.6): ${invalidIpTerms.join(", ")}`,
+    });
+  }
+
   const hasFailure = validations.some((v) => v.status === "fail");
   const hasWarn = validations.some((v) => v.status === "warn");
   const status = hasFailure ? "fail" : hasWarn ? "warn" : "pass";
@@ -323,6 +338,72 @@ async function resolveSpfTree(
   }
 
   return { domain, record: spfRecord, mechanisms, includes };
+}
+
+// RFC 7208 §5.6: an ip4/ip6 mechanism's address must be a valid literal, with
+// an optional CIDR prefix length in range 0-32 (ip4) / 0-128 (ip6).
+function isValidIp4Address(addr: string): boolean {
+  const parts = addr.split(".");
+  return (
+    parts.length === 4 &&
+    parts.every((p) => /^\d{1,3}$/.test(p) && Number(p) <= 255)
+  );
+}
+
+function isValidIp4Cidr(spec: string): boolean {
+  const [addr, prefix, extra] = spec.split("/");
+  if (extra !== undefined || !isValidIp4Address(addr)) return false;
+  if (prefix === undefined) return true;
+  if (!/^\d{1,2}$/.test(prefix)) return false;
+  const len = Number(prefix);
+  return len >= 0 && len <= 32;
+}
+
+function isValidIp6Address(addr: string): boolean {
+  if (addr.length === 0) return false;
+  const isHextet = (g: string) => /^[0-9a-fA-F]{1,4}$/.test(g);
+  const groupCount = (groups: string[]): number | null => {
+    let count = 0;
+    for (let i = 0; i < groups.length; i++) {
+      const g = groups[i];
+      if (i === groups.length - 1 && g.includes(".")) {
+        if (!isValidIp4Address(g)) return null;
+        count += 2;
+      } else {
+        if (!isHextet(g)) return null;
+        count += 1;
+      }
+    }
+    return count;
+  };
+  const toGroups = (s: string): string[] => (s === "" ? [] : s.split(":"));
+
+  const parts = addr.split("::");
+  if (parts.length > 2) return false; // more than one "::" compression
+
+  if (parts.length === 1) {
+    const count = groupCount(toGroups(addr));
+    return count === 8;
+  }
+
+  const [left, right] = parts;
+  const leftGroups = toGroups(left);
+  const rightGroups = toGroups(right);
+  if (!leftGroups.every(isHextet)) return false;
+  const rightCount = groupCount(rightGroups);
+  if (rightCount === null) return false;
+  // "::" must collapse at least one group, so the explicit groups on both
+  // sides must leave room for it within the 8-group address.
+  return leftGroups.length + rightCount <= 7;
+}
+
+function isValidIp6Cidr(spec: string): boolean {
+  const [addr, prefix, extra] = spec.split("/");
+  if (extra !== undefined || !isValidIp6Address(addr)) return false;
+  if (prefix === undefined) return true;
+  if (!/^\d{1,3}$/.test(prefix)) return false;
+  const len = Number(prefix);
+  return len >= 0 && len <= 128;
 }
 
 function parseSpfMechanisms(record: string): string[] {
