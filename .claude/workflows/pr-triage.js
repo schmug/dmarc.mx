@@ -11,7 +11,6 @@ export const meta = {
   ],
 }
 
-async function run() {
 const opts = args && typeof args === 'object' ? args : {}
 const EXECUTE = opts.execute === true
 const ONLY = Array.isArray(opts.prNumbers) ? opts.prNumbers : null
@@ -231,6 +230,3 @@ log(
 )
 
 return { mode: EXECUTE ? 'execute' : 'dry-run', requiredChecks, summary, results: clean }
-}
-
-export default run()
