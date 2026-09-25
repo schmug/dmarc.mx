@@ -26,6 +26,15 @@ export function normalizeDomain(raw: string | undefined): string | null {
   if (!/^[a-z0-9.-]+$/.test(domain)) return null;
   // Must have at least one dot
   if (!domain.includes(".")) return null;
+  // RFC 1035 §2.3.4 / RFC 1123: each label is 1-63 chars and must not start
+  // or end with a hyphen. The charset check above lets through `a..com`
+  // (empty label from adjacent dots), an over-long label, and a
+  // leading/trailing hyphen like `-bad.com`, none of which are valid DNS
+  // labels.
+  for (const label of domain.split(".")) {
+    if (label.length < 1 || label.length > 63) return null;
+    if (label.startsWith("-") || label.endsWith("-")) return null;
+  }
   // Reject IPv4 literals. DMARC/SPF/DKIM/BIMI/MTA-STS records are published
   // in DNS at domain names, not IPs — there is no legitimate dmarcheck use
   // case for scanning `1.2.3.4`. This also closes a defense-in-depth gap
