@@ -237,6 +237,36 @@ describe("analyzeBimi", () => {
     ).toBe(true);
   });
 
+  it("rejects v=BIMI10 as not a valid BIMI record", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=BIMI10; l=https://example.com/logo.svg"],
+      raw: "v=BIMI10; l=https://example.com/logo.svg",
+    });
+
+    const result = await analyzeBimi("example.com", "reject");
+    expect(result.status).toBe("warn");
+    expect(result.tags).toBeNull();
+    expect(
+      result.validations.some((v) =>
+        v.message.includes("not a valid BIMI record"),
+      ),
+    ).toBe(true);
+  });
+
+  it("accepts v=BIMI1; l=https://... as a valid BIMI record", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=BIMI1; l=https://example.com/logo.svg"],
+      raw: "v=BIMI1; l=https://example.com/logo.svg",
+    });
+    mockFetchLogoOnly();
+
+    const result = await analyzeBimi("example.com", "reject");
+    expect(result.tags?.v).toBe("BIMI1");
+    expect(
+      result.validations.some((v) => v.message.includes("BIMI record found")),
+    ).toBe(true);
+  });
+
   it("warns when no authority certificate specified", async () => {
     mockQueryTxt.mockResolvedValue({
       entries: ["v=BIMI1; l=https://example.com/logo.svg"],
