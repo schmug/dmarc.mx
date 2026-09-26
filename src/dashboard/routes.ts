@@ -71,6 +71,7 @@ import {
   type ScoringConfig,
 } from "../shared/scoring.js";
 import { parseScoringConfig } from "../shared/scoring-config.js";
+import { validateCustomSelectors } from "../shared/selectors.js";
 import { isAllowedWebhookUrl } from "../shared/ssrf.js";
 import {
   renderAddDomainPage,
@@ -808,6 +809,20 @@ dashboardRoutes.post("/domain/add", async (c) => {
     );
   }
 
+  const selectorsRaw = body.dkim_selectors as string | undefined;
+  const selectorsResult = validateCustomSelectors(selectorsRaw);
+  if ("error" in selectorsResult) {
+    return c.html(
+      renderAddDomainPage({
+        email: session.email,
+        error: selectorsResult.error,
+        usage,
+        selectorsValue: selectorsRaw ?? "",
+      }),
+      400,
+    );
+  }
+
   // Prevent duplicates per-user cleanly rather than surfacing the raw
   // UNIQUE(user_id, domain) constraint violation from D1. Re-submits
   // bypass the cap check below — they don't consume a new slot.
@@ -825,7 +840,15 @@ dashboardRoutes.post("/domain/add", async (c) => {
   // word the error message below.
   const inserted = await createDomainUnderCap(
     db,
-    { userId: session.sub, domain: normalized, isFree: false },
+    {
+      userId: session.sub,
+      domain: normalized,
+      isFree: false,
+      dkimSelectors:
+        selectorsResult.selectors.length > 0
+          ? selectorsResult.selectors.join(",")
+          : null,
+    },
     cap,
   );
   if (!inserted) {

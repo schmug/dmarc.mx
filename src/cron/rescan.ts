@@ -11,6 +11,7 @@ import { recordScan } from "../db/scans.js";
 import { getUserById } from "../db/users.js";
 import { scan } from "../orchestrator.js";
 import type { ScoringConfig } from "../shared/scoring.js";
+import { parseSelectors } from "../shared/selectors.js";
 import { fireScanCompletedWebhook } from "../webhooks/triggers.js";
 
 export interface RescanResult {
@@ -201,8 +202,14 @@ async function rescanOne(
 }> {
   const scanFn =
     deps.scanFn ??
-    ((domain: string) =>
-      scan(domain, [], deps.scoringConfig ?? {}, undefined, deps.dnsblKey));
+    ((domainName: string) =>
+      scan(
+        domainName,
+        parseSelectors(domain.dkim_selectors ?? undefined),
+        deps.scoringConfig ?? {},
+        undefined,
+        deps.dnsblKey,
+      ));
   const prevStatuses = await getPreviousProtocolStatuses(deps.db, domain.id);
 
   let result: ScanResult;

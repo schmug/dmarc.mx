@@ -28,8 +28,23 @@ function makeD1Mock(): D1Database {
               // count against the store synchronously (no intermediate
               // await), mirroring D1's single-statement atomicity.
               if (/WHERE \(SELECT COUNT/i.test(sql)) {
-                const [userId, domain, isFree, scanFrequency, capUserId, cap] =
-                  params as [string, string, number, string, string, number];
+                const [
+                  userId,
+                  domain,
+                  isFree,
+                  scanFrequency,
+                  dkimSelectors,
+                  capUserId,
+                  cap,
+                ] = params as [
+                  string,
+                  string,
+                  number,
+                  string,
+                  string | null,
+                  string,
+                  number,
+                ];
                 const currentCount = [...store.values()].filter(
                   (row) => row.user_id === capUserId,
                 ).length;
@@ -46,6 +61,7 @@ function makeD1Mock(): D1Database {
                   last_scanned_at: null,
                   last_grade: null,
                   created_at: Math.floor(Date.now() / 1000),
+                  dkim_selectors: dkimSelectors,
                 });
                 return { success: true, meta: { changes: 1 } };
               }
@@ -65,6 +81,7 @@ function makeD1Mock(): D1Database {
                 last_scanned_at: null,
                 last_grade: null,
                 created_at: Math.floor(Date.now() / 1000),
+                dkim_selectors: null,
               });
             } else if (/^DELETE FROM domains/i.test(sql)) {
               const [userId, domain] = params as [string, string];
@@ -283,6 +300,32 @@ describe("db/domains", () => {
 
       expect(results.filter(Boolean)).toHaveLength(cap);
       expect(await getDomainsByUser(db, "user-1")).toHaveLength(cap);
+    });
+
+    it("persists a validated dkim_selectors value on the inserted row (#755)", async () => {
+      const inserted = await createDomainUnderCap(
+        db,
+        {
+          userId: "user-1",
+          domain: "selectors.com",
+          isFree: false,
+          dkimSelectors: "agentmail",
+        },
+        3,
+      );
+      expect(inserted).toBe(true);
+      const rows = await getDomainsByUser(db, "user-1");
+      expect(rows[0].dkim_selectors).toBe("agentmail");
+    });
+
+    it("stores null when no selectors are given, leaving existing rows untouched (#755)", async () => {
+      await createDomainUnderCap(
+        db,
+        { userId: "user-1", domain: "no-selectors.com", isFree: false },
+        3,
+      );
+      const rows = await getDomainsByUser(db, "user-1");
+      expect(rows[0].dkim_selectors).toBeNull();
     });
   });
 
@@ -613,6 +656,7 @@ describe("listDomainsForUserPaged", () => {
       last_scanned_at: 1700000000,
       last_grade: "A+",
       created_at: 1690000000,
+      dkim_selectors: null,
     },
     {
       id: 2,
@@ -623,6 +667,7 @@ describe("listDomainsForUserPaged", () => {
       last_scanned_at: 1700050000,
       last_grade: "F",
       created_at: 1690001000,
+      dkim_selectors: null,
     },
     {
       id: 3,
@@ -633,6 +678,7 @@ describe("listDomainsForUserPaged", () => {
       last_scanned_at: null,
       last_grade: null,
       created_at: 1690002000,
+      dkim_selectors: null,
     },
     {
       id: 4,
@@ -643,6 +689,7 @@ describe("listDomainsForUserPaged", () => {
       last_scanned_at: 1700100000,
       last_grade: "B",
       created_at: 1690003000,
+      dkim_selectors: null,
     },
     {
       id: 5,
@@ -653,6 +700,7 @@ describe("listDomainsForUserPaged", () => {
       last_scanned_at: 1700000000,
       last_grade: "A",
       created_at: 1690000500,
+      dkim_selectors: null,
     },
   ];
 
@@ -774,6 +822,7 @@ describe("listDomainsForUserPaged", () => {
         last_scanned_at: null,
         last_grade: null,
         created_at: 1690000000,
+        dkim_selectors: null,
       },
       {
         id: 11,
@@ -784,6 +833,7 @@ describe("listDomainsForUserPaged", () => {
         last_scanned_at: null,
         last_grade: null,
         created_at: 1690000000,
+        dkim_selectors: null,
       },
     ];
     const db = makePagedMock(evil);
