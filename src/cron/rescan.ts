@@ -312,13 +312,22 @@ async function rescanOne(
 // src/dns/client.ts: workerd's Resolver is a stateless pass-through to the
 // same module functions and holds no socket, so recycling it changes nothing.
 //
-// 150 is derived from production: run 1788934679 completed 192 domains before
-// the cliff, so 150 leaves ~22% headroom. The cron fires daily while domains
-// come due weekly, so a 344-domain portfolio is fully covered in ~3 runs;
-// deferred domains keep their old last_scanned_at and therefore sort FIRST in
-// the next run's `ORDER BY last_scanned_at ASC`, which rotates coverage
-// without any extra bookkeeping.
-const MAX_DOMAINS_PER_RUN = 150;
+// 400 is derived from the subrequest ceiling, not wall time. #723 step 1
+// (PR #722) added a top-level `[limits] subrequests = 100000` block to
+// wrangler.toml; a 2026-09-26 check of the deployed `dmarcheck` script
+// settings confirmed both that the raised limit is live and that the
+// account's usage_model is `standard` (the model the `limits` key requires
+// to take effect at all — see #723). At ~52 subrequests per domain scanned,
+// 400 domains costs ~20,800 subrequests — comfortably under the 100,000
+// ceiling, not anywhere near the ~1,900-domain theoretical max. Production
+// monitors ~362 domains, so 400 covers the full portfolio in one nightly
+// invocation instead of rotating across ~3. Deferred domains still keep
+// their old last_scanned_at and sort FIRST in the next run's
+// `ORDER BY last_scanned_at ASC` — the rotation mechanism that made the old
+// 150 cap tolerable stays in place as a backstop if the portfolio outgrows
+// this cap again. DEGRADED_STREAK_LIMIT below is unchanged and remains the
+// circuit breaker if the allowance is ever spent anyway.
+const MAX_DOMAINS_PER_RUN = 400;
 
 // Backstop for when the ceiling above is still too high (a heavier-than-usual
 // portfolio, or a platform limit lower than the measured one). Once this many
