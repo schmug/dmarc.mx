@@ -536,6 +536,77 @@ iQE... (snip)
     expect(result.fields?.contact).toEqual(["mailto:security@example.com"]);
   });
 
+  it("does not warn on a valid Preferred-Languages list (en, fr)", async () => {
+    const future = new Date(
+      Date.now() + 30 * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    mockFetchByUrl({
+      "https://example.com/.well-known/security.txt": {
+        body: `Contact: mailto:s@example.com\nExpires: ${future}\nPreferred-Languages: en, fr\n`,
+      },
+    });
+    const result = await analyzeSecurityTxt("example.com");
+    expect(
+      result.validations.some(
+        (v) => v.status === "warn" && v.message.includes("Preferred-Languages"),
+      ),
+    ).toBe(false);
+  });
+
+  it("does not warn on a valid Preferred-Languages tag with a region subtag (en-US)", async () => {
+    const future = new Date(
+      Date.now() + 30 * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    mockFetchByUrl({
+      "https://example.com/.well-known/security.txt": {
+        body: `Contact: mailto:s@example.com\nExpires: ${future}\nPreferred-Languages: en-US\n`,
+      },
+    });
+    const result = await analyzeSecurityTxt("example.com");
+    expect(
+      result.validations.some(
+        (v) => v.status === "warn" && v.message.includes("Preferred-Languages"),
+      ),
+    ).toBe(false);
+  });
+
+  it("warns on a malformed Preferred-Languages tag", async () => {
+    const future = new Date(
+      Date.now() + 30 * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    mockFetchByUrl({
+      "https://example.com/.well-known/security.txt": {
+        body: `Contact: mailto:s@example.com\nExpires: ${future}\nPreferred-Languages: not_a_tag!\n`,
+      },
+    });
+    const result = await analyzeSecurityTxt("example.com");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" &&
+          v.message.includes('"not_a_tag!"') &&
+          v.message.includes("BCP 47"),
+      ),
+    ).toBe(true);
+  });
+
+  it("warns only on the invalid tag(s) in a mixed Preferred-Languages list", async () => {
+    const future = new Date(
+      Date.now() + 30 * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    mockFetchByUrl({
+      "https://example.com/.well-known/security.txt": {
+        body: `Contact: mailto:s@example.com\nExpires: ${future}\nPreferred-Languages: en, not_a_tag!, fr\n`,
+      },
+    });
+    const result = await analyzeSecurityTxt("example.com");
+    const languageWarnings = result.validations.filter(
+      (v) => v.status === "warn" && v.message.includes("Preferred-Languages"),
+    );
+    expect(languageWarnings).toHaveLength(1);
+    expect(languageWarnings[0].message).toContain('"not_a_tag!"');
+  });
+
   it("returns info+null when the response carries no body", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(null, { status: 200 }) as unknown as Response,
