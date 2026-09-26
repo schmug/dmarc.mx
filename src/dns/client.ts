@@ -272,7 +272,11 @@ async function queryDohLive(
 // string (e.g. "NXDOMAIN") even though the library always sets it at
 // runtime (see rcodes.js's toString mapping) — this extends the declared
 // Packet type to match actual decode() output instead of casting to `any`.
-interface DecodedDnsPacket extends dnsPacket.Packet {
+// dns-packet returns the response code at runtime, but @types/dns-packet does
+// not declare it on DecodedPacket, so add it. Extending DecodedPacket (not
+// Packet) keeps the cast below a narrowing one: @types 5.6.5 gave DecodedPacket
+// its own flag_* fields, which made an `extends Packet` version non-overlapping.
+interface DecodedDnsPacket extends dnsPacket.DecodedPacket {
   rcode: string;
 }
 
