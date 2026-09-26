@@ -33,11 +33,13 @@ import {
   revokeApiKey,
 } from "../db/api-keys.js";
 import {
+  addDkimSelectorForUserDomain,
   countDomainsByUser,
   createDomainUnderCap,
   type DomainSortColumn,
   type DomainSortDirection,
   deleteDomain,
+  getDomainByIdForUser,
   getDomainByUserAndName,
   getDomainsByUser,
   getGradeDistributionForUser,
@@ -62,6 +64,8 @@ import {
 } from "../db/users.js";
 import { getRecentDeliveriesForUser } from "../db/webhook-deliveries.js";
 import type { Env } from "../env.js";
+import { getRecord } from "../inbox/store.js";
+import { isValidToken } from "../inbox/tokens.js";
 import { scan } from "../orchestrator.js";
 import { normalizeDomain } from "../shared/domain.js";
 import { PRO_WATCHLIST_CAP, watchlistCapFor } from "../shared/limits.js";
@@ -1016,6 +1020,14 @@ dashboardRoutes.get("/domain/:domain", async (c) => {
     )
     .bind(domain.id)
     .all<{ grade: string; scanned_at: number }>();
+  // Latest scan's DKIM summary, reusing the same parse the dashboard drawer
+  // uses (buildDrawerDetail), so "no selectors found" can link to the
+  // inbound-detection flow (issue #867) without re-deriving it here.
+  const latestRaw = await getScanHistory(db, domain.id, 1);
+  const dkimSummary = buildDrawerDetail(
+    latestRaw,
+    parseScoringConfig((c.env as { SCORING_CONFIG?: string }).SCORING_CONFIG),
+  ).protocols.dkim.summary;
   return c.html(
     renderDomainDetailPage({
       email: session.email,
@@ -1030,6 +1042,8 @@ dashboardRoutes.get("/domain/:domain", async (c) => {
         date: new Date(r.scanned_at * 1000).toLocaleDateString(),
         grade: r.grade,
       })),
+      dkimNoSelectorsFound: dkimSummary === "no selectors found",
+      selectorSaved: c.req.query("selector") === "saved",
     }),
   );
 });
@@ -1113,6 +1127,73 @@ dashboardRoutes.post("/domain/:domain/delete", async (c) => {
   const domainName = c.req.param("domain");
   await deleteDomain(db, session.sub, domainName);
   return c.redirect("/dashboard", 303);
+});
+
+// Relaxed-ish domain alignment: exact match or a parent/child relationship.
+// Mirrors the private helper of the same name in src/inbox/store.ts (kept
+// local here rather than exported/shared, since #867's scope doesn't touch
+// store.ts).
+function domainsAlign(a: string, b: string): boolean {
+  const x = a.toLowerCase();
+  const y = b.toLowerCase();
+  return x === y || x.endsWith(`.${y}`) || y.endsWith(`.${x}`);
+}
+
+// Saves the DKIM selector a test email (/check/email) detected onto a
+// session-owned domain's dkim_selectors (issue #867). The selector value is
+// re-read from the KV verdict by token — never trusted from the request body
+// — and only saved when the verdict passed DKIM and its signing domain
+// aligns with the domain being saved to. Every rejection reason (including
+// "not your domain") comes back as a 400, matching the spec in #867.
+dashboardRoutes.post("/domain/:id/selector-from-inbox", async (c) => {
+  const session = c.get("user" as never) as SessionPayload;
+  const db = (c.env as { DB: D1Database }).DB;
+  const kv = (c.env as { INBOX_TOKENS?: KVNamespace }).INBOX_TOKENS;
+  const domainId = Number(c.req.param("id"));
+  if (!Number.isInteger(domainId)) {
+    return c.text("not your domain", 400);
+  }
+  const domain = await getDomainByIdForUser(db, session.sub, domainId);
+  if (!domain) {
+    return c.text("not your domain", 400);
+  }
+
+  const body = await c.req.parseBody();
+  const token = typeof body.token === "string" ? body.token : "";
+  if (!token || !isValidToken(token) || !kv) {
+    return c.text("no signature", 400);
+  }
+
+  const record = await getRecord(kv, token);
+  if (record?.status !== "received" || !record?.dkim_selector) {
+    return c.text("no signature", 400);
+  }
+  if (record.dkim !== "pass") {
+    return c.text("DKIM fail", 400);
+  }
+  if (!record.dkim_domain || !domainsAlign(record.dkim_domain, domain.domain)) {
+    return c.text("d= mismatch", 400);
+  }
+
+  const result = await addDkimSelectorForUserDomain(
+    db,
+    session.sub,
+    domain.id,
+    record.dkim_selector,
+  );
+  if (result !== "added") {
+    return c.text(
+      result === "cap_reached"
+        ? "selector limit reached"
+        : "selector already saved",
+      400,
+    );
+  }
+
+  return c.redirect(
+    `/dashboard/domain/${encodeURIComponent(domain.domain)}?selector=saved`,
+    303,
+  );
 });
 
 // ---------------------------------------------------------------------------

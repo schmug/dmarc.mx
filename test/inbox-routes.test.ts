@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { createSessionToken } from "../src/auth/session.js";
+import type { Domain } from "../src/db/domains.js";
 import {
   putPending,
   putVerdict,
@@ -202,5 +204,146 @@ describe("GET /api/check/email/stream", () => {
     const frames = await drainSSE(res);
     expect(frames[0].event).toBe("closed");
     expect(JSON.parse(frames[0].data).status).toBe("unavailable");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/check/email/stream — "Save selector to domain" button (#867)
+// ---------------------------------------------------------------------------
+describe("GET /api/check/email/stream — save-selector button (#867)", () => {
+  const SECRET = "test-session-secret";
+
+  function baseDomain(overrides: Partial<Domain> = {}): Domain {
+    return {
+      id: 1,
+      user_id: "user-1",
+      domain: "example.com",
+      is_free: 0,
+      scan_frequency: "weekly",
+      last_scanned_at: null,
+      last_grade: null,
+      created_at: 1700000000,
+      dkim_selectors: null,
+      ...overrides,
+    };
+  }
+
+  // Mirrors only the one query getDomainsByUser issues.
+  function makeDomainsDb(domains: Domain[]) {
+    return {
+      prepare: (sql: string) => ({
+        bind: (...params: unknown[]) => ({
+          all: async <T>() => {
+            if (
+              /SELECT \* FROM domains WHERE user_id = \? ORDER BY created_at/i.test(
+                sql,
+              )
+            ) {
+              const [userId] = params as [string];
+              return {
+                results: domains.filter(
+                  (d) => d.user_id === userId,
+                ) as unknown as T[],
+              };
+            }
+            return { results: [] as T[] };
+          },
+        }),
+      }),
+    } as unknown as D1Database;
+  }
+
+  async function sessionCookie(sub: string): Promise<string> {
+    const token = await createSessionToken(
+      { sub, email: `${sub}@example.com` },
+      SECRET,
+    );
+    return `session=${token}`;
+  }
+
+  function envWithAll(kv: FakeKV, db: D1Database) {
+    return {
+      INBOX_TOKENS: kv.asKv(),
+      SESSION_SECRET: SECRET,
+      DB: db,
+    } as unknown as Record<string, unknown>;
+  }
+
+  const passingVerdict: VerdictRecord = {
+    status: "received",
+    spf: "pass",
+    dkim: "pass",
+    dmarc: "pass",
+    alignment: "pass",
+    from: "sender@example.com",
+    dkim_selector: "selector1",
+    dkim_domain: "example.com",
+    auth_results: "mx; dkim=pass",
+    size_bytes: 10,
+    received_at: "2026-06-28T00:00:00.000Z",
+  };
+
+  it("shows a save button for a signed-in user who watches the aligned, passing domain", async () => {
+    const kv = new FakeKV();
+    await putVerdict(kv.asKv(), TOKEN, passingVerdict);
+    const db = makeDomainsDb([baseDomain()]);
+    const cookie = await sessionCookie("user-1");
+
+    const res = await app.request(
+      `/api/check/email/stream?token=${TOKEN}`,
+      { headers: { Cookie: cookie } },
+      envWithAll(kv, db),
+    );
+    const frames = await drainSSE(res);
+    const payload = JSON.parse(frames[0].data);
+    expect(payload.html).toContain("/dashboard/domain/1/selector-from-inbox");
+    expect(payload.html).toContain(`value="${TOKEN}"`);
+  });
+
+  it("shows no save button for an anonymous viewer (no session cookie)", async () => {
+    const kv = new FakeKV();
+    await putVerdict(kv.asKv(), TOKEN, passingVerdict);
+    const db = makeDomainsDb([baseDomain()]);
+
+    const res = await app.request(
+      `/api/check/email/stream?token=${TOKEN}`,
+      {},
+      envWithAll(kv, db),
+    );
+    const frames = await drainSSE(res);
+    const payload = JSON.parse(frames[0].data);
+    expect(payload.html).not.toContain("selector-from-inbox");
+  });
+
+  it("shows no save button when the signed-in user does not watch a matching domain", async () => {
+    const kv = new FakeKV();
+    await putVerdict(kv.asKv(), TOKEN, passingVerdict);
+    const db = makeDomainsDb([baseDomain({ domain: "unrelated.com" })]);
+    const cookie = await sessionCookie("user-1");
+
+    const res = await app.request(
+      `/api/check/email/stream?token=${TOKEN}`,
+      { headers: { Cookie: cookie } },
+      envWithAll(kv, db),
+    );
+    const frames = await drainSSE(res);
+    const payload = JSON.parse(frames[0].data);
+    expect(payload.html).not.toContain("selector-from-inbox");
+  });
+
+  it("shows no save button when DKIM did not pass", async () => {
+    const kv = new FakeKV();
+    await putVerdict(kv.asKv(), TOKEN, { ...passingVerdict, dkim: "fail" });
+    const db = makeDomainsDb([baseDomain()]);
+    const cookie = await sessionCookie("user-1");
+
+    const res = await app.request(
+      `/api/check/email/stream?token=${TOKEN}`,
+      { headers: { Cookie: cookie } },
+      envWithAll(kv, db),
+    );
+    const frames = await drainSSE(res);
+    const payload = JSON.parse(frames[0].data);
+    expect(payload.html).not.toContain("selector-from-inbox");
   });
 });

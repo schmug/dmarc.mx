@@ -2365,6 +2365,8 @@ export function renderDomainDetailPage({
   isFree,
   scanFrequency,
   scanHistory,
+  dkimNoSelectorsFound,
+  selectorSaved,
 }: {
   email: string;
   domain: string;
@@ -2373,6 +2375,12 @@ export function renderDomainDetailPage({
   isFree: boolean;
   scanFrequency: string;
   scanHistory: ScanHistoryEntry[];
+  // When true, the latest scan found no DKIM selectors — link to the
+  // inbound-email detection flow instead (issue #867).
+  dkimNoSelectorsFound?: boolean;
+  // Flash shown after POST /domain/:id/selector-from-inbox redirects back
+  // here with ?selector=saved (issue #867).
+  selectorSaved?: boolean;
 }): string {
   const historyItems = scanHistory
     .slice(0, 12)
@@ -2389,15 +2397,24 @@ export function renderDomainDetailPage({
       ? `<ul class="history-list">${historyItems}</ul>`
       : `<p style="color:var(--clr-text-muted);font-size:0.875rem;padding:0.75rem 0">No scan history yet. Use 'Scan Now' above to generate your first grade.</p>`;
 
+  const selectorSavedFlash = selectorSaved
+    ? `<p style="margin:0 0 1rem;color:var(--clr-success, #16a34a);font-size:0.875rem">DKIM selector saved to this domain.</p>`
+    : "";
+  const dkimHint = dkimNoSelectorsFound
+    ? `<p style="color:var(--clr-text-muted);font-size:0.875rem;margin:0 0 1rem">No DKIM selectors found. <a href="/check/email" style="color:var(--clr-accent)">Send any email from this domain to detect your selector</a>.</p>`
+    : "";
+
   const body = `<div class="domain-detail-header">
   <span class="grade-badge ${gradeClass(grade)}">${esc(grade)}</span>
   <span class="domain-detail-name">${esc(domain)}</span>
   ${isFree ? '<span class="badge-free">Free</span>' : ""}
 </div>
+${selectorSavedFlash}
 <div class="domain-detail-meta">
   <span><strong>Scan Frequency:</strong> ${esc(scanFrequency)}</span>
   <span><strong>Last Scanned:</strong> ${lastScanned ? esc(lastScanned) : "Never"}</span>
 </div>
+${dkimHint}
 <div class="action-row" style="margin-bottom:1.5rem">
   <form method="POST" action="/dashboard/domain/${encodeURIComponent(domain)}/scan" style="display:inline">
     <button type="submit" class="btn" data-loading-text="Scanning...">Scan Now</button>

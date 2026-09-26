@@ -1,4 +1,5 @@
 import { type PortfolioStats, tallyGradeCounts } from "../shared/portfolio.js";
+import { MAX_SELECTORS } from "../shared/selectors.js";
 import { d1Read } from "./retry.js";
 
 export interface Domain {
@@ -305,6 +306,64 @@ export async function getDomainByUserAndName(
       .bind(userId, domain)
       .first<Domain>(),
   );
+}
+
+export async function getDomainByIdForUser(
+  db: D1Database,
+  userId: string,
+  id: number,
+): Promise<Domain | null> {
+  return d1Read(() =>
+    db
+      .prepare("SELECT * FROM domains WHERE id = ? AND user_id = ?")
+      .bind(id, userId)
+      .first<Domain>(),
+  );
+}
+
+export type AddDkimSelectorResult =
+  | "added"
+  | "duplicate"
+  | "cap_reached"
+  | "not_found";
+
+// Appends a DKIM selector detected from an inbound test email (issue #867) to
+// a user-owned domain's dkim_selectors. Scoped by both id and user_id so one
+// user can't write another's row even if they guess a domain id. De-dupes
+// against the existing comma-separated list and refuses past MAX_SELECTORS —
+// the same DoS-relevant cap validateCustomSelectors enforces on the add-domain
+// form (src/shared/selectors.ts).
+export async function addDkimSelectorForUserDomain(
+  db: D1Database,
+  userId: string,
+  domainId: number,
+  selector: string,
+): Promise<AddDkimSelectorResult> {
+  const row = await d1Read(() =>
+    db
+      .prepare(
+        "SELECT dkim_selectors FROM domains WHERE id = ? AND user_id = ?",
+      )
+      .bind(domainId, userId)
+      .first<{ dkim_selectors: string | null }>(),
+  );
+  if (!row) return "not_found";
+  const existing = row.dkim_selectors
+    ? row.dkim_selectors
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : [];
+  if (existing.includes(selector)) return "duplicate";
+  if (existing.length >= MAX_SELECTORS) return "cap_reached";
+  const next = [...existing, selector].join(",");
+  await db
+    .prepare(
+      "UPDATE domains SET dkim_selectors = ? WHERE id = ? AND user_id = ?",
+    )
+    .bind(next, domainId, userId)
+    .run();
+  return "added";
 }
 
 export async function deleteDomain(
