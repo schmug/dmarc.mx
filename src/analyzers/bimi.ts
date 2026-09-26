@@ -18,6 +18,20 @@ const LOGO_MAX_BYTES = 1 * 1024 * 1024; // 1 MB
 const CERT_TIMEOUT_MS = 30_000;
 const CERT_MAX_BYTES = 100 * 1024; // 100 KB
 
+// A Worker cannot fetch its own zone — the subrequest re-enters the edge and
+// Cloudflare answers 522 even though the asset is served correctly to
+// outside clients (#749). Skip the logo fetch entirely when the l= host is
+// this service's own zone rather than reporting a false "unreachable" warn.
+const SELF_HOSTS = new Set(["dmarc.mx", "www.dmarc.mx"]);
+
+function isSelfHostedLogo(url: string): boolean {
+  try {
+    return SELF_HOSTS.has(new URL(url).hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
 export function prefetchBimiDns(
   domain: string,
   budget?: ScanBudget,
@@ -247,12 +261,19 @@ export async function analyzeBimi(
         status: "pass",
         message: "Logo URL (l=) is present and uses HTTPS",
       });
-      // Fetch and validate the logo artifact.
-      const logoResult = await fetchLogo(tags.l);
-      validations.push({
-        status: logoResult.ok ? "pass" : "warn",
-        message: logoResult.message,
-      });
+      if (isSelfHostedLogo(tags.l)) {
+        validations.push({
+          status: "pass",
+          message: "Logo hosted by this service; fetch check skipped",
+        });
+      } else {
+        // Fetch and validate the logo artifact.
+        const logoResult = await fetchLogo(tags.l);
+        validations.push({
+          status: logoResult.ok ? "pass" : "warn",
+          message: logoResult.message,
+        });
+      }
     } else {
       validations.push({
         status: "warn",

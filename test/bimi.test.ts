@@ -603,6 +603,70 @@ describe("analyzeBimi", () => {
     ).toBe(true);
   });
 
+  it("skips the logo fetch when the logo host is this service's own zone (dmarc.mx)", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=BIMI1; l=https://dmarc.mx/logo.svg"],
+      raw: "v=BIMI1; l=https://dmarc.mx/logo.svg",
+    });
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    const result = await analyzeBimi("dmarc.mx", "reject");
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "pass" &&
+          v.message.includes("Logo hosted by this service"),
+      ),
+    ).toBe(true);
+    expect(
+      result.validations.some((v) => v.message.includes("Logo fetch failed")),
+    ).toBe(false);
+  });
+
+  it("skips the logo fetch for the self-host www subdomain (www.dmarc.mx)", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=BIMI1; l=https://www.dmarc.mx/logo.svg"],
+      raw: "v=BIMI1; l=https://www.dmarc.mx/logo.svg",
+    });
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    const result = await analyzeBimi("dmarc.mx", "reject");
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "pass" &&
+          v.message.includes("Logo hosted by this service"),
+      ),
+    ).toBe(true);
+  });
+
+  it("still warns when a foreign host logo returns HTTP 522", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=BIMI1; l=https://example.com/logo.svg"],
+      raw: "v=BIMI1; l=https://example.com/logo.svg",
+    });
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(errorResponse(522));
+
+    const result = await analyzeBimi("example.com", "reject");
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(result.status).toBe("warn");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" &&
+          v.message.includes("Logo fetch failed") &&
+          v.message.includes("522"),
+      ),
+    ).toBe(true);
+  });
+
   it("uses redirect:follow for BIMI fetches (not manual)", async () => {
     mockQueryTxt.mockResolvedValue({
       entries: [
