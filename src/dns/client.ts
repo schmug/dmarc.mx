@@ -2,6 +2,7 @@ import dns from "node:dns";
 import * as Sentry from "@sentry/cloudflare";
 import * as dnsPacket from "dns-packet";
 import { DnsLookupError } from "./errors.js";
+import * as fixture from "./replay.js";
 // Type-only: enforcement is a runtime `budget?.consume()` call, so no value
 // import of scan-budget.ts is emitted here.
 import type { ScanBudget } from "./scan-budget.js";
@@ -48,6 +49,50 @@ if (customDnsServers) {
     resolver.setServers(customDnsServers);
   } catch (err) {
     console.warn("Failed to apply DNS_SERVERS override:", err);
+  }
+}
+
+// Fixture replay (#655). Returns { hit: true, value } when a fixture is
+// installed, so each query function can return before touching the network.
+// A recorded error is rethrown as the DnsLookupError the real path would throw.
+function fromFixture<T>(
+  key: string,
+): { hit: false } | { hit: true; value: T | null } {
+  const answer = fixture.replay<T>(key);
+  if (!answer) return { hit: false };
+  if ("error" in answer) {
+    throw new DnsLookupError(answer.error.code, answer.error.message);
+  }
+  return { hit: true, value: answer.value };
+}
+
+// One seam for both directions (#655): answer from an installed fixture, or run
+// the live query and hand the outcome to an installed recorder. Both hooks are
+// inert in production, where neither is ever installed.
+async function throughFixture<T>(
+  key: string,
+  live: () => Promise<T | null>,
+): Promise<T | null> {
+  const replayed = fromFixture<T>(key);
+  if (replayed.hit) return replayed.value;
+  try {
+    const value = await live();
+    fixture.capture(key, { value });
+    return value;
+  } catch (err) {
+    const code =
+      err instanceof DnsLookupError
+        ? err.code
+        : typeof err === "object" && err !== null && "code" in err
+          ? String((err as { code: unknown }).code)
+          : "UNKNOWN";
+    fixture.capture(key, {
+      error: {
+        code,
+        message: err instanceof Error ? err.message : String(err),
+      },
+    });
+    throw err;
   }
 }
 
@@ -101,6 +146,10 @@ export async function queryTxt(
   // Throws (ScanBudgetError / ScanDeadlineError, both DnsLookupError) when the
   // pool is empty or the deadline has fired, so the query is never issued.
   budget?.consume();
+  return throughFixture(fixture.txtKey(name), () => queryTxtLive(name));
+}
+
+async function queryTxtLive(name: string): Promise<TxtRecord | null> {
   Sentry.addBreadcrumb({
     category: "dns.query",
     message: `TXT ${name}`,
@@ -165,6 +214,15 @@ export async function queryDoh(
   budget?: ScanBudget,
 ): Promise<DohResponse | null> {
   budget?.consume();
+  return throughFixture(fixture.dohKey(name, type), () =>
+    queryDohLive(name, type),
+  );
+}
+
+async function queryDohLive(
+  name: string,
+  type: string,
+): Promise<DohResponse | null> {
   Sentry.addBreadcrumb({
     category: "dns.query",
     message: `DoH ${type} ${name}`,
@@ -214,7 +272,11 @@ export async function queryDoh(
 // string (e.g. "NXDOMAIN") even though the library always sets it at
 // runtime (see rcodes.js's toString mapping) — this extends the declared
 // Packet type to match actual decode() output instead of casting to `any`.
-interface DecodedDnsPacket extends dnsPacket.Packet {
+// dns-packet returns the response code at runtime, but @types/dns-packet does
+// not declare it on DecodedPacket, so add it. Extending DecodedPacket (not
+// Packet) keeps the cast below a narrowing one: @types 5.6.5 gave DecodedPacket
+// its own flag_* fields, which made an `extends Packet` version non-overlapping.
+interface DecodedDnsPacket extends dnsPacket.DecodedPacket {
   rcode: string;
 }
 
@@ -248,6 +310,16 @@ export async function queryDnsbl(
   budget?: ScanBudget,
 ): Promise<string[] | null> {
   budget?.consume();
+  return throughFixture(fixture.dnsblKey(reversedIp, zone), () =>
+    queryDnsblLive(reversedIp, key, zone),
+  );
+}
+
+async function queryDnsblLive(
+  reversedIp: string,
+  key: string,
+  zone: string,
+): Promise<string[] | null> {
   const redacted = `${reversedIp}.<key>.${zone}`;
   Sentry.addBreadcrumb({
     category: "dns.query",
@@ -307,6 +379,10 @@ export async function queryMx(
   budget?: ScanBudget,
 ): Promise<MxRecord[] | null> {
   budget?.consume();
+  return throughFixture(fixture.mxKey(name), () => queryMxLive(name));
+}
+
+async function queryMxLive(name: string): Promise<MxRecord[] | null> {
   Sentry.addBreadcrumb({
     category: "dns.query",
     message: `MX ${name}`,

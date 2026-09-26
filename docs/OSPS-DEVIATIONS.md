@@ -28,13 +28,15 @@ security-sensitive minority of changes.
 
 ### Compensating controls
 
-1. **Path-scoped human review (CODEOWNERS).** Any PR whose diff touches a
-   security-sensitive path — CI/workflows, `package.json`/lockfile,
-   `wrangler.toml`, `SECURITY.md`, `CLAUDE.md`, input validation
-   (`src/index.ts`), rate limiting, DB migrations, analyzer modules,
-   orchestration, or scoring — requires an approving review from a code owner
-   via [`.github/CODEOWNERS`](../.github/CODEOWNERS) and
-   `require_code_owner_review`. The riskiest changes always get a human.
+1. **Path-scoped human review (CODEOWNERS).** Ruleset `main-protection`
+   (id `14716629`) has `require_code_owner_review: true` and no bypass actors.
+   GitHub enforces code-owner review per path for identities that are not code
+   owners; `andonos[bot]` merges on owned paths were refused with 405. The gate
+   is inert only for @schmug's own merges. The owned paths are exactly the
+   entries in [`.github/CODEOWNERS`](../.github/CODEOWNERS), narrowed on
+   2026-09-22. Paths not listed there merge with zero reviews by design: the
+   ruleset's `required_approving_review_count: 0` is the intended autonomy
+   carve-out, not a deviation.
 
 2. **Deterministic fail-closed trust gate.** Before any routine auto-merge, a
    six-condition gate (`scripts/routine-gate/`) must pass: issue author in
@@ -52,19 +54,12 @@ security-sensitive minority of changes.
    the full gate verdict JSON, giving an immutable record of why each PR was
    allowed to merge.
 
-### Residual risk and the path to closing it
+### Residual risk
 
-The CODEOWNERS gate is only *enforcing* once the autonomous routine runs as a
-distinct **non-admin** identity. Today the routines run with the maintainer's
-admin credentials, and the repo Admin role bypasses the ruleset — so for
-automation the CODEOWNERS gate is **advisory for that routine specifically**. It is
-enforced for every other identity: merges attempted by an agent identity with write
-access are refused on owned paths and succeed on unowned ones (observed
-2026-09-22 across nine PRs). Closing this is
-tracked as the bot-identity split,
-[#299](https://github.com/schmug/dmarcheck/issues/299). The deterministic gate
-(control 2) and required CI (control 3) apply regardless of identity and are the
-active controls until #299 lands.
+The path-scoped review gate protects the listed paths for identities that are
+not code owners. Its exception is @schmug's own merges. The ruleset's zero
+approving-review count intentionally leaves paths outside CODEOWNERS available
+for autonomous merges without review; this is the autonomy carve-out.
 
 ## Related OSPS controls (passing)
 

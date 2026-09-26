@@ -17,26 +17,29 @@ const ONLY = Array.isArray(opts.prNumbers) ? opts.prNumbers : null
 const REPO = opts.repo || 'schmug/dmarcheck'
 
 // --- Deterministic CODEOWNERS backstop ---------------------------------------
-// Paths gated by .github/CODEOWNERS (all require an @schmug code-owner review).
-// A PR whose diff touches ANY of these requires human approval and must NEVER be
-// auto-merged, regardless of a CLEAN mergeStateStatus. CLEAN is unreliable here:
-// the autonomous bot currently runs as admin and bypasses the ruleset until the
-// #299 bot-identity split lands (see CLAUDE.md). Hardcoded (not read from the PR
-// head) on purpose so a PR that edits CODEOWNERS itself can't widen its own gate.
+// Paths gated by .github/CODEOWNERS. Hardcoded (not read from the PR head) so
+// a PR that edits CODEOWNERS itself can't widen its own gate.
 const GATED_PATHS = [
-  '.github/',
+  '.github/CODEOWNERS',
+  '.github/workflows/migrate.yml',
+  '.github/workflows/deploy-mta-sts.yml',
+  '.github/workflows/deploy-staging.yml',
+  '.github/workflows/release.yml',
+  '.github/workflows/rollback.yml',
+  '.github/workflows/pr-provenance.yml',
+  '.github/workflows/factory.yml',
+  'wrangler.toml',
+  'src/auth/',
+  'src/account/',
+  'src/billing/',
+  'src/webhooks/',
+  'src/db/migrations/',
+  'src/db/schema.sql',
   'package.json',
   'package-lock.json',
-  'wrangler.toml',
+  'scripts/routine-gate/',
+  'mta-sts-worker/',
   'SECURITY.md',
-  'CLAUDE.md',
-  '.claude/settings.json',
-  'src/index.ts',
-  'src/rate-limit.ts',
-  'src/db/',
-  'src/analyzers/',
-  'src/orchestrator.ts',
-  'src/shared/scoring.ts',
 ]
 function gatedHits(files) {
   const list = Array.isArray(files) ? files : []
@@ -158,7 +161,7 @@ Siblings — before recommending merge or close, search for sibling branches tar
 
 Comments — never propose posting a duplicate "we're blocked" comment. If prior Claude-signed comments already converged on a blocker with no owner reply, that is action=escalate (awaiting human), not action=comment.
 
-CODEOWNERS — be aware these source/CI paths require a human code-owner review: .github/**, package.json, package-lock.json, wrangler.toml, SECURITY.md, CLAUDE.md, .claude/settings.json, src/index.ts, src/rate-limit.ts, src/db/**, src/analyzers/**, src/orchestrator.ts, src/shared/scoring.ts. If the diff touches any, the correct action is escalate and autoMergeEligible MUST be false even if mergeStateStatus is CLEAN (the bot currently bypasses the gate as admin; that bypass is not authorization). The orchestrator enforces this independently from changedFiles, so report changedFiles accurately.
+CODEOWNERS — code-owner review applies to exactly these paths: .github/CODEOWNERS; .github/workflows/{migrate.yml,deploy-mta-sts.yml,deploy-staging.yml,release.yml,rollback.yml,pr-provenance.yml,factory.yml}; wrangler.toml; src/{auth/,account/,billing/,webhooks/}; src/db/migrations/; src/db/schema.sql; package.json; package-lock.json; scripts/routine-gate/; mta-sts-worker/; SECURITY.md. If the diff touches any, the correct action is escalate and autoMergeEligible MUST be false even if mergeStateStatus is CLEAN. The orchestrator enforces this independently from changedFiles, so report changedFiles accurately.
 
 Decide action: merge | close | comment | escalate | hold.
 Set autoMergeEligible=true ONLY if ALL hold: every required check green; mergeStateOk; mergeable==MERGEABLE; no unresolved actionable comments; no superseding sibling; the diff touches NO CODEOWNERS-gated path; and you are highly confident the change is sane and useful to merge as-is. Otherwise false.
