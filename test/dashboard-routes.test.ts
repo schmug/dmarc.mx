@@ -1000,6 +1000,105 @@ describe("dashboard/routes", () => {
       const body = await res.text();
       expect(body).toContain("Grade History");
     });
+
+    it("links to /check/email when the latest scan found no DKIM selectors (#867)", async () => {
+      const protocolBlob = JSON.stringify({
+        dkim: { status: "warn", selectors: {}, validations: [] },
+      });
+      const db = createMockDB({
+        domains: [
+          {
+            id: 1,
+            user_id: "user_1",
+            domain: "example.com",
+            is_free: 0,
+            scan_frequency: "weekly",
+            last_scanned_at: 1700000000,
+            last_grade: "B",
+            created_at: 1700000000,
+          },
+        ],
+        scanHistory: [
+          {
+            grade: "B",
+            scanned_at: 1700000000,
+            protocol_results: protocolBlob,
+          },
+        ],
+      });
+      const app = createTestApp(db);
+      const cookie = await makeSessionCookie("user_1", "alice@example.com");
+      const res = await app.request("/dashboard/domain/example.com", {
+        headers: { Cookie: cookie },
+      });
+      const body = await res.text();
+      expect(body).toContain("/check/email");
+      expect(body).toContain("detect your selector");
+    });
+
+    it("does not show the DKIM hint when selectors were found", async () => {
+      const protocolBlob = JSON.stringify({
+        dkim: {
+          status: "pass",
+          selectors: { google: { found: true } },
+          validations: [],
+        },
+      });
+      const db = createMockDB({
+        domains: [
+          {
+            id: 1,
+            user_id: "user_1",
+            domain: "example.com",
+            is_free: 0,
+            scan_frequency: "weekly",
+            last_scanned_at: 1700000000,
+            last_grade: "B",
+            created_at: 1700000000,
+          },
+        ],
+        scanHistory: [
+          {
+            grade: "B",
+            scanned_at: 1700000000,
+            protocol_results: protocolBlob,
+          },
+        ],
+      });
+      const app = createTestApp(db);
+      const cookie = await makeSessionCookie("user_1", "alice@example.com");
+      const res = await app.request("/dashboard/domain/example.com", {
+        headers: { Cookie: cookie },
+      });
+      const body = await res.text();
+      expect(body).not.toContain("detect your selector");
+    });
+
+    it("shows a saved-selector flash after ?selector=saved (#867)", async () => {
+      const db = createMockDB({
+        domains: [
+          {
+            id: 1,
+            user_id: "user_1",
+            domain: "example.com",
+            is_free: 0,
+            scan_frequency: "weekly",
+            last_scanned_at: 1700000000,
+            last_grade: "B",
+            created_at: 1700000000,
+          },
+        ],
+        scanHistory: [{ grade: "B", scanned_at: 1700000000 }],
+      });
+      const app = createTestApp(db);
+      const cookie = await makeSessionCookie("user_1", "alice@example.com");
+      const res = await app.request(
+        "/dashboard/domain/example.com?selector=saved",
+        { headers: { Cookie: cookie } },
+      );
+      const body = await res.text();
+      expect(body).toContain("saved to this domain");
+    });
   });
 
   describe("GET /dashboard/domain/:domain.json (drawer endpoint)", () => {

@@ -23,17 +23,38 @@ function verdictRow(label: string, value: string | null): string {
   return `<div class="inbox-verdict-row"><span class="inbox-verdict-label">${esc(label)}</span><span class="inbox-verdict-value ${verdictClass(value)}">${esc(value ?? "unknown")}</span></div>`;
 }
 
+/** Where to save a detected selector — resolved by the caller (issue #867)
+ * from the signed-in user's watched domains, never from client input. */
+export interface InboxSaveSelectorTarget {
+  token: string;
+  domainId: number;
+  domain: string;
+}
+
 /**
  * The verdict card rendered when a test message arrives. Pushed (pre-escaped)
  * inside the SSE `result` event's `html` field; the client inserts it via
  * DOMParser, so escaping here is the XSS boundary for the attacker-controlled
  * header values.
+ *
+ * `saveTarget` is non-null only when the caller has already verified the
+ * viewer is signed in and watches a domain aligned with this verdict's DKIM
+ * signature — anonymous visitors and non-matching domains get no button.
  */
-export function renderInboxVerdict(rec: VerdictRecord): string {
+export function renderInboxVerdict(
+  rec: VerdictRecord,
+  saveTarget?: InboxSaveSelectorTarget | null,
+): string {
   const selector = rec.dkim_selector
     ? `<div class="inbox-verdict-row"><span class="inbox-verdict-label">DKIM selector</span><span class="inbox-verdict-value">${esc(rec.dkim_selector)}${
         rec.dkim_domain ? esc(` (${rec.dkim_domain})`) : ""
       }</span></div>`
+    : "";
+  const saveButton = saveTarget
+    ? `<form method="POST" action="/dashboard/domain/${saveTarget.domainId}/selector-from-inbox" class="inbox-save-selector">
+  <input type="hidden" name="token" value="${esc(saveTarget.token)}" />
+  <button type="submit" class="copy-btn">Save selector ${esc(rec.dkim_selector ?? "")} to ${esc(saveTarget.domain)}</button>
+</form>`
     : "";
   const fromLine = rec.from
     ? `<p class="inbox-verdict-from">From: <code>${esc(rec.from)}</code> <span class="inbox-verdict-hint">(envelope sender — spoofable)</span></p>`
@@ -51,6 +72,7 @@ export function renderInboxVerdict(rec: VerdictRecord): string {
     ${verdictRow("Alignment", rec.alignment)}
     ${selector}
   </div>
+  ${saveButton}
   ${raw}
   <p class="inbox-verdict-time">Received ${esc(rec.received_at)}</p>
   <p class="inbox-verdict-note">We trust Cloudflare's upstream authentication check for this verdict. Cryptographic DKIM re-verification is not yet performed.</p>

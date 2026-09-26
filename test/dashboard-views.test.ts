@@ -723,6 +723,29 @@ describe("renderDomainDetailPage", () => {
     expect(html).toContain('method="POST"');
     expect(html).toContain("/scan");
   });
+
+  it("shows no DKIM hint or flash by default", () => {
+    const html = renderDomainDetailPage(baseProps);
+    expect(html).not.toContain("/check/email");
+    expect(html).not.toContain("saved to this domain");
+  });
+
+  it("links to /check/email when no DKIM selectors were found (#867)", () => {
+    const html = renderDomainDetailPage({
+      ...baseProps,
+      dkimNoSelectorsFound: true,
+    });
+    expect(html).toContain("/check/email");
+    expect(html).toContain("detect your selector");
+  });
+
+  it("shows a saved-selector flash when selectorSaved is true (#867)", () => {
+    const html = renderDomainDetailPage({
+      ...baseProps,
+      selectorSaved: true,
+    });
+    expect(html).toContain("saved to this domain");
+  });
 });
 
 describe("renderSettingsPage", () => {

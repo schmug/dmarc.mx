@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  addDkimSelectorForUserDomain,
   createDomain,
   createDomainUnderCap,
   type Domain,
   deleteDomain,
+  getDomainByIdForUser,
   getDomainByUserAndName,
   getDomainsByUser,
   getGradeDistributionForUser,
@@ -105,6 +107,12 @@ function makeD1Mock(): D1Database {
                   last_scanned_at: scannedAt,
                 });
               }
+            } else if (/^UPDATE domains SET dkim_selectors/i.test(sql)) {
+              const [next, id, userId] = params as [string, number, string];
+              const row = store.get(id);
+              if (row && row.user_id === userId) {
+                store.set(id, { ...row, dkim_selectors: next });
+              }
             }
             return { success: true, meta: { changes: 1 } };
           },
@@ -117,6 +125,26 @@ function makeD1Mock(): D1Database {
                 }
               }
               return null;
+            }
+            if (
+              /SELECT \* FROM domains WHERE id = \? AND user_id = \?/i.test(sql)
+            ) {
+              const [id, userId] = params as [number, string];
+              const row = store.get(id);
+              return (row && row.user_id === userId ? row : null) as T | null;
+            }
+            if (
+              /SELECT dkim_selectors FROM domains WHERE id = \? AND user_id = \?/i.test(
+                sql,
+              )
+            ) {
+              const [id, userId] = params as [number, string];
+              const row = store.get(id);
+              return (
+                row && row.user_id === userId
+                  ? { dkim_selectors: row.dkim_selectors }
+                  : null
+              ) as T | null;
             }
             // getWorstGradedDomainForUser: lowest-graded domain across the whole
             // watchlist, tie-broken alphabetically, ungraded rows excluded.
@@ -360,6 +388,156 @@ describe("db/domains", () => {
         "someone-elses.com",
       );
       expect(domain).toBeNull();
+    });
+  });
+
+  describe("getDomainByIdForUser", () => {
+    it("retrieves a domain by id and user", async () => {
+      await createDomain(db, {
+        userId: "user-1",
+        domain: "byid.com",
+        isFree: true,
+      });
+      const [row] = await getDomainsByUser(db, "user-1");
+      const domain = await getDomainByIdForUser(db, "user-1", row.id);
+      expect(domain?.domain).toBe("byid.com");
+    });
+
+    it("returns null when the id belongs to a different user (#867)", async () => {
+      await createDomain(db, {
+        userId: "user-1",
+        domain: "not-yours.com",
+        isFree: true,
+      });
+      const [row] = await getDomainsByUser(db, "user-1");
+      const domain = await getDomainByIdForUser(db, "user-2", row.id);
+      expect(domain).toBeNull();
+    });
+
+    it("returns null for a non-existent id", async () => {
+      const domain = await getDomainByIdForUser(db, "user-1", 999999);
+      expect(domain).toBeNull();
+    });
+  });
+
+  describe("addDkimSelectorForUserDomain (#867)", () => {
+    it("appends a selector to a domain with no existing selectors", async () => {
+      await createDomain(db, {
+        userId: "user-1",
+        domain: "fresh.com",
+        isFree: true,
+      });
+      const [row] = await getDomainsByUser(db, "user-1");
+
+      const result = await addDkimSelectorForUserDomain(
+        db,
+        "user-1",
+        row.id,
+        "selector1",
+      );
+
+      expect(result).toBe("added");
+      const updated = await getDomainByIdForUser(db, "user-1", row.id);
+      expect(updated?.dkim_selectors).toBe("selector1");
+    });
+
+    it("appends to an existing comma-separated list", async () => {
+      const inserted = await createDomainUnderCap(
+        db,
+        {
+          userId: "user-1",
+          domain: "existing.com",
+          isFree: false,
+          dkimSelectors: "google",
+        },
+        16,
+      );
+      expect(inserted).toBe(true);
+      const [row] = await getDomainsByUser(db, "user-1");
+
+      const result = await addDkimSelectorForUserDomain(
+        db,
+        "user-1",
+        row.id,
+        "selector1",
+      );
+
+      expect(result).toBe("added");
+      const updated = await getDomainByIdForUser(db, "user-1", row.id);
+      expect(updated?.dkim_selectors).toBe("google,selector1");
+    });
+
+    it("does nothing and reports 'duplicate' when the selector is already present", async () => {
+      const inserted = await createDomainUnderCap(
+        db,
+        {
+          userId: "user-1",
+          domain: "dupe.com",
+          isFree: false,
+          dkimSelectors: "selector1",
+        },
+        16,
+      );
+      expect(inserted).toBe(true);
+      const [row] = await getDomainsByUser(db, "user-1");
+
+      const result = await addDkimSelectorForUserDomain(
+        db,
+        "user-1",
+        row.id,
+        "selector1",
+      );
+
+      expect(result).toBe("duplicate");
+      const updated = await getDomainByIdForUser(db, "user-1", row.id);
+      expect(updated?.dkim_selectors).toBe("selector1");
+    });
+
+    it("refuses once the domain is at MAX_SELECTORS and reports 'cap_reached'", async () => {
+      const atCap = Array.from({ length: 16 }, (_, i) => `sel${i}`).join(",");
+      const inserted = await createDomainUnderCap(
+        db,
+        {
+          userId: "user-1",
+          domain: "atcap.com",
+          isFree: false,
+          dkimSelectors: atCap,
+        },
+        16,
+      );
+      expect(inserted).toBe(true);
+      const [row] = await getDomainsByUser(db, "user-1");
+
+      const result = await addDkimSelectorForUserDomain(
+        db,
+        "user-1",
+        row.id,
+        "one-too-many",
+      );
+
+      expect(result).toBe("cap_reached");
+      const updated = await getDomainByIdForUser(db, "user-1", row.id);
+      expect(updated?.dkim_selectors).toBe(atCap);
+    });
+
+    it("returns 'not_found' and saves nothing for another user's domain", async () => {
+      await createDomain(db, {
+        userId: "user-1",
+        domain: "someone-elses-2.com",
+        isFree: true,
+      });
+      const [row] = await getDomainsByUser(db, "user-1");
+
+      const result = await addDkimSelectorForUserDomain(
+        db,
+        "user-2",
+        row.id,
+        "selector1",
+      );
+
+      expect(result).toBe("not_found");
+      const updated = await getDomainByIdForUser(db, "user-1", row.id);
+      expect(updated?.dkim_selectors).toBeNull();
     });
   });
 

@@ -328,6 +328,57 @@ describe("inbox views — renderInboxVerdict escaping", () => {
 });
 
 // ---------------------------------------------------------------------------
+// renderInboxVerdict — "Save selector to domain" button (issue #867)
+// ---------------------------------------------------------------------------
+describe("inbox views — renderInboxVerdict save-selector button", () => {
+  const passingRec: VerdictRecord = {
+    status: "received",
+    spf: "pass",
+    dkim: "pass",
+    dmarc: "pass",
+    alignment: "pass",
+    from: "sender@example.com",
+    dkim_selector: "selector1",
+    dkim_domain: "example.com",
+    auth_results: "mx; dkim=pass",
+    size_bytes: 10,
+    received_at: "2026-06-28T00:00:00.000Z",
+  };
+
+  it("renders no save form when saveTarget is omitted (anonymous viewer)", () => {
+    const html = renderInboxVerdict(passingRec);
+    expect(html).not.toContain("selector-from-inbox");
+  });
+
+  it("renders no save form when saveTarget is explicitly null", () => {
+    const html = renderInboxVerdict(passingRec, null);
+    expect(html).not.toContain("selector-from-inbox");
+  });
+
+  it("renders a save form posting to the domain's selector-from-inbox route", () => {
+    const html = renderInboxVerdict(passingRec, {
+      token: TOKEN,
+      domainId: 42,
+      domain: "example.com",
+    });
+    expect(html).toContain('action="/dashboard/domain/42/selector-from-inbox"');
+    expect(html).toContain('method="POST"');
+    expect(html).toContain(`value="${TOKEN}"`);
+    expect(html).toContain("Save selector");
+    expect(html).toContain("selector1");
+  });
+
+  it("escapes the domain name in the save button", () => {
+    const html = renderInboxVerdict(passingRec, {
+      token: TOKEN,
+      domainId: 1,
+      domain: '"><script>alert(1)</script>.com',
+    });
+    expect(html).not.toContain("<script>alert(1)</script>");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // streamInboxResult — SSE state machine
 // ---------------------------------------------------------------------------
 interface CapturedEvent {
