@@ -22,18 +22,22 @@
     "@emnapi/runtime": "^1.11.1",
     "@types/dns-packet": "^5.6.1",
     "@types/node": "^26.1.0",
-    "@vitest/coverage-v8": "^4.1.10",
+    "@vitest/coverage-v8": "^4.1.11",
     "minimatch": "^10.2.5",
-    "sharp": "^0.35.3",
+    "sharp": "^0.35.4",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.9",
+    "vitest": "^4.1.11",
     "wrangler": "^4.136.1"
   },
   "dependencies": {
     "@sentry/cloudflare": "^10.75.1",
     "dns-packet": "^5.6.1",
-    "hono": "^4.12.25",
+    "hono": "^4.13.5",
     "jose": "^6.2.3"
+  },
+  "overrides": {
+    "sharp": "$sharp",
+    "undici": "^7.29.0"
   }
 }
