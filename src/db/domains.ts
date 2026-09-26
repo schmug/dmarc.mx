@@ -10,6 +10,10 @@ export interface Domain {
   last_scanned_at: number | null;
   last_grade: string | null;
   created_at: number;
+  // Comma-separated custom DKIM selectors (issue #755); NULL/empty = use the
+  // built-in COMMON_SELECTORS list only. Already validated at write time by
+  // validateCustomSelectors (src/shared/selectors.ts) — never re-derived here.
+  dkim_selectors: string | null;
 }
 
 export async function createDomain(
@@ -32,14 +36,21 @@ export async function createDomain(
 // inserting past `cap`. Returns whether the row was actually inserted.
 export async function createDomainUnderCap(
   db: D1Database,
-  input: { userId: string; domain: string; isFree: boolean },
+  input: {
+    userId: string;
+    domain: string;
+    isFree: boolean;
+    // Pre-validated by validateCustomSelectors (src/shared/selectors.ts) —
+    // this function does not re-check charset/count.
+    dkimSelectors?: string | null;
+  },
   cap: number,
 ): Promise<boolean> {
   const frequency = input.isFree ? "monthly" : "weekly";
   const result = await db
     .prepare(
-      `INSERT INTO domains (user_id, domain, is_free, scan_frequency)
-       SELECT ?, ?, ?, ?
+      `INSERT INTO domains (user_id, domain, is_free, scan_frequency, dkim_selectors)
+       SELECT ?, ?, ?, ?, ?
        WHERE (SELECT COUNT(*) FROM domains WHERE user_id = ?) < ?`,
     )
     .bind(
@@ -47,6 +58,7 @@ export async function createDomainUnderCap(
       input.domain,
       input.isFree ? 1 : 0,
       frequency,
+      input.dkimSelectors ?? null,
       input.userId,
       cap,
     )
