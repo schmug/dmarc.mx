@@ -1,64 +1,54 @@
-# CODEOWNERS — human-review gate for security-sensitive paths.
+# CODEOWNERS — human-review gate for genuine risk paths.
 #
-# Why this exists: autonomous Claude Code routines (see claude-routines repo)
-# open PRs against this PUBLIC repo daily, sourced from public issue bodies, and
-# auto-merge them once the `check` status is green. `main` requires 0 approving
-# reviews in the general case (preserving that autonomy). This file is the
-# hybrid gate: any PR whose diff touches a path below requires an approving
-# review from a code owner before it can merge, regardless of CI.
+# Why this exists: autonomous routines and the operating agent open PRs against
+# this PUBLIC repo and merge them once CI is green and the linked issue is
+# `spec-approved`. `main` requires no approving review in the general case. Any
+# path listed below is the exception: it needs an approving review from a code
+# owner before merge, regardless of CI. Enforced by the `main-protection`
+# ruleset rule `require_code_owner_review`, which applies per path and to
+# non-owner identities (verified 2026-09-22).
 #
-# Enforced by the `main-protection` ruleset rule `require_code_owner_review`.
-# A code owner must have write access. The autonomous bot MUST run as a
-# distinct, non-admin identity (not @schmug) or this gate cannot be satisfied
-# (GitHub forbids self-approval) — tracked separately as the bot-identity split.
+# Scope decided by the owner on 2026-09-22: gate identity/crypto, money,
+# production schema changes, production deploy configuration and the merge gate
+# itself. Everything else — routes, views, API surface, analyzers, scoring,
+# tests, docs, internal metrics and refactors — is un-gated so it can merge
+# autonomously. CODEOWNERS uses last-match-wins, so the broad un-gated
+# directories simply have no entry here.
 
-# CI / supply chain — a PR can otherwise rewrite its own merge gate, since
-# pull_request workflows run from the PR head ref.
-/.github/                       @schmug
-/package.json                   @schmug
-/package-lock.json              @schmug
-/wrangler.toml                  @schmug
+# The gate itself. Without this, a PR could remove every rule below.
+/.github/CODEOWNERS                     @schmug
 
-# Documented security invariants and the regression-blocking hooks.
-/SECURITY.md                    @schmug
-/CLAUDE.md                      @schmug
-/.claude/settings.json          @schmug
+# Production deploy and release machinery: applies migrations, deploys Workers,
+# cuts releases, rolls back, and decides which PRs are provenance-trusted.
+/.github/workflows/migrate.yml          @schmug
+/.github/workflows/deploy-mta-sts.yml   @schmug
+/.github/workflows/deploy-staging.yml   @schmug
+/.github/workflows/release.yml          @schmug
+/.github/workflows/rollback.yml         @schmug
+/.github/workflows/pr-provenance.yml    @schmug
+/.github/workflows/factory.yml          @schmug
 
-# Input validation, redirect posture, rate limiting, and prod-mutating
-# DB migrations — the highest-blast-radius source paths. rate-limit-do.ts is
-# the Durable Object that backs rate-limit.ts's atomic counter — gating the
-# policy file while leaving its state store ungated was a gap (#659).
-/src/index.ts                   @schmug
-/src/rate-limit.ts              @schmug
-/src/rate-limit-do.ts           @schmug
-/src/db/                        @schmug
+# Production Worker configuration: routes, zone binding, D1/KV bindings.
+# An `[env.*]` block here once detached dmarc.mx from its zone (#203–#206).
+/wrangler.toml                          @schmug
 
-# Analyzer modules, orchestration, and scoring — supply-chain / exfiltration risk.
-# A malicious new module added under src/analyzers/ (or changes to orchestrator/
-# scoring) could exfiltrate DNS data or manipulate grades without gating. Covered
-# broadly so that new files in the directory don't slip through the individual-file
-# entries that existed previously. Active once bot-identity split (#299) lands.
-/src/analyzers/                 @schmug
-/src/orchestrator.ts            @schmug
-/src/shared/scoring.ts          @schmug
+# Identity, crypto/JWT, money, and self-serve erasure.
+/src/auth/                              @schmug
+/src/account/                           @schmug
+/src/billing/                           @schmug
+/src/webhooks/                          @schmug
 
-# Account deletion & billing — self-serve erasure orchestration (deletion.ts)
-# cancels Stripe subscriptions, hard-deletes the user row, and removes the
-# WorkOS identity behind a step-up re-auth + IDOR guard (CLAUDE.md "Account
-# deletion (#550, T1/T4/T12)"). Covered broadly so new files under the
-# directory are gated too. Surfaced by #599/#600.
-/src/account/                   @schmug
+# Production database shape. Migrations are applied to the live D1 database by
+# migrate.yml and are effectively irreversible.
+/src/db/migrations/                     @schmug
+/src/db/schema.sql                      @schmug
 
-# Auth, Stripe billing, and inbound webhook handlers (including payment
-# events) — identity and money-adjacent surfaces same-blast-radius as
-# account deletion above but not yet covered. Surfaced by #659.
-/src/auth/                       @schmug
-/src/billing/                    @schmug
-/src/webhooks/                   @schmug
-
-# A separately deployed Worker (its own package.json/wrangler.toml, outside
-# the main Worker's src/ tree) and the gate script autonomous routines run
-# against — both security-adjacent and missed by the entries above.
-# Surfaced by #659.
-/mta-sts-worker/                 @schmug
-/scripts/routine-gate/           @schmug
+# Retained beyond the categories above, for review by the owner:
+# dependency supply chain (a lockfile change runs arbitrary code in CI),
+# the gate script that authorises autonomous merges, the separately deployed
+# MTA-STS Worker, and the written security policy.
+/package.json                           @schmug
+/package-lock.json                      @schmug
+/scripts/routine-gate/                  @schmug
+/mta-sts-worker/                        @schmug
+/SECURITY.md                            @schmug

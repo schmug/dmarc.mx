@@ -99,6 +99,21 @@ const PROVIDER_SIGNATURES: ProviderSignature[] = [
   { pattern: /\.ovh\.net$/, name: "OVH", category: "hosting" },
 ];
 
+const IPV4_LITERAL = /^(?:\d{1,3}\.){3}\d{1,3}$/;
+
+// RFC 5321 §5.1 / RFC 7505: an MX exchange must be a domain name, never an
+// IP address literal. Pure string check on data we already resolved — no
+// new DNS lookups.
+function isIpLiteral(exchange: string): boolean {
+  if (IPV4_LITERAL.test(exchange)) {
+    return exchange
+      .split(".")
+      .every((octet) => Number(octet) >= 0 && Number(octet) <= 255);
+  }
+  // Hostnames never contain a colon; IPv6 literals always do.
+  return exchange.includes(":");
+}
+
 function matchProvider(exchange: string): EmailProvider | undefined {
   const normalized = exchange.toLowerCase().replace(/\.$/, "");
   for (const sig of PROVIDER_SIGNATURES) {
@@ -166,15 +181,29 @@ export async function analyzeMx(
   if (rawRecords.length === 1) {
     const exchange = rawRecords[0].exchange.replace(/\.$/, "");
     if (exchange === "") {
+      const preference = rawRecords[0].priority;
+      if (preference === 0) {
+        return {
+          status: "info",
+          records: [],
+          providers: [],
+          validations: [
+            {
+              status: "info",
+              message:
+                "Null MX (RFC 7505) — domain explicitly accepts no mail (no mail server configured by design)",
+            },
+          ],
+        };
+      }
       return {
-        status: "info",
+        status: "warn",
         records: [],
         providers: [],
         validations: [
           {
-            status: "info",
-            message:
-              "Null MX (RFC 7505) — domain explicitly accepts no mail (no mail server configured by design)",
+            status: "warn",
+            message: `Malformed Null MX — RFC 7505 requires preference 0, found ${preference}`,
           },
         ],
       };
@@ -212,6 +241,15 @@ export async function analyzeMx(
       status: "info",
       message: `Detected: ${providers.map((p) => p.name).join(", ")}`,
     });
+  }
+
+  for (const r of records) {
+    if (isIpLiteral(r.exchange)) {
+      validations.push({
+        status: "warn",
+        message: `MX record (priority ${r.priority}) points to an IP address literal (${r.exchange}) instead of a hostname — RFC 5321 requires MX exchanges to be domain names`,
+      });
+    }
   }
 
   return { status: "info", records, providers, validations };

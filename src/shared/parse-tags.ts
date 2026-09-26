@@ -3,7 +3,7 @@ export function parseTags(
   options?: { lowercaseKeys?: boolean },
 ): Record<string, string> {
   const lowercase = options?.lowercaseKeys ?? true;
-  const tags: Record<string, string> = {};
+  const tags: Record<string, string> = Object.create(null);
   let start = 0;
   const len = record.length;
 

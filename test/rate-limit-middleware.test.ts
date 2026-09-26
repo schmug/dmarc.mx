@@ -39,7 +39,9 @@ function makeMockDb(fixture: Fixture): D1Database {
 
 async function buildApp() {
   // Import inside the helper so module-level state can be reset per test.
-  const { rateLimitMiddleware } = await import("../src/index.js");
+  const { rateLimitMiddleware } = await import(
+    "../src/security/rate-limit-middleware.js"
+  );
   const app = new Hono();
   app.use(
     "/ping",

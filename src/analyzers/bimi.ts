@@ -213,7 +213,7 @@ export async function analyzeBimi(
   }
 
   const bimiRecord = txt.entries.find((e) =>
-    e.trimStart().startsWith("v=BIMI1"),
+    /^v=BIMI1(;|\s|$)/.test(e.trimStart()),
   );
   if (!bimiRecord) {
     return {
@@ -266,21 +266,37 @@ export async function analyzeBimi(
     });
   }
 
-  // a= check (authority / VMC/CMC) — presence + fetch-and-validate
+  // a= check (authority / VMC/CMC) — presence + HTTPS + fetch-and-validate
   if (tags.a) {
-    validations.push({
-      status: "pass",
-      message: "Authority evidence (a=) VMC/CMC certificate URL present",
-    });
-    // Fetch and validate the cert artifact.
-    const certResult = await fetchCert(tags.a);
-    validations.push({
-      status: certResult.ok ? "pass" : certResult.expired ? "fail" : "warn",
-      message: certResult.message,
-      ...(certResult.ok
-        ? {}
-        : { learnAnchor: learnAnchorHref(LEARN_ANCHORS.bimiCertification) }),
-    });
+    let isHttpsUrl = false;
+    try {
+      isHttpsUrl = new URL(tags.a).protocol === "https:";
+    } catch {
+      isHttpsUrl = false;
+    }
+
+    if (isHttpsUrl) {
+      validations.push({
+        status: "pass",
+        message: "Authority evidence (a=) VMC/CMC certificate URL present",
+      });
+      // Fetch and validate the cert artifact.
+      const certResult = await fetchCert(tags.a);
+      validations.push({
+        status: certResult.ok ? "pass" : certResult.expired ? "fail" : "warn",
+        message: certResult.message,
+        ...(certResult.ok
+          ? {}
+          : { learnAnchor: learnAnchorHref(LEARN_ANCHORS.bimiCertification) }),
+      });
+    } else {
+      validations.push({
+        status: "fail",
+        message:
+          "Authority evidence (a=) must be an https:// URL — certificate not fetched",
+        learnAnchor: learnAnchorHref(LEARN_ANCHORS.bimiCertification),
+      });
+    }
   } else {
     validations.push({
       status: "warn",

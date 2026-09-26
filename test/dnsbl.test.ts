@@ -274,6 +274,22 @@ describe("analyzeDnsbl — lookup error", () => {
     expect(result.status).toBe("warn");
     expect(result.lookup_error).toBeDefined();
   });
+
+  it("treats an undocumented 127.0.0.1 return code as an error, not a listing", async () => {
+    // 127.0.0.1 is not a documented Spamhaus ZEN listing code — an
+    // unrecognized code must not be treated as a confirmed listing.
+    queryDnsbl.mockResolvedValue(["127.0.0.1"]);
+    const result = await analyzeDnsbl(
+      "example.com",
+      spfWithMechanisms(["ip4:192.0.2.5"]),
+      emptyMx(),
+      "testkey",
+    );
+    expect(result.checked[0].verdict).toBe("error");
+    expect(result.checked[0].zones).toBeUndefined();
+    expect(result.status).toBe("warn");
+    expect(result.lookup_error).toBeDefined();
+  });
 });
 
 // ── No derivable IPs ──────────────────────────────────────────────

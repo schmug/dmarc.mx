@@ -8,13 +8,34 @@ export interface IssueInfo {
   filePointers: string[]; // glob-ish paths the issue declared as in-scope
 }
 
+// A check's outcome, normalized from GitHub's mix of check-run conclusions and
+// commit-status states. "skipped" is not a failure: conditional jobs report it.
+export type CheckOutcome = "success" | "skipped" | "pending" | "failed";
+
+export interface CheckState {
+  name: string;
+  outcome: CheckOutcome;
+}
+
 export interface PrInfo {
   number: number;
   body: string;
   changedFiles: string[];
   additions: number;
   deletions: number;
-  ciAllGreen: boolean;
+  checks: CheckState[];
+}
+
+// Reasons naming which checks are unhappy, so an escalation says what to look at
+// instead of a bare "CI not green". No checks at all is fail-closed.
+export function ciReasons(checks: CheckState[]): string[] {
+  if (checks.length === 0) return ["no CI checks reported (fail-closed)"];
+  const reasons: string[] = [];
+  const failed = checks.filter((c) => c.outcome === "failed").map((c) => c.name);
+  const pending = checks.filter((c) => c.outcome === "pending").map((c) => c.name);
+  if (failed.length) reasons.push(`CI failing: ${failed.sort().join(", ")}`);
+  if (pending.length) reasons.push(`CI still running: ${pending.sort().join(", ")}`);
+  return reasons;
 }
 
 type Cfg = typeof CONFIG_T;
@@ -42,10 +63,19 @@ export function parseClosesIssue(body: string): number | null {
   return refs.length === 1 ? refs[0] : null;
 }
 
+export function trustedAuthor(author: string, cfg: Cfg): boolean {
+  return (
+    cfg.allowlistAuthors.includes(author) ||
+    (cfg.allowlistAuthorsWithApproval ?? []).includes(author)
+  );
+}
+
 export function isProvenanceTrusted(issue: IssueInfo | null, cfg: Cfg): boolean {
   if (!issue) return false; // fail-closed
+  // The spec-approved label is required for every author, so the second-tier
+  // allowlist is exactly "trusted once a human has labelled the issue".
   return (
-    cfg.allowlistAuthors.includes(issue.author) &&
+    trustedAuthor(issue.author, cfg) &&
     issue.labels.includes(cfg.labels.specApproved)
   );
 }
@@ -107,7 +137,7 @@ export function evaluateGate(input: GateInput): GateVerdict {
       reasons.push(`PR closes #${closes} but evaluated issue is #${issue.number}`);
     }
     if (!isProvenanceTrusted(issue, cfg)) {
-      if (!cfg.allowlistAuthors.includes(issue.author)) {
+      if (!trustedAuthor(issue.author, cfg)) {
         reasons.push(`issue author @${issue.author} not on allowlist`);
       }
       if (!issue.labels.includes(cfg.labels.specApproved)) {
@@ -133,7 +163,7 @@ export function evaluateGate(input: GateInput): GateVerdict {
   if (drift.length) reasons.push(`scope drift outside declared pointers: ${drift.join(", ")}`);
 
   // Condition 6b: CI
-  if (!pr.ciAllGreen) reasons.push("CI not green");
+  reasons.push(...ciReasons(pr.checks));
 
   return { pass: reasons.length === 0, reasons };
 }

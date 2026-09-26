@@ -8,6 +8,11 @@ import type { TlsRptResult, Validation } from "./types.js";
 // MTAs where to send TLS failure reports, but its presence or absence does
 // not change the enforcement posture.
 
+// Requires a local@domain address with a dotted domain — rejects `mailto:`
+// and `mailto:not-an-address`, which the bare startsWith("mailto:") check
+// used to accept.
+const MAILTO_ADDRESS_RE = /^mailto:[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export async function analyzeTlsRpt(
   domain: string,
   budget?: ScanBudget,
@@ -49,12 +54,11 @@ export async function analyzeTlsRpt(
 
   const validations: Validation[] = [];
 
-  const tlsRptEntries = txt.entries.filter((e) =>
-    e.toLowerCase().startsWith("v=tlsrptv1"),
-  );
-  const otherEntries = txt.entries.filter(
-    (e) => !e.toLowerCase().startsWith("v=tlsrptv1"),
-  );
+  // RFC 8460 §3: the version tag is exactly "v=TLSRPTv1", terminated by
+  // ";", whitespace, or end of string — "v=TLSRPTv10" is not a match.
+  const isTlsRptVersion = (e: string) => /^v=tlsrptv1(?:;|\s|$)/i.test(e);
+  const tlsRptEntries = txt.entries.filter(isTlsRptVersion);
+  const otherEntries = txt.entries.filter((e) => !isTlsRptVersion(e));
 
   if (otherEntries.length > 0) {
     validations.push({
@@ -101,9 +105,18 @@ export async function analyzeTlsRpt(
     if (ruas.length === 0) {
       validations.push({ status: "warn", message: "rua= tag is empty" });
     } else {
-      const invalid = ruas.filter(
-        (r) => !r.startsWith("mailto:") && !r.startsWith("https://"),
-      );
+      const invalid = ruas.filter((r) => {
+        if (r.startsWith("https://")) {
+          try {
+            const url = new URL(r);
+            return url.protocol !== "https:" || url.hostname === "";
+          } catch {
+            return true;
+          }
+        }
+        if (r.startsWith("mailto:")) return !MAILTO_ADDRESS_RE.test(r);
+        return true;
+      });
       if (invalid.length > 0) {
         validations.push({
           status: "warn",

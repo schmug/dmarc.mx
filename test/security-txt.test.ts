@@ -155,6 +155,169 @@ Preferred-Languages: en, de
     ).toBe(true);
   });
 
+  it("warns when Contact: is a bare email with no URI scheme", async () => {
+    const future = new Date(
+      Date.now() + 30 * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    mockFetchByUrl({
+      "https://example.com/.well-known/security.txt": {
+        body: `Contact: security@example.com\nExpires: ${future}\n`,
+      },
+    });
+    const result = await analyzeSecurityTxt("example.com");
+    expect(
+      result.validations.some(
+        (v) => v.status === "warn" && v.message.includes("is not a URI"),
+      ),
+    ).toBe(true);
+  });
+
+  it("warns when Contact: uses http: instead of https:", async () => {
+    const future = new Date(
+      Date.now() + 30 * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    mockFetchByUrl({
+      "https://example.com/.well-known/security.txt": {
+        body: `Contact: http://example.com/security\nExpires: ${future}\n`,
+      },
+    });
+    const result = await analyzeSecurityTxt("example.com");
+    expect(
+      result.validations.some(
+        (v) => v.status === "warn" && v.message.includes("use https: instead"),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not warn on a valid mailto: Contact:", async () => {
+    const future = new Date(
+      Date.now() + 30 * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    mockFetchByUrl({
+      "https://example.com/.well-known/security.txt": {
+        body: `Contact: mailto:security@example.com\nExpires: ${future}\n`,
+      },
+    });
+    const result = await analyzeSecurityTxt("example.com");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" &&
+          (v.message.includes("is not a URI") ||
+            v.message.includes("use https: instead")),
+      ),
+    ).toBe(false);
+  });
+
+  it("does not warn on a valid https: Contact:", async () => {
+    const future = new Date(
+      Date.now() + 30 * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    mockFetchByUrl({
+      "https://example.com/.well-known/security.txt": {
+        body: `Contact: https://example.com/security\nExpires: ${future}\n`,
+      },
+    });
+    const result = await analyzeSecurityTxt("example.com");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" &&
+          (v.message.includes("is not a URI") ||
+            v.message.includes("use https: instead")),
+      ),
+    ).toBe(false);
+  });
+
+  it("warns when Encryption: is not a URI", async () => {
+    const future = new Date(
+      Date.now() + 30 * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    mockFetchByUrl({
+      "https://example.com/.well-known/security.txt": {
+        body: `Contact: mailto:s@example.com\nExpires: ${future}\nEncryption: not-a-uri\n`,
+      },
+    });
+    const result = await analyzeSecurityTxt("example.com");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" &&
+          v.message.includes('Encryption: "not-a-uri" is not a URI'),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not warn on a valid Encryption: URI", async () => {
+    const future = new Date(
+      Date.now() + 30 * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    mockFetchByUrl({
+      "https://example.com/.well-known/security.txt": {
+        body: `Contact: mailto:s@example.com\nExpires: ${future}\nEncryption: https://example.com/pgp.asc\n`,
+      },
+    });
+    const result = await analyzeSecurityTxt("example.com");
+    expect(
+      result.validations.some(
+        (v) => v.status === "warn" && v.message.includes("Encryption:"),
+      ),
+    ).toBe(false);
+  });
+
+  it("warns when Canonical: is not a URI", async () => {
+    const future = new Date(
+      Date.now() + 30 * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    mockFetchByUrl({
+      "https://example.com/.well-known/security.txt": {
+        body: `Contact: mailto:s@example.com\nExpires: ${future}\nCanonical: not-a-uri\n`,
+      },
+    });
+    const result = await analyzeSecurityTxt("example.com");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" &&
+          v.message.includes('Canonical: "not-a-uri" is not a URI'),
+      ),
+    ).toBe(true);
+  });
+
+  it("warns when Canonical: is a URI but not https:", async () => {
+    const future = new Date(
+      Date.now() + 30 * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    mockFetchByUrl({
+      "https://example.com/.well-known/security.txt": {
+        body: `Contact: mailto:s@example.com\nExpires: ${future}\nCanonical: http://example.com/.well-known/security.txt\n`,
+      },
+    });
+    const result = await analyzeSecurityTxt("example.com");
+    expect(
+      result.validations.some(
+        (v) => v.status === "warn" && v.message.includes("must use https:"),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not warn on a valid https Canonical:", async () => {
+    const future = new Date(
+      Date.now() + 30 * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    mockFetchByUrl({
+      "https://example.com/.well-known/security.txt": {
+        body: `Contact: mailto:s@example.com\nExpires: ${future}\nCanonical: https://example.com/.well-known/security.txt\n`,
+      },
+    });
+    const result = await analyzeSecurityTxt("example.com");
+    expect(
+      result.validations.some(
+        (v) => v.status === "warn" && v.message.includes("Canonical:"),
+      ),
+    ).toBe(false);
+  });
+
   it("warns when Expires: is missing", async () => {
     mockFetchByUrl({
       "https://example.com/.well-known/security.txt": {
@@ -213,6 +376,40 @@ Preferred-Languages: en, de
         (v) => v.status === "warn" && v.message.includes("not parseable"),
       ),
     ).toBe(true);
+  });
+
+  it("warns on Expires: that parses but isn't ISO 8601 format", async () => {
+    mockFetchByUrl({
+      "https://example.com/.well-known/security.txt": {
+        body: `Contact: mailto:s@example.com\nExpires: Tue, 1 Jan 2030 00:00:00 GMT\n`,
+      },
+    });
+    const result = await analyzeSecurityTxt("example.com");
+    expect(
+      result.validations.some(
+        (v) => v.status === "warn" && v.message.includes("not ISO 8601 format"),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not warn about format for a valid ISO 8601 Expires:", async () => {
+    const future = new Date(
+      Date.now() + 30 * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    mockFetchByUrl({
+      "https://example.com/.well-known/security.txt": {
+        body: `Contact: mailto:s@example.com\nExpires: ${future}\n`,
+      },
+    });
+    const result = await analyzeSecurityTxt("example.com");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" &&
+          (v.message.includes("not parseable") ||
+            v.message.includes("not ISO 8601 format")),
+      ),
+    ).toBe(false);
   });
 
   it("strips PGP cleartext-signature armor and flags signed", async () => {

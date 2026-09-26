@@ -155,6 +155,96 @@ describe("analyzeTlsRpt", () => {
     ).toBe(true);
   });
 
+  it("warns for a bare https:// with no host", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=TLSRPTv1; rua=https://"],
+      raw: "v=TLSRPTv1; rua=https://",
+    });
+    const result = await analyzeTlsRpt("example.com");
+    expect(result.status).toBe("warn");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" && v.message.includes("mailto:/https:// format"),
+      ),
+    ).toBe(true);
+  });
+
+  it("warns for an https:// destination with a space in the host", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=TLSRPTv1; rua=https:// bad"],
+      raw: "v=TLSRPTv1; rua=https:// bad",
+    });
+    const result = await analyzeTlsRpt("example.com");
+    expect(result.status).toBe("warn");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" && v.message.includes("mailto:/https:// format"),
+      ),
+    ).toBe(true);
+  });
+
+  it("warns for a bare mailto: with no address", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=TLSRPTv1; rua=mailto:"],
+      raw: "v=TLSRPTv1; rua=mailto:",
+    });
+    const result = await analyzeTlsRpt("example.com");
+    expect(result.status).toBe("warn");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" && v.message.includes("mailto:/https:// format"),
+      ),
+    ).toBe(true);
+  });
+
+  it("warns for a malformed mailto: address", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=TLSRPTv1; rua=mailto:not-an-address"],
+      raw: "v=TLSRPTv1; rua=mailto:not-an-address",
+    });
+    const result = await analyzeTlsRpt("example.com");
+    expect(result.status).toBe("warn");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" && v.message.includes("mailto:/https:// format"),
+      ),
+    ).toBe(true);
+  });
+
+  it("accepts a valid mailto: address", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=TLSRPTv1; rua=mailto:tlsrpt@example.com"],
+      raw: "v=TLSRPTv1; rua=mailto:tlsrpt@example.com",
+    });
+    const result = await analyzeTlsRpt("example.com");
+    expect(result.status).toBe("pass");
+    expect(
+      result.validations.some(
+        (v) => v.status === "info" && v.message.includes("tlsrpt@example.com"),
+      ),
+    ).toBe(true);
+  });
+
+  it("accepts a valid https:// destination", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=TLSRPTv1; rua=https://example.com/tlsrpt"],
+      raw: "v=TLSRPTv1; rua=https://example.com/tlsrpt",
+    });
+    const result = await analyzeTlsRpt("example.com");
+    expect(result.status).toBe("pass");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "info" &&
+          v.message.includes("https://example.com/tlsrpt"),
+      ),
+    ).toBe(true);
+  });
+
   it("accepts multiple comma-separated rua destinations", async () => {
     mockQueryTxt.mockResolvedValue({
       entries: [
@@ -170,6 +260,21 @@ describe("analyzeTlsRpt", () => {
           v.status === "info" &&
           v.message.includes("Report destinations") &&
           v.message.includes("a@example.com"),
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects a v=TLSRPTv10 record as not TLS-RPT (RFC 8460 §3 exact version match)", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=TLSRPTv10; rua=mailto:r@example.com"],
+      raw: "v=TLSRPTv10; rua=mailto:r@example.com",
+    });
+    const result = await analyzeTlsRpt("example.com");
+    expect(result.status).toBe("warn");
+    expect(result.record).toBeNull();
+    expect(
+      result.validations.some(
+        (v) => v.status === "warn" && v.message.includes("v=TLSRPTv1"),
       ),
     ).toBe(true);
   });

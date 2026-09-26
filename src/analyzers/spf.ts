@@ -15,6 +15,9 @@ export async function analyzeSpf(
     hasCycle: false,
     voidLookups: 0,
     multipleRootRecords: false,
+    duplicateRedirect: false,
+    duplicateExp: false,
+    malformedMacroTargets: [],
   };
 
   let tree: SpfIncludeNode | null;
@@ -86,6 +89,45 @@ export async function analyzeSpf(
     });
   }
 
+  // Repeated redirect=/exp= modifier (RFC 7208 §6: a modifier MUST NOT appear
+  // more than once in a record)
+  if (ctx.duplicateRedirect) {
+    validations.push({
+      status: "fail",
+      message:
+        "Duplicate redirect= modifier — SPF will permerror (RFC 7208 §6)",
+    });
+  }
+  if (ctx.duplicateExp) {
+    validations.push({
+      status: "fail",
+      message: "Duplicate exp= modifier — SPF will permerror (RFC 7208 §6)",
+    });
+  }
+
+  // Malformed macro syntax in include:/exists:/redirect= targets (RFC 7208
+  // §7.1) — checked anywhere in the tree, not just the root record.
+  if (ctx.malformedMacroTargets.length > 0) {
+    validations.push({
+      status: "fail",
+      message: `Malformed macro syntax — SPF will permerror (RFC 7208 §7.1): ${ctx.malformedMacroTargets.join(", ")}`,
+    });
+  }
+
+  // Empty redirect=/exp= modifier target (RFC 7208 §6.1/§6.2 require a domain-spec)
+  if (tree.mechanisms.some((m) => m.replace(/^[+\-~?]/, "") === "redirect=")) {
+    validations.push({
+      status: "fail",
+      message: "Empty redirect= target — SPF will permerror (RFC 7208 §6.1)",
+    });
+  }
+  if (tree.mechanisms.some((m) => m.replace(/^[+\-~?]/, "") === "exp=")) {
+    validations.push({
+      status: "fail",
+      message: "Empty exp= target — SPF will permerror (RFC 7208 §6.2)",
+    });
+  }
+
   // Void-lookup limit check
   if (ctx.voidLookups > MAX_VOID_LOOKUPS) {
     validations.push({
@@ -95,7 +137,8 @@ export async function analyzeSpf(
   }
 
   // all mechanism check
-  const allMech = tree.mechanisms.find((m) => m.endsWith("all"));
+  const allIndex = tree.mechanisms.findIndex((m) => m.endsWith("all"));
+  const allMech = allIndex === -1 ? undefined : tree.mechanisms[allIndex];
   if (allMech) {
     if (allMech === "-all") {
       validations.push({
@@ -118,12 +161,23 @@ export async function analyzeSpf(
         message: "Uses ?all (neutral) — provides no guidance to receivers",
       });
     }
+
+    // RFC 7208 §5.1: terms after "all" are never evaluated
+    const termsAfterAll = tree.mechanisms.slice(allIndex + 1);
+    if (termsAfterAll.length > 0) {
+      validations.push({
+        status: "warn",
+        message: `Terms after ${allMech} are unreachable and never evaluated (RFC 7208 §5.1): ${termsAfterAll.join(", ")}`,
+      });
+    }
   }
 
-  // Deprecated ptr check
-  const hasPtr = tree.mechanisms.some(
-    (m) => m === "ptr" || m.startsWith("ptr:"),
-  );
+  // Deprecated ptr check. Strip the optional qualifier (+ - ~ ?) so
+  // "+ptr"/"~ptr"/"-ptr:host" are recognized, not just the bare form.
+  const hasPtr = tree.mechanisms.some((m) => {
+    const bare = m.replace(/^[+\-~?]/, "");
+    return bare === "ptr" || bare.startsWith("ptr:");
+  });
   if (hasPtr) {
     validations.push({
       status: "warn",
@@ -142,6 +196,40 @@ export async function analyzeSpf(
     validations.push({
       status: "fail",
       message: `Unknown SPF ${unknownTerms.length === 1 ? "term" : "terms"} — receivers will permerror (RFC 7208 §4.6.1): ${unknownTerms.join(", ")}`,
+    });
+  }
+
+  // Invalid ip4:/ip6: address or CIDR prefix length (RFC 7208 §5.6: ip4
+  // prefix 0-32, ip6 prefix 0-128)
+  const invalidIpTerms = tree.mechanisms.filter((m) => {
+    const bare = m.replace(/^[+\-~?]/, "");
+    if (bare.startsWith("ip4:")) return !isValidIp4Cidr(bare.slice(4));
+    if (bare.startsWith("ip6:")) return !isValidIp6Cidr(bare.slice(4));
+    return false;
+  });
+  if (invalidIpTerms.length > 0) {
+    validations.push({
+      status: "fail",
+      message: `Invalid ip4/ip6 ${invalidIpTerms.length === 1 ? "address" : "addresses"} — receivers will permerror (RFC 7208 §5.6): ${invalidIpTerms.join(", ")}`,
+    });
+  }
+
+  // Invalid a/mx dual-cidr-length suffix (RFC 7208 §5.3/5.4: optional
+  // "/" ip4-cidr-length 0-32 and/or "//" ip6-cidr-length 0-128)
+  const invalidAmxTerms = tree.mechanisms.filter((m) => {
+    const bare = m.replace(/^[+\-~?]/, "");
+    if (bare === "a" || bare.startsWith("a:") || bare.startsWith("a/")) {
+      return !isValidDualCidrLength(extractDualCidrLength(bare, "a"));
+    }
+    if (bare === "mx" || bare.startsWith("mx:") || bare.startsWith("mx/")) {
+      return !isValidDualCidrLength(extractDualCidrLength(bare, "mx"));
+    }
+    return false;
+  });
+  if (invalidAmxTerms.length > 0) {
+    validations.push({
+      status: "fail",
+      message: `Invalid a/mx dual-cidr-length ${invalidAmxTerms.length === 1 ? "suffix" : "suffixes"} — receivers will permerror (RFC 7208 §5.3/5.4): ${invalidAmxTerms.join(", ")}`,
     });
   }
 
@@ -172,6 +260,14 @@ interface ResolutionContext {
   // RFC 7208 §4.5: more than one v=spf1 record at the queried name is a
   // permerror. We only flag this for the published (root) domain.
   multipleRootRecords: boolean;
+  // RFC 7208 §6: a record MUST NOT repeat the redirect= or exp= modifier.
+  // Set if any record in the tree (root or included) repeats either.
+  duplicateRedirect: boolean;
+  duplicateExp: boolean;
+  // RFC 7208 §7.1: include:/exists:/redirect= targets with malformed macro
+  // syntax (anywhere in the tree, not just the root record). Collected as
+  // the full mechanism text so the validation message can name each one.
+  malformedMacroTargets: string[];
 }
 
 const MAX_VOID_LOOKUPS = 2;
@@ -218,6 +314,8 @@ async function resolveSpfTree(
   // Find include targets and redirect
   const includeTargets: string[] = [];
   let redirect: string | null = null;
+  let redirectCount = 0;
+  let expCount = 0;
 
   for (const mech of mechanisms) {
     if (ctx.lookups > MAX_LOOKUPS) break;
@@ -225,10 +323,23 @@ async function resolveSpfTree(
     const bare = mech.replace(/^[+\-~?]/, "");
     if (bare.startsWith("include:")) {
       ctx.lookups++;
-      includeTargets.push(bare.slice("include:".length));
+      const target = bare.slice("include:".length);
+      if (hasMalformedMacro(target)) {
+        ctx.malformedMacroTargets.push(mech);
+      } else {
+        includeTargets.push(target);
+      }
     } else if (bare.startsWith("redirect=")) {
       ctx.lookups++;
-      redirect = bare.slice("redirect=".length);
+      redirectCount++;
+      const target = bare.slice("redirect=".length);
+      if (hasMalformedMacro(target)) {
+        ctx.malformedMacroTargets.push(mech);
+      } else {
+        redirect = target;
+      }
+    } else if (bare.startsWith("exp=")) {
+      expCount++;
     } else if (bare.startsWith("a:") || bare === "a") {
       ctx.lookups++;
     } else if (bare.startsWith("mx:") || bare === "mx") {
@@ -237,8 +348,15 @@ async function resolveSpfTree(
       ctx.lookups++;
     } else if (bare.startsWith("exists:")) {
       ctx.lookups++;
+      const target = bare.slice("exists:".length);
+      if (hasMalformedMacro(target)) {
+        ctx.malformedMacroTargets.push(mech);
+      }
     }
   }
+
+  if (redirectCount > 1) ctx.duplicateRedirect = true;
+  if (expCount > 1) ctx.duplicateExp = true;
 
   // Resolve includes in parallel
   // ⚡ Bolt: Only recurse on includes if we haven't already exceeded the DNS lookup limit
@@ -267,6 +385,124 @@ async function resolveSpfTree(
   }
 
   return { domain, record: spfRecord, mechanisms, includes };
+}
+
+// RFC 7208 §5.6: an ip4/ip6 mechanism's address must be a valid literal, with
+// an optional CIDR prefix length in range 0-32 (ip4) / 0-128 (ip6).
+function isValidIp4Address(addr: string): boolean {
+  const parts = addr.split(".");
+  return (
+    parts.length === 4 &&
+    parts.every((p) => /^\d{1,3}$/.test(p) && Number(p) <= 255)
+  );
+}
+
+function isValidIp4Cidr(spec: string): boolean {
+  const [addr, prefix, extra] = spec.split("/");
+  if (extra !== undefined || !isValidIp4Address(addr)) return false;
+  if (prefix === undefined) return true;
+  if (!/^\d{1,2}$/.test(prefix)) return false;
+  const len = Number(prefix);
+  return len >= 0 && len <= 32;
+}
+
+function isValidIp6Address(addr: string): boolean {
+  if (addr.length === 0) return false;
+  const isHextet = (g: string) => /^[0-9a-fA-F]{1,4}$/.test(g);
+  const groupCount = (groups: string[]): number | null => {
+    let count = 0;
+    for (let i = 0; i < groups.length; i++) {
+      const g = groups[i];
+      if (i === groups.length - 1 && g.includes(".")) {
+        if (!isValidIp4Address(g)) return null;
+        count += 2;
+      } else {
+        if (!isHextet(g)) return null;
+        count += 1;
+      }
+    }
+    return count;
+  };
+  const toGroups = (s: string): string[] => (s === "" ? [] : s.split(":"));
+
+  const parts = addr.split("::");
+  if (parts.length > 2) return false; // more than one "::" compression
+
+  if (parts.length === 1) {
+    const count = groupCount(toGroups(addr));
+    return count === 8;
+  }
+
+  const [left, right] = parts;
+  const leftGroups = toGroups(left);
+  const rightGroups = toGroups(right);
+  if (!leftGroups.every(isHextet)) return false;
+  const rightCount = groupCount(rightGroups);
+  if (rightCount === null) return false;
+  // "::" must collapse at least one group, so the explicit groups on both
+  // sides must leave room for it within the 8-group address.
+  return leftGroups.length + rightCount <= 7;
+}
+
+function isValidIp6Cidr(spec: string): boolean {
+  const [addr, prefix, extra] = spec.split("/");
+  if (extra !== undefined || !isValidIp6Address(addr)) return false;
+  if (prefix === undefined) return true;
+  if (!/^\d{1,3}$/.test(prefix)) return false;
+  const len = Number(prefix);
+  return len >= 0 && len <= 128;
+}
+
+// RFC 7208 §7.1 macro-string grammar:
+//   macro-expand  = ( "%{" macro-letter transformers *delimiter "}" )
+//                   / "%%" / "%_" / "%-"
+//   macro-letter  = "s" / "l" / "o" / "d" / "i" / "p" / "h" / "c" / "r" / "t" / "v"
+//                   (upper-case forces URL-escaping and is equally valid)
+//   transformers  = *DIGIT [ "r" ]
+//   delimiter     = "." / "-" / "+" / "," / "/" / "_" / "="
+// Any other use of "%" — a stray "%", an unterminated "%{", or an invalid
+// macro-letter/transformer/delimiter — is a syntax error.
+const MACRO_BODY_RE = /^[slodiphcrtvSLODIPHCRTV]\d*r?[.\-+,/_=]*$/;
+
+function hasMalformedMacro(domainSpec: string): boolean {
+  for (let i = 0; i < domainSpec.length; i++) {
+    if (domainSpec[i] !== "%") continue;
+    const next = domainSpec[i + 1];
+    if (next === "%" || next === "_" || next === "-") {
+      i++;
+      continue;
+    }
+    if (next !== "{") return true; // stray '%'
+    const close = domainSpec.indexOf("}", i + 2);
+    if (close === -1) return true; // unterminated "%{"
+    const body = domainSpec.slice(i + 2, close);
+    if (!MACRO_BODY_RE.test(body)) return true;
+    i = close;
+  }
+  return false;
+}
+
+// RFC 7208 §5.3: strips an a/mx term down to its optional dual-cidr-length
+// suffix, skipping past the optional ":domain-spec" first (a domain-spec
+// never itself starts with "/").
+function extractDualCidrLength(bare: string, keyword: "a" | "mx"): string {
+  let rest = bare.slice(keyword.length);
+  if (rest.startsWith(":")) {
+    const slashIndex = rest.indexOf("/");
+    rest = slashIndex === -1 ? "" : rest.slice(slashIndex);
+  }
+  return rest;
+}
+
+// RFC 7208 §5.3/5.4: dual-cidr-length = ["/" ip4-cidr-length] ["//" ip6-cidr-length],
+// each an optional length with no other separators or trailing characters.
+function isValidDualCidrLength(suffix: string): boolean {
+  const match = /^(?:\/(\d{1,2}))?(?:\/\/(\d{1,3}))?$/.exec(suffix);
+  if (!match) return false;
+  const [, ip4, ip6] = match;
+  if (ip4 !== undefined && Number(ip4) > 32) return false;
+  if (ip6 !== undefined && Number(ip6) > 128) return false;
+  return true;
 }
 
 function parseSpfMechanisms(record: string): string[] {

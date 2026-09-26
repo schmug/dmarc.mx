@@ -290,6 +290,101 @@ describe("analyzeMtaSts", () => {
     ).toBe(true);
   });
 
+  it("warns on max_age with trailing junk instead of parsing the leading digits", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=STSv1; id=20240101"],
+      raw: "v=STSv1; id=20240101",
+    });
+    mockFetchPolicy(
+      `version: STSv1\nmode: enforce\nmx: *.example.com\nmax_age: 86400junk`,
+    );
+
+    const result = await analyzeMtaSts("example.com");
+    expect(result.policy?.max_age).toBe(0);
+    expect(
+      result.validations.some(
+        (v) => v.status === "warn" && v.message.includes("Invalid max_age"),
+      ),
+    ).toBe(true);
+    // The stale "less than 1 day" warning must not also fire for an invalid value.
+    expect(
+      result.validations.some((v) => v.message.includes("less than 1 day")),
+    ).toBe(false);
+  });
+
+  it("warns on non-numeric max_age", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=STSv1; id=20240101"],
+      raw: "v=STSv1; id=20240101",
+    });
+    mockFetchPolicy(
+      `version: STSv1\nmode: enforce\nmx: *.example.com\nmax_age: notanumber`,
+    );
+
+    const result = await analyzeMtaSts("example.com");
+    expect(result.policy?.max_age).toBe(0);
+    expect(
+      result.validations.some(
+        (v) => v.status === "warn" && v.message.includes("Invalid max_age"),
+      ),
+    ).toBe(true);
+  });
+
+  it("warns on max_age of 0 (not a positive integer)", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=STSv1; id=20240101"],
+      raw: "v=STSv1; id=20240101",
+    });
+    mockFetchPolicy(
+      `version: STSv1\nmode: enforce\nmx: *.example.com\nmax_age: 0`,
+    );
+
+    const result = await analyzeMtaSts("example.com");
+    expect(result.policy?.max_age).toBe(0);
+    expect(
+      result.validations.some(
+        (v) => v.status === "warn" && v.message.includes("Invalid max_age"),
+      ),
+    ).toBe(true);
+  });
+
+  it("warns on max_age over the RFC 8461 ceiling (31557600)", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=STSv1; id=20240101"],
+      raw: "v=STSv1; id=20240101",
+    });
+    mockFetchPolicy(
+      `version: STSv1\nmode: enforce\nmx: *.example.com\nmax_age: 31557601`,
+    );
+
+    const result = await analyzeMtaSts("example.com");
+    expect(result.policy?.max_age).toBe(0);
+    expect(
+      result.validations.some(
+        (v) => v.status === "warn" && v.message.includes("Invalid max_age"),
+      ),
+    ).toBe(true);
+  });
+
+  it("accepts a valid max_age of 604800 with no invalid-value warning", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=STSv1; id=20240101"],
+      raw: "v=STSv1; id=20240101",
+    });
+    mockFetchPolicy(
+      `version: STSv1\nmode: enforce\nmx: *.example.com\nmax_age: 604800`,
+    );
+
+    const result = await analyzeMtaSts("example.com");
+    expect(result.policy?.max_age).toBe(604800);
+    expect(
+      result.validations.some((v) => v.message.includes("Invalid max_age")),
+    ).toBe(false);
+    expect(
+      result.validations.some((v) => v.message.includes("less than 1 day")),
+    ).toBe(false);
+  });
+
   it("warns when no MX patterns in policy", async () => {
     mockQueryTxt.mockResolvedValue({
       entries: ["v=STSv1; id=20240101"],
@@ -357,6 +452,70 @@ describe("analyzeMtaSts", () => {
 
     const result = await analyzeMtaSts("example.com");
     expect(result.status).toBe("pass");
+  });
+
+  // #789 — a policy missing (or misspelling) the version line looked healthy
+  // because nothing checked it.
+  it("fails when policy version is not STSv1", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=STSv1; id=20240101"],
+      raw: "v=STSv1; id=20240101",
+    });
+    mockFetchPolicy(
+      `version: STSv2\nmode: enforce\nmx: *.example.com\nmax_age: 86400`,
+    );
+
+    const result = await analyzeMtaSts("example.com");
+    expect(result.status).toBe("fail");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "fail" &&
+          v.message.includes('Unknown policy version "STSv2"'),
+      ),
+    ).toBe(true);
+  });
+
+  // #789 — a policy with no version line at all (e.g. malformed/omitted) must
+  // also fail, not silently pass with an empty version string.
+  it("fails when policy has no version line", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=STSv1; id=20240101"],
+      raw: "v=STSv1; id=20240101",
+    });
+    mockFetchPolicy(`mode: enforce\nmx: *.example.com\nmax_age: 86400`);
+
+    const result = await analyzeMtaSts("example.com");
+    expect(result.status).toBe("fail");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "fail" &&
+          v.message.includes('Unknown policy version "(missing)"'),
+      ),
+    ).toBe(true);
+  });
+
+  // #789 — a typo'd mode (e.g. "enfroce") fell through the enforce/testing/none
+  // if-chain with no validation entry at all, so the scan looked clean.
+  it("fails when policy mode is not enforce, testing, or none", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=STSv1; id=20240101"],
+      raw: "v=STSv1; id=20240101",
+    });
+    mockFetchPolicy(
+      `version: STSv1\nmode: enfroce\nmx: *.example.com\nmax_age: 86400`,
+    );
+
+    const result = await analyzeMtaSts("example.com");
+    expect(result.status).toBe("fail");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "fail" &&
+          v.message.includes('Unknown policy mode "enfroce"'),
+      ),
+    ).toBe(true);
   });
 
   // Regression guard for PRs #58 and #92: the policy fetch must use

@@ -115,6 +115,49 @@ Live at dmarc.mx | Repo: github.com/schmug/dmarcheck
 - After committing or merging work, check open issues (`gh issue list`) to see if any were resolved and should be closed
 - When a commit addresses an issue, close it with a comment referencing the commit hash
 
+## What an agent can merge
+
+A repository ruleset requires code owner review, and it is **scoped per path**.
+An agent identity with write access can open, green and merge a PR on its own as
+long as the PR stays outside the owned paths. Touch one of them and the merge is
+refused with `Waiting on code owner review from schmug`, however small or green
+the change is.
+
+Needs the owner's review (the rules in `.github/CODEOWNERS`, verbatim):
+
+- `/.github/CODEOWNERS` — the gate itself
+- `/.github/workflows/`: `migrate.yml`, `deploy-mta-sts.yml`, `deploy-staging.yml`,
+  `release.yml`, `rollback.yml`, `pr-provenance.yml`, `factory.yml`
+- `/wrangler.toml`
+- `/src/auth/`, `/src/account/`, `/src/billing/`, `/src/webhooks/`
+- `/src/db/migrations/`, `/src/db/schema.sql`
+- `/package.json`, `/package-lock.json`, `/scripts/routine-gate/`,
+  `/mta-sts-worker/`, `/SECURITY.md`
+
+Everything else is mergeable by an agent once CI is green and the linked issue is
+`spec-approved` — including `src/index.ts`, `src/analyzers/`, `src/orchestrator.ts`,
+`src/shared/scoring.ts`, `src/rate-limit.ts`, `src/rate-limit-do.ts`, the rest of
+`src/db/`, `CLAUDE.md`, the CI-only workflows (`ci.yml`, `codeql.yml`, `dco.yml`,
+`prod-smoke.yml`, `deploy-freshness.yml`), plus routes, views, API, alerts, cron,
+dns, mcp, tests, docs and `scripts/` other than `routine-gate/`. Note
+`wrangler.staging.toml` is not owned, only `wrangler.toml`.
+
+The gated set is deliberately narrow: identity and crypto, money, production
+schema, production deploy configuration, the dependency supply chain, and the
+merge gate. It was narrowed on 2026-09-22 by owner decision so that routes,
+tests, docs, internal metrics and refactors no longer wait for a human.
+
+Plan around this. Most changes land without waiting; anything touching auth,
+billing, webhooks, account deletion, a migration, `wrangler.toml`, a deploy
+workflow, a lockfile or the routine gate waits for a human. Do not reshape a change purely to dodge review: the owned paths are the
+security-sensitive ones, and a change that belongs in one of them belongs there.
+
+One extra step for PRs raised by a non-owner identity: `pr-provenance.yml`
+trusts them only once the linked issue carries `spec-approved`, which needs repo
+write access to apply. If the label is added after the check ran, re-run that
+workflow run — the label alone does not re-trigger it, and neither does closing
+and reopening the PR.
+
 ## Documentation
 
 - Keep `AGENTS.md` and `README.md` up to date when adding features, changing architecture, or modifying conventions
@@ -125,3 +168,17 @@ Live at dmarc.mx | Repo: github.com/schmug/dmarcheck
 - Cloudflare MCP server (`@cloudflare/mcp-server-cloudflare`) is configured globally in `~/.Codex.json`
 - Provides tools for managing Workers, DNS, KV, D1, R2, and more from Codex
 - Account ID: `f0fc4ca5b74274f7ba892e6c9ec411a7`
+
+## Measuring the factory
+
+`scripts/factory-metrics/report.ts` computes the autonomous merge rate — the
+share of routine PRs merged without a human intervention label — from the
+GitHub API, so the number in the goals is measured rather than counted by hand:
+
+```
+GH_TOKEN=... npx tsx scripts/factory-metrics/report.ts --days 90
+```
+
+It prints the window, the merged and routine totals, the rate to one decimal
+place, and which PRs needed a human and under which label. `metrics.ts` holds
+the pure functions and is unit tested; `report.ts` only fetches and prints.

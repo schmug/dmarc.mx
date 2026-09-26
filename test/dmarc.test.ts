@@ -95,6 +95,35 @@ describe("analyzeDmarc — external rua/ruf authorization", () => {
     ).toBe(false);
   });
 
+  it("strips a RFC 7489 §6.2 size limit suffix (!10m) before extracting the reporting domain", async () => {
+    // First call: _dmarc.mydomain.com
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=reject; rua=mailto:reports@example.net!10m"],
+      raw: "v=DMARC1; p=reject; rua=mailto:reports@example.net!10m",
+    });
+    // Second call: mydomain.com._report._dmarc.example.net → valid auth record
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1"],
+      raw: "v=DMARC1",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(mockQueryTxt).toHaveBeenCalledTimes(2);
+    expect(mockQueryTxt).toHaveBeenNthCalledWith(
+      2,
+      "mydomain.com._report._dmarc.example.net",
+      undefined,
+    );
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" &&
+          v.message.includes("rua") &&
+          v.message.includes("authorized"),
+      ),
+    ).toBe(false);
+  });
+
   it("warns instead of throwing when external authorization lookup fails with DnsLookupError", async () => {
     mockQueryTxt.mockResolvedValueOnce({
       entries: ["v=DMARC1; p=reject; rua=mailto:reports@example.com"],
@@ -111,6 +140,73 @@ describe("analyzeDmarc — external rua/ruf authorization", () => {
           v.status === "warn" &&
           v.message.includes("authorization lookup") &&
           v.message.includes("ESERVFAIL"),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not warn when the external authorization record is exactly v=DMARC1", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=reject; rua=mailto:reports@example.com"],
+      raw: "v=DMARC1; p=reject; rua=mailto:reports@example.com",
+    });
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1"],
+      raw: "v=DMARC1",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" &&
+          v.message.includes("rua") &&
+          v.message.includes("authorized"),
+      ),
+    ).toBe(false);
+  });
+
+  it("warns when the external authorization record is a v=DMARC10 look-alike, not an exact v=DMARC1 match", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=reject; rua=mailto:reports@example.com"],
+      raw: "v=DMARC1; p=reject; rua=mailto:reports@example.com",
+    });
+    // Not a valid DMARC record — "v=DMARC10" only shares a prefix with
+    // "v=DMARC1" and must not be treated as authorizing the report.
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC10; p=reject"],
+      raw: "v=DMARC10; p=reject",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" &&
+          v.message.includes("rua") &&
+          v.message.includes("example.com") &&
+          v.message.includes("not authorized"),
+      ),
+    ).toBe(true);
+  });
+
+  it("warns when the authorization name resolves to unrelated TXT content", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=reject; rua=mailto:reports@example.com"],
+      raw: "v=DMARC1; p=reject; rua=mailto:reports@example.com",
+    });
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["google-site-verification=abc123"],
+      raw: "google-site-verification=abc123",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" &&
+          v.message.includes("rua") &&
+          v.message.includes("example.com") &&
+          v.message.includes("not authorized"),
       ),
     ).toBe(true);
   });
@@ -278,6 +374,155 @@ describe("analyzeDmarc — pct warnings", () => {
       ),
     ).toBe(false);
   });
+
+  it("warns with the invalid-percentage message when pct is non-numeric", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=reject; rua=mailto:r@mydomain.com; pct=oops"],
+      raw: "v=DMARC1; p=reject; rua=mailto:r@mydomain.com; pct=oops",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" &&
+          v.message ===
+            "pct=oops is not a valid percentage (0-100); receivers will treat it as 100",
+      ),
+    ).toBe(true);
+  });
+
+  it("warns with the invalid-percentage message when pct has trailing junk", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=reject; rua=mailto:r@mydomain.com; pct=50junk"],
+      raw: "v=DMARC1; p=reject; rua=mailto:r@mydomain.com; pct=50junk",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" &&
+          v.message ===
+            "pct=50junk is not a valid percentage (0-100); receivers will treat it as 100",
+      ),
+    ).toBe(true);
+  });
+
+  it("warns with the invalid-percentage message when pct is negative", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=reject; rua=mailto:r@mydomain.com; pct=-5"],
+      raw: "v=DMARC1; p=reject; rua=mailto:r@mydomain.com; pct=-5",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" &&
+          v.message ===
+            "pct=-5 is not a valid percentage (0-100); receivers will treat it as 100",
+      ),
+    ).toBe(true);
+  });
+
+  it("warns with the invalid-percentage message when pct is above 100", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=reject; rua=mailto:r@mydomain.com; pct=150"],
+      raw: "v=DMARC1; p=reject; rua=mailto:r@mydomain.com; pct=150",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" &&
+          v.message ===
+            "pct=150 is not a valid percentage (0-100); receivers will treat it as 100",
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("analyzeDmarc — ri warnings (#837)", () => {
+  it("does not warn when ri=3600", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=reject; rua=mailto:r@mydomain.com; ri=3600"],
+      raw: "v=DMARC1; p=reject; rua=mailto:r@mydomain.com; ri=3600",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(
+      result.validations.some(
+        (v) => v.status === "warn" && v.message.includes("ri="),
+      ),
+    ).toBe(false);
+  });
+
+  it("does not warn when ri is absent (default is 86400)", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=reject; rua=mailto:r@mydomain.com"],
+      raw: "v=DMARC1; p=reject; rua=mailto:r@mydomain.com",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(
+      result.validations.some(
+        (v) => v.status === "warn" && v.message.includes("ri="),
+      ),
+    ).toBe(false);
+  });
+
+  it("warns with the invalid-interval message when ri is non-numeric", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=reject; rua=mailto:r@mydomain.com; ri=oops"],
+      raw: "v=DMARC1; p=reject; rua=mailto:r@mydomain.com; ri=oops",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" &&
+          v.message ===
+            "ri=oops is not a valid reporting interval — RFC 7489 §6.3 requires a whole positive integer of seconds (default 86400)",
+      ),
+    ).toBe(true);
+  });
+
+  it("warns when ri=0", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=reject; rua=mailto:r@mydomain.com; ri=0"],
+      raw: "v=DMARC1; p=reject; rua=mailto:r@mydomain.com; ri=0",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" &&
+          v.message ===
+            "ri=0 is not a valid reporting interval — RFC 7489 §6.3 requires a whole positive integer of seconds (default 86400)",
+      ),
+    ).toBe(true);
+  });
+
+  it("warns when ri is negative", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=reject; rua=mailto:r@mydomain.com; ri=-5"],
+      raw: "v=DMARC1; p=reject; rua=mailto:r@mydomain.com; ri=-5",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" &&
+          v.message ===
+            "ri=-5 is not a valid reporting interval — RFC 7489 §6.3 requires a whole positive integer of seconds (default 86400)",
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("analyzeDmarc — p=none learn link (#524)", () => {
@@ -413,6 +658,58 @@ describe("analyzeDmarc — multiple records", () => {
   });
 });
 
+describe("analyzeDmarc — duplicate tags (#819)", () => {
+  it("fails on a duplicate p= tag", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=none; p=reject"],
+      raw: "v=DMARC1; p=none; p=reject",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(result.status).toBe("fail");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "fail" &&
+          v.message.includes("Duplicate tag") &&
+          v.message.includes("p"),
+      ),
+    ).toBe(true);
+  });
+
+  it("fails on a duplicate rua= tag", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: [
+        "v=DMARC1; p=reject; rua=mailto:a@mydomain.com; rua=mailto:b@mydomain.com",
+      ],
+      raw: "v=DMARC1; p=reject; rua=mailto:a@mydomain.com; rua=mailto:b@mydomain.com",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(result.status).toBe("fail");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "fail" &&
+          v.message.includes("Duplicate tag") &&
+          v.message.includes("rua"),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not flag a record with no duplicate tags", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=reject; rua=mailto:r@mydomain.com"],
+      raw: "v=DMARC1; p=reject; rua=mailto:r@mydomain.com",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(
+      result.validations.some((v) => v.message.includes("Duplicate tag")),
+    ).toBe(false);
+  });
+});
+
 describe("analyzeDmarc — alignment and failure-reporting tags", () => {
   it("explains strict alignment when adkim=s and aspf=s", async () => {
     mockQueryTxt.mockResolvedValueOnce({
@@ -491,6 +788,72 @@ describe("analyzeDmarc — alignment and failure-reporting tags", () => {
           v.message.includes("default"),
       ),
     ).toBe(true);
+  });
+
+  it("warns on an invalid adkim value and still describes relaxed handling", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=reject; adkim=x; rua=mailto:r@mydomain.com"],
+      raw: "v=DMARC1; p=reject; adkim=x; rua=mailto:r@mydomain.com",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" &&
+          v.message.includes("adkim=x") &&
+          v.message.includes("only defines r and s"),
+      ),
+    ).toBe(true);
+    expect(
+      result.validations.some(
+        (v) =>
+          v.message.includes("DKIM alignment") &&
+          v.message.includes("relaxed") &&
+          v.message.includes("default"),
+      ),
+    ).toBe(true);
+  });
+
+  it("warns on an invalid aspf value and still describes relaxed handling", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=DMARC1; p=reject; aspf=foo; rua=mailto:r@mydomain.com"],
+      raw: "v=DMARC1; p=reject; aspf=foo; rua=mailto:r@mydomain.com",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" &&
+          v.message.includes("aspf=foo") &&
+          v.message.includes("only defines r and s"),
+      ),
+    ).toBe(true);
+    expect(
+      result.validations.some(
+        (v) =>
+          v.message.includes("SPF alignment") &&
+          v.message.includes("relaxed") &&
+          v.message.includes("default"),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not warn on valid adkim=r / aspf=r values", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: [
+        "v=DMARC1; p=reject; adkim=r; aspf=r; rua=mailto:r@mydomain.com",
+      ],
+      raw: "v=DMARC1; p=reject; adkim=r; aspf=r; rua=mailto:r@mydomain.com",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(
+      result.validations.some((v) =>
+        v.message.includes("only defines r and s"),
+      ),
+    ).toBe(false);
   });
 
   it("explains the fo=1 failure-reporting option when present", async () => {
@@ -578,6 +941,76 @@ describe("analyzeDmarc — alignment and failure-reporting tags", () => {
         (v) =>
           v.message.includes("fo=1") &&
           v.message.includes("no effect without a ruf address"),
+      ),
+    ).toBe(true);
+  });
+
+  it("explains a valid colon-separated fo combination (fo=1:d)", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: [
+        "v=DMARC1; p=reject; fo=1:d; ruf=mailto:f@mydomain.com; rua=mailto:r@mydomain.com",
+      ],
+      raw: "v=DMARC1; p=reject; fo=1:d; ruf=mailto:f@mydomain.com; rua=mailto:r@mydomain.com",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.message.includes("fo=1:d") &&
+          v.message.includes("any authentication mechanism fails") &&
+          v.message.includes("DKIM evaluation fails"),
+      ),
+    ).toBe(true);
+    // Both tokens are valid — no unrecognized-token warning.
+    expect(
+      result.validations.some((v) => v.message.includes("unrecognized")),
+    ).toBe(false);
+  });
+
+  it("warns on an unrecognized fo value (fo=bogus)", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: [
+        "v=DMARC1; p=reject; fo=bogus; ruf=mailto:f@mydomain.com; rua=mailto:r@mydomain.com",
+      ],
+      raw: "v=DMARC1; p=reject; fo=bogus; ruf=mailto:f@mydomain.com; rua=mailto:r@mydomain.com",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" &&
+          v.message.includes("fo=bogus") &&
+          v.message.includes("bogus"),
+      ),
+    ).toBe(true);
+  });
+
+  it("warns on a trailing empty fo token (fo=0:)", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: [
+        "v=DMARC1; p=reject; fo=0:; ruf=mailto:f@mydomain.com; rua=mailto:r@mydomain.com",
+      ],
+      raw: "v=DMARC1; p=reject; fo=0:; ruf=mailto:f@mydomain.com; rua=mailto:r@mydomain.com",
+    });
+
+    const result = await analyzeDmarc("mydomain.com");
+    // The valid "0" token still gets its explanation...
+    expect(
+      result.validations.some(
+        (v) =>
+          v.message.includes("fo=0:") &&
+          v.message.includes("all authentication mechanisms fail"),
+      ),
+    ).toBe(true);
+    // ...and the empty token after the trailing colon is flagged.
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" &&
+          v.message.includes("fo=0:") &&
+          v.message.includes("(empty)"),
       ),
     ).toBe(true);
   });

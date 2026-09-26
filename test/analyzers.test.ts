@@ -242,10 +242,67 @@ describe("analyzeSpf", () => {
     ).toBe(true);
   });
 
+  it("warns on terms following the all mechanism (RFC 7208 §5.1)", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=spf1 -all ip4:192.0.2.1"],
+      raw: "v=spf1 -all ip4:192.0.2.1",
+    });
+
+    const result = await analyzeSpf("example.com");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" &&
+          v.message.includes("unreachable") &&
+          v.message.includes("ip4:192.0.2.1"),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not warn when all is the last term", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=spf1 ip4:192.0.2.1 -all"],
+      raw: "v=spf1 ip4:192.0.2.1 -all",
+    });
+
+    const result = await analyzeSpf("example.com");
+    expect(
+      result.validations.some((v) => v.message.includes("unreachable")),
+    ).toBe(false);
+  });
+
   it("warns on deprecated ptr mechanism", async () => {
     mockQueryTxt.mockResolvedValue({
       entries: ["v=spf1 ptr -all"],
       raw: "v=spf1 ptr -all",
+    });
+
+    const result = await analyzeSpf("example.com");
+    expect(
+      result.validations.some(
+        (v) => v.status === "warn" && v.message.includes("deprecated ptr"),
+      ),
+    ).toBe(true);
+  });
+
+  it("warns on deprecated ptr mechanism with a + qualifier", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=spf1 +ptr -all"],
+      raw: "v=spf1 +ptr -all",
+    });
+
+    const result = await analyzeSpf("example.com");
+    expect(
+      result.validations.some(
+        (v) => v.status === "warn" && v.message.includes("deprecated ptr"),
+      ),
+    ).toBe(true);
+  });
+
+  it("warns on deprecated qualified ptr:domain mechanism with a - qualifier", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=spf1 -ptr:example.com -all"],
+      raw: "v=spf1 -ptr:example.com -all",
     });
 
     const result = await analyzeSpf("example.com");
@@ -315,6 +372,102 @@ describe("analyzeSpf", () => {
     const result = await analyzeSpf("example.com");
     expect(result.status).not.toBe("fail");
     expect(result.include_tree?.includes.length).toBeGreaterThan(0);
+  });
+
+  it("flags empty redirect= target as permerror (RFC 7208 §6.1)", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=spf1 redirect= -all"],
+      raw: "v=spf1 redirect= -all",
+    });
+
+    const result = await analyzeSpf("example.com");
+    expect(result.status).toBe("fail");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "fail" &&
+          v.message.includes("Empty redirect=") &&
+          v.message.includes("permerror"),
+      ),
+    ).toBe(true);
+  });
+
+  it("flags empty exp= target as permerror (RFC 7208 §6.2)", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=spf1 exp= -all"],
+      raw: "v=spf1 exp= -all",
+    });
+
+    const result = await analyzeSpf("example.com");
+    expect(result.status).toBe("fail");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "fail" &&
+          v.message.includes("Empty exp=") &&
+          v.message.includes("permerror"),
+      ),
+    ).toBe(true);
+  });
+
+  it("flags duplicate redirect= modifier as permerror (RFC 7208 §6)", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: [
+        "v=spf1 redirect=_spf1.example.com redirect=_spf2.example.com -all",
+      ],
+      raw: "v=spf1 redirect=_spf1.example.com redirect=_spf2.example.com -all",
+    });
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=spf1 ip4:10.0.0.1 -all"],
+      raw: "v=spf1 ip4:10.0.0.1 -all",
+    });
+
+    const result = await analyzeSpf("example.com");
+    expect(result.status).toBe("fail");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "fail" &&
+          v.message.includes("Duplicate redirect=") &&
+          v.message.includes("permerror"),
+      ),
+    ).toBe(true);
+  });
+
+  it("flags duplicate exp= modifier as permerror (RFC 7208 §6)", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: [
+        "v=spf1 exp=explain1.example.com exp=explain2.example.com -all",
+      ],
+      raw: "v=spf1 exp=explain1.example.com exp=explain2.example.com -all",
+    });
+
+    const result = await analyzeSpf("example.com");
+    expect(result.status).toBe("fail");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "fail" &&
+          v.message.includes("Duplicate exp=") &&
+          v.message.includes("permerror"),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not flag a single redirect= modifier as a duplicate", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=spf1 redirect=_spf.example.com"],
+      raw: "v=spf1 redirect=_spf.example.com",
+    });
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=spf1 ip4:192.0.2.0/24 -all"],
+      raw: "v=spf1 ip4:192.0.2.0/24 -all",
+    });
+
+    const result = await analyzeSpf("example.com");
+    expect(
+      result.validations.some((v) => v.message.includes("Duplicate redirect=")),
+    ).toBe(false);
   });
 
   it("handles bare v=spf1 record", async () => {
@@ -506,5 +659,306 @@ describe("analyzeSpf", () => {
     expect(result.validations.some((v) => v.message.includes("Unknown"))).toBe(
       false,
     );
+  });
+
+  it("flags an ip4 prefix length over 32 (RFC 7208 §5.6)", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=spf1 ip4:192.0.2.1/33 -all"],
+      raw: "v=spf1 ip4:192.0.2.1/33 -all",
+    });
+
+    const result = await analyzeSpf("example.com");
+    expect(result.status).toBe("fail");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "fail" &&
+          v.message.includes("Invalid ip4/ip6") &&
+          v.message.includes("ip4:192.0.2.1/33"),
+      ),
+    ).toBe(true);
+  });
+
+  it("flags an invalid ip4 address with an out-of-range octet", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=spf1 ip4:999.1.1.1 -all"],
+      raw: "v=spf1 ip4:999.1.1.1 -all",
+    });
+
+    const result = await analyzeSpf("example.com");
+    expect(result.status).toBe("fail");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "fail" &&
+          v.message.includes("Invalid ip4/ip6") &&
+          v.message.includes("ip4:999.1.1.1"),
+      ),
+    ).toBe(true);
+  });
+
+  it("flags an ip6 prefix length over 128 (RFC 7208 §5.6)", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=spf1 ip6:2001:db8::/129 -all"],
+      raw: "v=spf1 ip6:2001:db8::/129 -all",
+    });
+
+    const result = await analyzeSpf("example.com");
+    expect(result.status).toBe("fail");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "fail" &&
+          v.message.includes("Invalid ip4/ip6") &&
+          v.message.includes("ip6:2001:db8::/129"),
+      ),
+    ).toBe(true);
+  });
+
+  it("flags an invalid ip6 address", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=spf1 ip6:gggg::1 -all"],
+      raw: "v=spf1 ip6:gggg::1 -all",
+    });
+
+    const result = await analyzeSpf("example.com");
+    expect(result.status).toBe("fail");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "fail" &&
+          v.message.includes("Invalid ip4/ip6") &&
+          v.message.includes("ip6:gggg::1"),
+      ),
+    ).toBe(true);
+  });
+
+  it("accepts valid ip4 boundary prefixes /0 and /32", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=spf1 ip4:0.0.0.0/0 ip4:192.0.2.1/32 -all"],
+      raw: "v=spf1 ip4:0.0.0.0/0 ip4:192.0.2.1/32 -all",
+    });
+
+    const result = await analyzeSpf("example.com");
+    expect(
+      result.validations.some((v) => v.message.includes("Invalid ip4/ip6")),
+    ).toBe(false);
+  });
+
+  it("accepts valid ip6 boundary prefixes /0 and /128", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=spf1 ip6:::/0 ip6:2001:db8::1/128 -all"],
+      raw: "v=spf1 ip6:::/0 ip6:2001:db8::1/128 -all",
+    });
+
+    const result = await analyzeSpf("example.com");
+    expect(
+      result.validations.some((v) => v.message.includes("Invalid ip4/ip6")),
+    ).toBe(false);
+  });
+
+  it("flags an invalid macro-letter in an include: target (RFC 7208 §7.1)", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=spf1 include:%{z}._spf.example.com -all"],
+      raw: "v=spf1 include:%{z}._spf.example.com -all",
+    });
+
+    const result = await analyzeSpf("example.com");
+    expect(result.status).toBe("fail");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "fail" &&
+          v.message.includes("Malformed macro syntax") &&
+          v.message.includes("include:%{z}._spf.example.com"),
+      ),
+    ).toBe(true);
+    // Malformed macro target is not resolved — only the root record's own lookup counts.
+    expect(mockQueryTxt).toHaveBeenCalledTimes(1);
+  });
+
+  it("flags an unterminated macro in an include: target", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=spf1 include:%{d._spf.example.com -all"],
+      raw: "v=spf1 include:%{d._spf.example.com -all",
+    });
+
+    const result = await analyzeSpf("example.com");
+    expect(result.status).toBe("fail");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "fail" && v.message.includes("Malformed macro syntax"),
+      ),
+    ).toBe(true);
+  });
+
+  it("flags a stray percent sign in a redirect= target", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=spf1 redirect=%foo.example.com"],
+      raw: "v=spf1 redirect=%foo.example.com",
+    });
+
+    const result = await analyzeSpf("example.com");
+    expect(result.status).toBe("fail");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "fail" &&
+          v.message.includes("Malformed macro syntax") &&
+          v.message.includes("redirect=%foo.example.com"),
+      ),
+    ).toBe(true);
+    // The malformed redirect target is never resolved.
+    expect(mockQueryTxt).toHaveBeenCalledTimes(1);
+  });
+
+  it("flags a malformed macro in an exists: target", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=spf1 exists:%{x}.example.com -all"],
+      raw: "v=spf1 exists:%{x}.example.com -all",
+    });
+
+    const result = await analyzeSpf("example.com");
+    expect(result.status).toBe("fail");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "fail" &&
+          v.message.includes("Malformed macro syntax") &&
+          v.message.includes("exists:%{x}.example.com"),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not flag valid macros in include:/exists:/redirect= targets", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: [
+        "v=spf1 include:%{ir}.%{d}._spf.example.com exists:%{s}.example.com redirect=%%._spf2.example.com",
+      ],
+      raw: "v=spf1 include:%{ir}.%{d}._spf.example.com exists:%{s}.example.com redirect=%%._spf2.example.com",
+    });
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=spf1 ip4:192.0.2.0/24 -all"],
+      raw: "v=spf1 ip4:192.0.2.0/24 -all",
+    });
+
+    const result = await analyzeSpf("example.com");
+    expect(
+      result.validations.some((v) => v.message.includes("Malformed macro")),
+    ).toBe(false);
+  });
+
+  it("does not flag the %%, %_, and %- literal escapes", async () => {
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=spf1 include:%%.%_.%-._spf.example.com -all"],
+      raw: "v=spf1 include:%%.%_.%-._spf.example.com -all",
+    });
+    mockQueryTxt.mockResolvedValueOnce({
+      entries: ["v=spf1 ip4:192.0.2.0/24 -all"],
+      raw: "v=spf1 ip4:192.0.2.0/24 -all",
+    });
+
+    const result = await analyzeSpf("example.com");
+    expect(
+      result.validations.some((v) => v.message.includes("Malformed macro")),
+    ).toBe(false);
+  });
+
+  it("flags a malformed macro nested inside an included record", async () => {
+    mockQueryTxt.mockImplementation(async (name: string) => {
+      if (name === "example.com") {
+        return {
+          entries: ["v=spf1 include:_spf.example.com -all"],
+          raw: "v=spf1 include:_spf.example.com -all",
+        };
+      }
+      if (name === "_spf.example.com") {
+        return {
+          entries: ["v=spf1 include:%{q}.example.net -all"],
+          raw: "v=spf1 include:%{q}.example.net -all",
+        };
+      }
+      return null;
+    });
+
+    const result = await analyzeSpf("example.com");
+    expect(result.status).toBe("fail");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "fail" &&
+          v.message.includes("Malformed macro syntax") &&
+          v.message.includes("include:%{q}.example.net"),
+      ),
+    ).toBe(true);
+  });
+
+  it("accepts valid a/mx dual-cidr-length suffixes", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=spf1 a/24 mx//64 a:host.example.com/24//64 -all"],
+      raw: "v=spf1 a/24 mx//64 a:host.example.com/24//64 -all",
+    });
+
+    const result = await analyzeSpf("example.com");
+    expect(
+      result.validations.some((v) =>
+        v.message.includes("Invalid a/mx dual-cidr-length"),
+      ),
+    ).toBe(false);
+  });
+
+  it("flags an a mechanism with an ip4-cidr-length over 32 (RFC 7208 §5.3)", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=spf1 a/33 -all"],
+      raw: "v=spf1 a/33 -all",
+    });
+
+    const result = await analyzeSpf("example.com");
+    expect(result.status).toBe("fail");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "fail" &&
+          v.message.includes("Invalid a/mx dual-cidr-length") &&
+          v.message.includes("a/33"),
+      ),
+    ).toBe(true);
+  });
+
+  it("flags an mx mechanism with an ip6-cidr-length over 128 (RFC 7208 §5.4)", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=spf1 mx//129 -all"],
+      raw: "v=spf1 mx//129 -all",
+    });
+
+    const result = await analyzeSpf("example.com");
+    expect(result.status).toBe("fail");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "fail" &&
+          v.message.includes("Invalid a/mx dual-cidr-length") &&
+          v.message.includes("mx//129"),
+      ),
+    ).toBe(true);
+  });
+
+  it("flags an a mechanism with a malformed trailing-slash cidr suffix", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=spf1 a/24/ -all"],
+      raw: "v=spf1 a/24/ -all",
+    });
+
+    const result = await analyzeSpf("example.com");
+    expect(result.status).toBe("fail");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "fail" &&
+          v.message.includes("Invalid a/mx dual-cidr-length") &&
+          v.message.includes("a/24/"),
+      ),
+    ).toBe(true);
   });
 });

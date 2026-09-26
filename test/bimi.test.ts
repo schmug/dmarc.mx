@@ -237,6 +237,36 @@ describe("analyzeBimi", () => {
     ).toBe(true);
   });
 
+  it("rejects v=BIMI10 as not a valid BIMI record", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=BIMI10; l=https://example.com/logo.svg"],
+      raw: "v=BIMI10; l=https://example.com/logo.svg",
+    });
+
+    const result = await analyzeBimi("example.com", "reject");
+    expect(result.status).toBe("warn");
+    expect(result.tags).toBeNull();
+    expect(
+      result.validations.some((v) =>
+        v.message.includes("not a valid BIMI record"),
+      ),
+    ).toBe(true);
+  });
+
+  it("accepts v=BIMI1; l=https://... as a valid BIMI record", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=BIMI1; l=https://example.com/logo.svg"],
+      raw: "v=BIMI1; l=https://example.com/logo.svg",
+    });
+    mockFetchLogoOnly();
+
+    const result = await analyzeBimi("example.com", "reject");
+    expect(result.tags?.v).toBe("BIMI1");
+    expect(
+      result.validations.some((v) => v.message.includes("BIMI record found")),
+    ).toBe(true);
+  });
+
   it("warns when no authority certificate specified", async () => {
     mockQueryTxt.mockResolvedValue({
       entries: ["v=BIMI1; l=https://example.com/logo.svg"],
@@ -275,6 +305,48 @@ describe("analyzeBimi", () => {
           v.status === "pass" && v.message.includes("VMC/CMC certificate URL"),
       ),
     ).toBe(true);
+  });
+
+  it("fails and does not fetch when authority certificate URL is not HTTPS", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: [
+        "v=BIMI1; l=https://example.com/logo.svg; a=http://example.com/vmc.pem",
+      ],
+      raw: "v=BIMI1; l=https://example.com/logo.svg; a=http://example.com/vmc.pem",
+    });
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(svgLogoResponse());
+
+    const result = await analyzeBimi("example.com", "reject");
+    expect(
+      result.validations.some(
+        (v) => v.status === "fail" && v.message.includes("must be an https"),
+      ),
+    ).toBe(true);
+    const certValidation = result.validations.find((v) =>
+      v.message.includes("must be an https"),
+    );
+    expect(certValidation?.learnAnchor).toBe("/learn/bimi#bimi-certification");
+    expect(fetchSpy).toHaveBeenCalledTimes(1); // only the logo fetch
+  });
+
+  it("fails and does not fetch when authority certificate URL is not a valid URL", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=BIMI1; l=https://example.com/logo.svg; a=not-a-url"],
+      raw: "v=BIMI1; l=https://example.com/logo.svg; a=not-a-url",
+    });
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(svgLogoResponse());
+
+    const result = await analyzeBimi("example.com", "reject");
+    expect(
+      result.validations.some(
+        (v) => v.status === "fail" && v.message.includes("must be an https"),
+      ),
+    ).toBe(true);
+    expect(fetchSpy).toHaveBeenCalledTimes(1); // only the logo fetch
   });
 
   it("returns pass status when all checks pass", async () => {

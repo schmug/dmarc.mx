@@ -2,11 +2,28 @@ import { describe, it, expect } from "vitest";
 import { CONFIG } from "../config.js";
 import { parseClosesIssue, isProvenanceTrusted, closesIssueRefs } from "../gate-core.js";
 import { touchesRiskPath, withinSizeEnvelope, scopeDrift } from "../gate-core.js";
-import { evaluateGate, type GateInput } from "../gate-core.js";
+import { ciReasons, evaluateGate, type GateInput } from "../gate-core.js";
+import { toCheckState } from "../github.js";
 
 describe("CONFIG", () => {
   it("only allowlists the repo owner", () => {
     expect(CONFIG.allowlistAuthors).toEqual(["schmug"]);
+  });
+  it("trusts the operating agent only for labelled issues", () => {
+    expect(CONFIG.allowlistAuthorsWithApproval).toEqual(["andonos[bot]"]);
+    const labelled = {
+      number: 1,
+      author: "andonos[bot]",
+      labels: ["spec-approved"],
+      filePointers: [],
+    };
+    expect(isProvenanceTrusted(labelled, CONFIG)).toBe(true);
+    expect(
+      isProvenanceTrusted({ ...labelled, labels: ["bug"] }, CONFIG),
+    ).toBe(false);
+    expect(
+      isProvenanceTrusted({ ...labelled, author: "stranger" }, CONFIG),
+    ).toBe(false);
   });
   it("uses the higher-throughput envelope", () => {
     expect(CONFIG.size.maxChangedLines).toBe(250);
@@ -57,21 +74,28 @@ describe("isProvenanceTrusted", () => {
 });
 
 describe("touchesRiskPath", () => {
-  it("flags a workflow file", () => {
-    expect(touchesRiskPath([".github/workflows/ci.yml"], CONFIG.riskPathDenylist))
-      .toEqual([".github/workflows/ci.yml"]);
+  it("flags a migration-deploy workflow file", () => {
+    expect(touchesRiskPath([".github/workflows/migrate.yml"], CONFIG.riskPathDenylist))
+      .toEqual([".github/workflows/migrate.yml"]);
   });
-  it("flags an mta-sts source file", () => {
-    expect(touchesRiskPath(["src/mta-sts-fetch.ts"], CONFIG.riskPathDenylist))
-      .toEqual(["src/mta-sts-fetch.ts"]);
+  it("flags an mta-sts worker file", () => {
+    expect(touchesRiskPath(["mta-sts-worker/index.ts"], CONFIG.riskPathDenylist))
+      .toEqual(["mta-sts-worker/index.ts"]);
+  });
+  it("passes a CI-only workflow file", () => {
+    expect(touchesRiskPath([".github/workflows/ci.yml"], CONFIG.riskPathDenylist)).toEqual([]);
   });
   it("passes an ordinary source file", () => {
     expect(touchesRiskPath(["src/analyzers/spf.ts"], CONFIG.riskPathDenylist)).toEqual([]);
   });
+  it("flags an auth source file", () => {
+    expect(touchesRiskPath(["src/auth/session.ts"], CONFIG.riskPathDenylist))
+      .toEqual(["src/auth/session.ts"]);
+  });
 });
 
 describe("withinSizeEnvelope", () => {
-  const base = { number: 1, body: "", changedFiles: ["a.ts"], ciAllGreen: true };
+  const base = { number: 1, body: "", changedFiles: ["a.ts"], checks: [{ name: "check", outcome: "success" as const }] };
   it("accepts a small diff", () => {
     expect(withinSizeEnvelope({ ...base, additions: 100, deletions: 40 }, CONFIG)).toBe(true);
   });
@@ -81,6 +105,52 @@ describe("withinSizeEnvelope", () => {
   it("rejects too many files", () => {
     expect(withinSizeEnvelope(
       { ...base, additions: 10, deletions: 0, changedFiles: Array(9).fill("x.ts") }, CONFIG)).toBe(false);
+  });
+});
+
+describe("ciReasons", () => {
+  it("accepts skipped checks: a conditional job that did not run is not a failure", () => {
+    expect(ciReasons([
+      { name: "check", outcome: "success" },
+      { name: "land", outcome: "skipped" },
+    ])).toEqual([]);
+  });
+  it("names the failing checks", () => {
+    expect(ciReasons([
+      { name: "typecheck", outcome: "failed" },
+      { name: "lint", outcome: "failed" },
+      { name: "check", outcome: "success" },
+    ])).toEqual(["CI failing: lint, typecheck"]);
+  });
+  it("distinguishes a still-running check from a failed one", () => {
+    expect(ciReasons([{ name: "test", outcome: "pending" }]))
+      .toEqual(["CI still running: test"]);
+  });
+  it("fails closed when no checks are reported", () => {
+    expect(ciReasons([])).toEqual(["no CI checks reported (fail-closed)"]);
+  });
+});
+
+describe("toCheckState", () => {
+  it("reads a completed check-run conclusion", () => {
+    expect(toCheckState({ name: "lint", status: "COMPLETED", conclusion: "SUCCESS" }))
+      .toEqual({ name: "lint", outcome: "success" });
+  });
+  it("treats an unfinished check-run as pending, not failed", () => {
+    expect(toCheckState({ name: "test", status: "IN_PROGRESS", conclusion: "" }))
+      .toEqual({ name: "test", outcome: "pending" });
+  });
+  it("reads a commit status by context and state", () => {
+    expect(toCheckState({ context: "Workers Builds: dmarcheck", state: "SUCCESS" }))
+      .toEqual({ name: "Workers Builds: dmarcheck", outcome: "success" });
+  });
+  it("maps a skipped job to skipped", () => {
+    expect(toCheckState({ name: "land", conclusion: "SKIPPED" }).outcome).toBe("skipped");
+  });
+  it("maps failure, cancellation and timeout to failed", () => {
+    for (const c of ["FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "ERROR"]) {
+      expect(toCheckState({ name: "x", conclusion: c }).outcome).toBe("failed");
+    }
   });
 });
 
@@ -104,7 +174,7 @@ function baseInput(): GateInput {
       number: 100,
       body: "Implements analyzer tweak.\n\nCloses #42",
       changedFiles: ["src/analyzers/spf.ts"],
-      additions: 30, deletions: 5, ciAllGreen: true,
+      additions: 30, deletions: 5, checks: [{ name: "check", outcome: "success" as const }],
     },
   };
 }
@@ -133,7 +203,7 @@ describe("evaluateGate", () => {
     expect(v.pass).toBe(false);
   });
   it("FAILS on risk path even if everything else is fine", () => {
-    const i = baseInput(); i.pr.changedFiles = [".github/workflows/ci.yml"]; i.issue!.filePointers = [".github/workflows/**"];
+    const i = baseInput(); i.pr.changedFiles = ["src/auth/session.ts"]; i.issue!.filePointers = ["src/auth/**"];
     const v = evaluateGate(i);
     expect(v.pass).toBe(false);
     expect(v.reasons.join(" ")).toMatch(/risk-path/);
@@ -149,7 +219,7 @@ describe("evaluateGate", () => {
     expect(v.reasons.join(" ")).toMatch(/scope drift/);
   });
   it("FAILS on red CI", () => {
-    const i = baseInput(); i.pr.ciAllGreen = false;
+    const i = baseInput(); i.pr.checks = [{ name: "test", outcome: "failed" }];
     expect(evaluateGate(i).pass).toBe(false);
   });
   it("FAILS when PR closes a different issue than evaluated", () => {
@@ -191,7 +261,7 @@ describe("evaluateGate ambiguity + provenance source-of-truth", () => {
       cfg: CONFIG,
       issue: { number: 42, author: "schmug", labels: ["spec-approved"], filePointers: ["src/analyzers/**"] },
       pr: { number: 100, body: "Implements analyzer tweak.\n\nCloses #42",
-            changedFiles: ["src/analyzers/spf.ts"], additions: 30, deletions: 5, ciAllGreen: true },
+            changedFiles: ["src/analyzers/spf.ts"], additions: 30, deletions: 5, checks: [{ name: "check", outcome: "success" as const }] },
     };
   }
   it("FAILS with an ambiguous reason on multiple Closes refs", () => {
@@ -209,8 +279,8 @@ describe("gate self-modification is denylisted", () => {
   it("blocks changes to the gate config", () => {
     expect(touchesRiskPath(["scripts/routine-gate/config.ts"], CONFIG.riskPathDenylist).length).toBe(1);
   });
-  it("blocks changes to pipeline scripts/prompts", () => {
-    expect(touchesRiskPath(["scripts/routine-pipeline/routine-reviewer.md"], CONFIG.riskPathDenylist).length).toBe(1);
+  it("no longer blocks pipeline scripts/prompts (un-gated, owner decision 2026-09-22)", () => {
+    expect(touchesRiskPath(["scripts/routine-pipeline/routine-reviewer.md"], CONFIG.riskPathDenylist).length).toBe(0);
   });
   it("still allows ordinary source", () => {
     expect(touchesRiskPath(["src/analyzers/spf.ts"], CONFIG.riskPathDenylist).length).toBe(0);
@@ -218,29 +288,33 @@ describe("gate self-modification is denylisted", () => {
 });
 
 describe("denylist hardening + normalization", () => {
-  it("blocks nested wrangler.toml", () => {
-    expect(touchesRiskPath(["packages/x/wrangler.toml"], CONFIG.riskPathDenylist).length).toBe(1);
+  it("blocks the root wrangler.toml", () => {
+    expect(touchesRiskPath(["wrangler.toml"], CONFIG.riskPathDenylist).length).toBe(1);
   });
-  it("blocks nested .github/workflows", () => {
-    expect(touchesRiskPath(["apps/web/.github/workflows/ci.yml"], CONFIG.riskPathDenylist).length).toBe(1);
+  it("does not block an unrelated nested wrangler.toml (not a genuine risk area)", () => {
+    expect(touchesRiskPath(["packages/x/wrangler.toml"], CONFIG.riskPathDenylist).length).toBe(0);
   });
-  it("blocks an authz directory file", () => {
-    expect(touchesRiskPath(["src/authz/policy.ts"], CONFIG.riskPathDenylist).length).toBe(1);
+  it("does not block nested/unlisted .github/workflows files", () => {
+    expect(touchesRiskPath(["apps/web/.github/workflows/ci.yml"], CONFIG.riskPathDenylist).length).toBe(0);
   });
-  it("blocks capitalized AuthGuard via case-insensitive denylist", () => {
-    expect(touchesRiskPath(["src/AuthGuard.ts"], CONFIG.riskPathDenylist).length).toBe(1);
+  it("does not block an authz directory file outside src/auth/**", () => {
+    expect(touchesRiskPath(["src/authz/policy.ts"], CONFIG.riskPathDenylist).length).toBe(0);
   });
-  it("blocks reversed access*cloudflare order", () => {
-    expect(touchesRiskPath(["src/access-cloudflare.ts"], CONFIG.riskPathDenylist).length).toBe(1);
+  it("does not block a file merely named AuthGuard outside src/auth/**", () => {
+    expect(touchesRiskPath(["src/AuthGuard.ts"], CONFIG.riskPathDenylist).length).toBe(0);
   });
   it("normalizes ./-prefixed risky paths", () => {
     expect(touchesRiskPath(["./src/auth/login.ts"], CONFIG.riskPathDenylist).length).toBe(1);
+  });
+  it("blocks a db migration file but not other db code", () => {
+    expect(touchesRiskPath(["src/db/migrations/0001_init.sql"], CONFIG.riskPathDenylist).length).toBe(1);
+    expect(touchesRiskPath(["src/db/client.ts"], CONFIG.riskPathDenylist).length).toBe(0);
   });
   it("scopeDrift normalizes ./-prefixed in-scope paths", () => {
     expect(scopeDrift(["./src/analyzers/spf.ts"], ["src/analyzers/**"])).toEqual([]);
   });
   it("size envelope exact boundary passes (<=)", () => {
-    const pr = { number: 1, body: "", changedFiles: Array(8).fill("a.ts"), additions: 200, deletions: 50, ciAllGreen: true };
+    const pr = { number: 1, body: "", changedFiles: Array(8).fill("a.ts"), additions: 200, deletions: 50, checks: [{ name: "check", outcome: "success" as const }] };
     expect(withinSizeEnvelope(pr, CONFIG)).toBe(true);
   });
 });

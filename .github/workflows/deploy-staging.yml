@@ -1,0 +1,177 @@
+name: Deploy staging
+
+# Deploys src/ to the `dmarcheck-staging` Worker from wrangler.staging.toml
+# (issue #195). Manual only, on purpose: staging exists to rehearse a change
+# a human is about to ship, so somebody should always be choosing to put
+# something there. Deploying it automatically on every push to main would
+# make it a second production nobody watches, and would race the Cloudflare
+# Git integration that deploys real production.
+#
+# Production is NEVER touched here: every wrangler invocation passes
+# --config wrangler.staging.toml, which names a different Worker
+# (`dmarcheck-staging`), a different database (`dmarcheck-db-staging`) and no
+# custom domain.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch, tag or full commit SHA to deploy"
+        required: true
+        default: "main"
+      migrate:
+        description: "Apply pending D1 migrations to dmarcheck-db-staging first"
+        type: boolean
+        default: true
+      bootstrap:
+        description: "Empty database: load src/db/schema.sql and mark existing migrations applied"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# One staging deploy at a time, and never cancel one midway: an interrupted
+# `d1 migrations apply` leaves the tracking table disagreeing with the schema.
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ inputs.ref }}
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - run: npm ci
+
+      # Fail before touching Cloudflare if the staging KV namespace id is
+      # still the committed placeholder. Deploying that would either error
+      # opaquely or, worse, bind staging to production's INBOX_TOKENS
+      # namespace, whose records are capability tokens.
+      - name: Reject placeholder bindings
+        run: |
+          if grep -q 'REPLACE_WITH_STAGING_NAMESPACE_ID' wrangler.staging.toml; then
+            echo "::error::wrangler.staging.toml still has the placeholder KV namespace id."
+            echo "Run: wrangler kv namespace create INBOX_TOKENS_STAGING"
+            echo "then commit the returned id into wrangler.staging.toml."
+            exit 1
+          fi
+          echo "No placeholder bindings."
+
+      # Guards against the class of accident this file exists to prevent:
+      # a staging config that has drifted into naming production resources.
+      - name: Assert staging targets are not production
+        run: |
+          set -euo pipefail
+          fail=0
+          if ! grep -q '^name = "dmarcheck-staging"' wrangler.staging.toml; then
+            echo "::error::wrangler.staging.toml must declare name = dmarcheck-staging"
+            fail=1
+          fi
+          if grep -q 'database_name = "dmarcheck-db"' wrangler.staging.toml; then
+            echo "::error::wrangler.staging.toml points at the production database"
+            fail=1
+          fi
+          if grep -qE '^\s*routes' wrangler.staging.toml && grep -q 'pattern = "dmarc.mx"' wrangler.staging.toml; then
+            echo "::error::wrangler.staging.toml claims the production hostname"
+            fail=1
+          fi
+          exit "$fail"
+
+      - name: Check binding parity with production
+        run: npx tsx scripts/binding-parity/check.ts
+
+      # A fresh database cannot be built by `migrations apply` alone. The
+      # migration series starts at 0002: the base tables live in
+      # src/db/schema.sql, which was applied out-of-band when production was
+      # created, and migrate.yml documents the same one-time bootstrap for
+      # production. Running the migrations against an empty database fails on
+      # the first ALTER TABLE, which is exactly what happened on the first
+      # staging deploy - wrangler created the d1_migrations table, migration
+      # 0002 failed, and no row was recorded, leaving the database with no
+      # application tables at all.
+      #
+      # So: load the schema, then record every existing migration as applied,
+      # after which the normal apply step below is a no-op and future
+      # migrations run against staging exactly as they do against production.
+      # This relies on schema.sql being current with the migration series,
+      # which src/db/CLAUDE.md already requires of every migration.
+      - name: Bootstrap an empty staging database
+        if: ${{ inputs.bootstrap }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          wrangler() { npx wrangler "$@" --config wrangler.staging.toml; }
+
+          # Refuse to bootstrap a database that already has application
+          # tables: re-running schema.sql is harmless (every CREATE is IF NOT
+          # EXISTS) but re-seeding d1_migrations would hide genuinely pending
+          # migrations, which is far worse than a failed deploy.
+          existing=$(wrangler d1 execute dmarcheck-db-staging --remote --json \
+            --command "SELECT count(*) AS n FROM sqlite_master WHERE type='table' AND name='users'" \
+            | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const r=JSON.parse(s);process.stdout.write(String(r[0].results[0].n))})')
+          if [ "$existing" != "0" ]; then
+            echo "::error::dmarcheck-db-staging already has a users table; it is not empty."
+            echo "Re-run without bootstrap, or drop the database first if you really want a clean one."
+            exit 1
+          fi
+
+          echo "Loading src/db/schema.sql"
+          wrangler d1 execute dmarcheck-db-staging --remote \
+            --file src/db/schema.sql
+
+          echo "Recording the existing migration series as applied"
+          for f in src/db/migrations/*.sql; do
+            name=$(basename "$f")
+            wrangler d1 execute dmarcheck-db-staging --remote --command \
+              "INSERT INTO d1_migrations (name, applied_at) VALUES ('$name', CURRENT_TIMESTAMP)"
+            echo "  marked $name"
+          done
+
+      - name: List pending staging migrations
+        if: ${{ inputs.migrate }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: >
+          npx wrangler d1 migrations list dmarcheck-db-staging
+          --config wrangler.staging.toml --remote
+
+      - name: Apply pending staging migrations
+        if: ${{ inputs.migrate }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: >
+          npx wrangler d1 migrations apply dmarcheck-db-staging
+          --config wrangler.staging.toml --remote
+
+      - name: Deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler deploy --config wrangler.staging.toml
+
+      - name: Summary
+        env:
+          DEPLOYED_REF: ${{ inputs.ref }}
+        run: |
+          {
+            echo "### Staging deployed"
+            echo
+            echo "- ref: \`$DEPLOYED_REF\`"
+            echo "- worker: \`dmarcheck-staging\`"
+            echo "- database: \`dmarcheck-db-staging\`"
+            echo "- migrations applied: \`${{ inputs.migrate }}\`"
+            echo "- bootstrapped: \`${{ inputs.bootstrap }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

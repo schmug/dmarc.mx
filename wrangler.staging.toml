@@ -1,0 +1,104 @@
+# Staging configuration for dmarcheck (issue #195).
+#
+# WHY A SEPARATE FILE AND NOT [env.staging] IN wrangler.toml.
+# On 2026-04-26 adding a single [env.*] block to wrangler.toml detached
+# dmarc.mx from its zone (PRs #203 -> #206): a named environment does not
+# inherit most top-level configuration, so production silently lost its
+# custom-domain route. wrangler.toml now carries four separate warnings
+# against ever reintroducing one. This file is therefore a standalone,
+# fully-specified config deployed by .github/workflows/deploy-staging.yml
+# with `--config wrangler.staging.toml`. Nothing here can affect a
+# production deploy, because production never reads this file.
+#
+# THE COST OF THAT CHOICE is duplication: a binding added to wrangler.toml
+# and forgotten here makes staging stop being a faithful rehearsal of
+# production. `scripts/binding-parity/check.ts` runs in CI to catch exactly
+# that, and deliberate differences must be declared in
+# scripts/binding-parity/exemptions.json with a reason.
+name = "dmarcheck-staging"
+main = "src/index.ts"
+compatibility_date = "2026-06-30"
+compatibility_flags = ["nodejs_compat", "nodejs_als"]
+upload_source_maps = true
+
+# Served at staging.dmarc.mx, a Workers custom domain the owner attached on
+# 2026-09-22 behind its own Cloudflare Access application (one-time PIN).
+# Declared here so a deploy keeps the attachment rather than drifting from it.
+# The workers.dev hostname stays on as a fallback; without an Access JWT it
+# answers 401, so it exposes nothing.
+workers_dev = true
+routes = [
+  { pattern = "staging.dmarc.mx", custom_domain = true },
+]
+
+[observability]
+enabled = true
+
+  [observability.logs]
+  head_sampling_rate = 1
+
+  # Traces are OFF in staging, unlike production. Two reasons: staging's
+  # traffic is synthetic so per-binding traces buy nothing, and traces record
+  # `url.full` on outbound fetch spans, which is the path that would leak a
+  # DNSBL_DQS_KEY if one were ever set here (see the long warning in
+  # wrangler.toml).
+  [observability.traces]
+  enabled = false
+  head_sampling_rate = 0
+
+[dev]
+port = 8791
+
+# Same keys as production so the Cloudflare Access middleware behaves
+# identically. The team domain is the account's; the AUD is per Access
+# application, and staging.dmarc.mx has its own application, so this value
+# differs from production on purpose. A deploy with production's AUD here
+# makes every staging request fail JWT verification.
+[vars]
+ACCESS_AUD = "01f99207ae5f24a4f17bf2f0cb8c6333cff4f54db4e5a2b2e351eff34d7b8a50"
+ACCESS_TEAM_DOMAIN = "coryrankin.cloudflareaccess.com"
+
+[limits]
+subrequests = 100000
+
+# NO [triggers] BLOCK ON PURPOSE. Staging must not run the nightly rescan:
+# it would scan the same 361 real domains as production, doubling outbound
+# DNS for no signal, and a staging bug would write alert rows. Exercise the
+# cron path in staging by invoking the scheduled handler explicitly
+# (`wrangler dev --test-scheduled`, or a one-off `curl` against
+# /__scheduled` in local dev), never on a timer.
+
+[[durable_objects.bindings]]
+name = "RATE_LIMITER"
+class_name = "RateLimiterDO"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RateLimiterDO"]
+
+# Staging's own D1 instance, already provisioned on the account. It is empty
+# apart from Cloudflare's internal tables; the first staging run of
+# `wrangler d1 migrations apply dmarcheck-db-staging --remote` builds the
+# schema from src/db/migrations/ the same way production was built, which is
+# itself a useful rehearsal of a migration.
+[[d1_databases]]
+binding = "DB"
+database_name = "dmarcheck-db-staging"
+database_id = "8f1e2627-1a4b-43f2-87c3-8acf2792128c"
+migrations_dir = "src/db/migrations"
+
+# NO [[send_email]] BINDING ON PURPOSE, declared as a parity exemption.
+# alerts@dmarc.mx is a verified production sender; a staging deploy that
+# could send from it could mail real subscribers from unreviewed code.
+# dispatchPendingAlerts() already degrades cleanly without the binding,
+# marking alerts `skipped:no_binding` (src/alerts/dispatcher.ts), so the
+# alert path stays testable up to the point of delivery.
+
+# Staging's own INBOX_TOKENS namespace, created for this purpose on
+# 2026-09-21. It must never be production's: inbox reservations are
+# capability tokens, so a shared namespace would let staging read and
+# overwrite them. deploy-staging.yml still fails fast if this line ever
+# reverts to a placeholder.
+[[kv_namespaces]]
+binding = "INBOX_TOKENS"
+id = "578fc71063fe4d31894dda60e9fcf9e1"

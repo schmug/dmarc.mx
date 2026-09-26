@@ -21,6 +21,13 @@ import type {
 //     (informational), never throw out of the analyzer.
 
 const FETCH_TIMEOUT_MS = 3000;
+
+// RFC 9116 §2.5.5 requires Expires to be ISO 8601 (RFC 3339 date-time)
+// format, e.g. "2030-01-01T00:00:00Z" or "2030-01-01T00:00:00+05:00".
+// Date.parse() alone is too permissive — it also accepts non-ISO formats
+// like "Tue, 1 Jan 2030", which would silently dodge the format warning.
+const ISO_8601_DATE_TIME_RE =
+  /^\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(\.\d+)?([Zz]|[+-]\d{2}:\d{2})$/;
 const MAX_BODY_BYTES = 64 * 1024; // RFC 9116 doesn't cap, but a 64KB ceiling
 // is generous (real-world files are <2KB) and keeps a misconfigured server
 // from streaming us megabytes.
@@ -186,6 +193,20 @@ function finalize(sourceUrl: string, raw: string): SecurityTxtResult {
         fields.contact.length === 1 ? "y" : "ies"
       }`,
     });
+    for (const contact of fields.contact) {
+      const scheme = uriScheme(contact);
+      if (!scheme) {
+        validations.push({
+          status: "warn",
+          message: `Contact: "${contact}" is not a URI (RFC 9116 §2.5.3 requires a scheme such as mailto:, https:, or tel:)`,
+        });
+      } else if (scheme === "http") {
+        validations.push({
+          status: "warn",
+          message: `Contact: "${contact}" uses http: — use https: instead`,
+        });
+      }
+    }
   }
 
   // RFC 9116 §2.5.5: Expires is REQUIRED, ISO 8601 format, MUST NOT be in
@@ -197,7 +218,14 @@ function finalize(sourceUrl: string, raw: string): SecurityTxtResult {
     });
   } else {
     const expiresMs = Date.parse(fields.expires);
-    if (Number.isNaN(expiresMs)) {
+    if (!ISO_8601_DATE_TIME_RE.test(fields.expires)) {
+      validations.push({
+        status: "warn",
+        message: Number.isNaN(expiresMs)
+          ? `Expires: not parseable as ISO 8601 (got "${fields.expires}")`
+          : `Expires: not ISO 8601 format (got "${fields.expires}")`,
+      });
+    } else if (Number.isNaN(expiresMs)) {
       validations.push({
         status: "warn",
         message: `Expires: not parseable as ISO 8601 (got "${fields.expires}")`,
@@ -220,6 +248,32 @@ function finalize(sourceUrl: string, raw: string): SecurityTxtResult {
           message: `Expires: ${fields.expires}`,
         });
       }
+    }
+  }
+
+  // RFC 9116 §2.5.2: Encryption MUST be a URI (e.g. a link to a public key).
+  for (const encryption of fields.encryption) {
+    if (!uriScheme(encryption)) {
+      validations.push({
+        status: "warn",
+        message: `Encryption: "${encryption}" is not a URI (RFC 9116 §2.5.2 requires an absolute URI)`,
+      });
+    }
+  }
+
+  // RFC 9116 §2.5.4: Canonical MUST be a URI, and MUST use the https scheme.
+  for (const canonical of fields.canonical) {
+    const scheme = uriScheme(canonical);
+    if (!scheme) {
+      validations.push({
+        status: "warn",
+        message: `Canonical: "${canonical}" is not a URI (RFC 9116 §2.5.4 requires an absolute URI)`,
+      });
+    } else if (scheme !== "https") {
+      validations.push({
+        status: "warn",
+        message: `Canonical: "${canonical}" must use https: (RFC 9116 §2.5.4)`,
+      });
     }
   }
 
@@ -252,6 +306,19 @@ function stripPgpArmor(raw: string): { body: string; signed: boolean } {
     body: raw.slice(afterCleartextHeader + 2, bodyEnd),
     signed: true,
   };
+}
+
+// RFC 9116 §2.5.3: Contact MUST be a URI (e.g. mailto:, https:, tel:) — a
+// bare value with no scheme (a plain email address) isn't one. RFC 9116
+// doesn't ban plaintext http: outright, but a security contact channel
+// shouldn't be one, so it's flagged separately from "not a URI at all".
+// Encryption (§2.5.2) and Canonical (§2.5.4) share the same "MUST be a URI"
+// requirement, so this scheme extraction is reused for all three fields.
+const URI_SCHEME_RE = /^([a-zA-Z][a-zA-Z0-9+.-]*):/;
+
+function uriScheme(value: string): string | null {
+  const match = URI_SCHEME_RE.exec(value);
+  return match ? match[1].toLowerCase() : null;
 }
 
 function parseFields(body: string): SecurityTxtFields {

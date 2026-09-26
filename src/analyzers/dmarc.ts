@@ -36,6 +36,9 @@ interface ReportAuthBudget {
  * Extract the domain portion from a mailto: URI.
  * Returns null if the URI is not a mailto: or has no @ sign.
  * Does NOT use new URL() — that throws on mailto: in some runtimes.
+ * Strips a trailing RFC 7489 §6.2 size limit (e.g. "!10m") before returning
+ * the domain — otherwise "mailto:r@example.net!10m" yields the bogus
+ * reporting domain "example.net!10m".
  */
 function extractMailtoDomain(uri: string): string | null {
   const trimmed = uri.trim();
@@ -43,7 +46,41 @@ function extractMailtoDomain(uri: string): string | null {
   const address = trimmed.slice("mailto:".length);
   const atIndex = address.indexOf("@");
   if (atIndex === -1) return null;
-  return address.slice(atIndex + 1).toLowerCase();
+  const domainPart = address.slice(atIndex + 1);
+  const sizeIndex = domainPart.indexOf("!");
+  const domain = sizeIndex === -1 ? domainPart : domainPart.slice(0, sizeIndex);
+  return domain.toLowerCase();
+}
+
+/**
+ * Tag names that appear more than once in the record, lowercased and in
+ * first-seen order. `parseTags` keeps only the last value for a repeated key
+ * (src/shared/parse-tags.ts:27-28), so "v=DMARC1; p=none; p=reject" silently
+ * parses as p=reject. RFC 7489 §6.3 allows each tag once — detect the
+ * collision here rather than changing parseTags, which other analyzers rely
+ * on for its lenient last-value-wins behavior.
+ */
+function findDuplicateTagNames(record: string): string[] {
+  const seen = new Set<string>();
+  const duplicates: string[] = [];
+  let start = 0;
+  const len = record.length;
+  while (start < len) {
+    let end = record.indexOf(";", start);
+    if (end === -1) end = len;
+    const part = record.slice(start, end).trim();
+    start = end + 1;
+    if (!part) continue;
+    const eqIdx = part.indexOf("=");
+    if (eqIdx === -1) continue;
+    const key = part.slice(0, eqIdx).trim().toLowerCase();
+    if (seen.has(key)) {
+      if (!duplicates.includes(key)) duplicates.push(key);
+    } else {
+      seen.add(key);
+    }
+  }
+  return duplicates;
 }
 
 /**
@@ -54,6 +91,19 @@ function parseReportUris(tagValue: string): string[] {
     .split(",")
     .map((u) => u.trim())
     .filter((u) => u.length > 0);
+}
+
+/**
+ * True when `entry` is exactly a "v=DMARC1" record per RFC 7489 §7.1: the
+ * literal tag followed by a tag separator (`;`), whitespace, or end of
+ * string. A bare `startsWith("v=DMARC1")` also accepts a look-alike version
+ * like "v=DMARC10" as a valid authorization record.
+ */
+function hasExactDmarcVersionTag(entry: string): boolean {
+  const trimmed = entry.trimStart();
+  if (!trimmed.startsWith("v=DMARC1")) return false;
+  const next = trimmed.charAt("v=DMARC1".length);
+  return next === "" || next === ";" || /\s/.test(next);
 }
 
 /**
@@ -107,8 +157,7 @@ async function checkReportingAuthorization(
       throw err;
     }
     const isAuthorized =
-      authRecord?.entries.some((e) => e.trimStart().startsWith("v=DMARC1")) ??
-      false;
+      authRecord?.entries.some((e) => hasExactDmarcVersionTag(e)) ?? false;
     if (!isAuthorized) {
       validations.push({
         status: "warn",
@@ -183,6 +232,17 @@ export async function analyzeDmarc(
     validations.push({ status: "pass", message: "DMARC record found" });
   } else {
     validations.push({ status: "fail", message: "Invalid version tag" });
+  }
+
+  // Duplicate-tag check: RFC 7489 §6.3 allows each tag name once, but
+  // parseTags keeps only the last value for a repeated key — flag it before
+  // any tag-specific check reads (and silently trusts) that merged value.
+  const duplicateTags = findDuplicateTagNames(dmarcRecord);
+  if (duplicateTags.length > 0) {
+    validations.push({
+      status: "fail",
+      message: `Duplicate tag(s) in DMARC record: ${duplicateTags.join(", ")} — RFC 7489 §6.3 allows each tag only once; only the last value is honored`,
+    });
   }
 
   // Multiple-record check: more than one DMARC record means receivers ignore
@@ -297,8 +357,14 @@ export async function analyzeDmarc(
 
   // pct check
   if (tags.pct !== undefined && tags.pct !== null && tags.pct !== "") {
-    const pctVal = parseInt(tags.pct, 10);
-    if (pctVal === 0) {
+    const isWholeNumber = /^\d+$/.test(tags.pct);
+    const pctVal = isWholeNumber ? Number(tags.pct) : NaN;
+    if (!isWholeNumber || pctVal > 100) {
+      validations.push({
+        status: "warn",
+        message: `pct=${tags.pct} is not a valid percentage (0-100); receivers will treat it as 100`,
+      });
+    } else if (pctVal === 0) {
       validations.push({
         status: "warn",
         message:
@@ -312,9 +378,32 @@ export async function analyzeDmarc(
     }
   }
 
+  // ri= check (RFC 7489 §6.3): reporting interval in seconds for aggregate
+  // reports, a 32-bit unsigned integer, default 86400. Anything else has no
+  // defined receiver fallback, so warn rather than fail.
+  if (tags.ri !== undefined && tags.ri !== null && tags.ri !== "") {
+    const isWholeNumber = /^\d+$/.test(tags.ri);
+    const riVal = isWholeNumber ? Number(tags.ri) : NaN;
+    if (!isWholeNumber || riVal <= 0) {
+      validations.push({
+        status: "warn",
+        message: `ri=${tags.ri} is not a valid reporting interval — RFC 7489 §6.3 requires a whole positive integer of seconds (default 86400)`,
+      });
+    }
+  }
+
   // Alignment mode (adkim / aspf). Default is relaxed ("r"); strict ("s")
-  // requires an exact domain match for the passing identifier.
+  // requires an exact domain match for the passing identifier. RFC 7489 §6.3
+  // defines only r and s — anything else is not a valid alignment mode, but
+  // (unlike p=/sp=) has no defined fallback behavior of its own, so we warn
+  // rather than fail and still describe the relaxed-default handling below.
   const adkim = tags.adkim?.toLowerCase();
+  if (adkim && adkim !== "r" && adkim !== "s") {
+    validations.push({
+      status: "warn",
+      message: `Unrecognized DKIM alignment mode (adkim=${tags.adkim}) — RFC 7489 §6.3 only defines r and s`,
+    });
+  }
   validations.push({
     status: "info",
     message:
@@ -323,6 +412,12 @@ export async function analyzeDmarc(
         : "DKIM alignment is relaxed (adkim=r, the default) — organizational-domain match is sufficient",
   });
   const aspf = tags.aspf?.toLowerCase();
+  if (aspf && aspf !== "r" && aspf !== "s") {
+    validations.push({
+      status: "warn",
+      message: `Unrecognized SPF alignment mode (aspf=${tags.aspf}) — RFC 7489 §6.3 only defines r and s`,
+    });
+  }
   validations.push({
     status: "info",
     message:
@@ -331,34 +426,51 @@ export async function analyzeDmarc(
         : "SPF alignment is relaxed (aspf=r, the default) — organizational-domain match is sufficient",
   });
 
-  // Failure-reporting options (fo). Default is "0" when absent.
-  // Only meaningful when ruf is configured.
+  // Failure-reporting options (fo). Default is "0" when absent. RFC 7489
+  // §6.3 defines fo as a colon-separated list of single-character flags
+  // (0, 1, d, s) — e.g. fo=1:d requests a report on any SPF/DKIM failure
+  // OR a DKIM-specific failure.
   const foSuffix = tags.ruf ? "" : " (no effect without a ruf address)";
+  const FO_TOKEN_EXPLANATIONS: Record<string, string> = {
+    "0": "a forensic report is generated only when all authentication mechanisms fail",
+    "1": "a forensic report is generated when any authentication mechanism fails (SPF or DKIM)",
+    d: "a forensic report is generated when DKIM evaluation fails, regardless of SPF",
+    s: "a forensic report is generated when SPF evaluation fails, regardless of DKIM",
+  };
   if (!tags.fo || tags.fo === "0") {
     validations.push({
       status: "info",
-      message: `Failure-reporting option fo=0 (the default) — a forensic report is generated only when all authentication mechanisms fail${foSuffix}`,
-    });
-  } else if (tags.fo === "1") {
-    validations.push({
-      status: "info",
-      message: `Failure-reporting option fo=1 — a forensic report is generated when any authentication mechanism fails (SPF or DKIM)${foSuffix}`,
-    });
-  } else if (tags.fo === "d") {
-    validations.push({
-      status: "info",
-      message: `Failure-reporting option fo=d — a forensic report is generated when DKIM evaluation fails, regardless of SPF${foSuffix}`,
-    });
-  } else if (tags.fo === "s") {
-    validations.push({
-      status: "info",
-      message: `Failure-reporting option fo=s — a forensic report is generated when SPF evaluation fails, regardless of DKIM${foSuffix}`,
+      message: `Failure-reporting option fo=0 (the default) — ${FO_TOKEN_EXPLANATIONS["0"]}${foSuffix}`,
     });
   } else {
-    validations.push({
-      status: "info",
-      message: `Failure-reporting options fo=${tags.fo} configured${foSuffix}`,
-    });
+    const foTokens = tags.fo.split(":");
+    const validTokens = foTokens.filter((t) => t in FO_TOKEN_EXPLANATIONS);
+    const invalidTokens = foTokens.filter((t) => !(t in FO_TOKEN_EXPLANATIONS));
+
+    if (foTokens.length === 1 && validTokens.length === 1) {
+      const token = validTokens[0];
+      validations.push({
+        status: "info",
+        message: `Failure-reporting option fo=${token} — ${FO_TOKEN_EXPLANATIONS[token]}${foSuffix}`,
+      });
+    } else {
+      if (validTokens.length > 0) {
+        const explanations = validTokens
+          .map((t) => FO_TOKEN_EXPLANATIONS[t])
+          .join("; or ");
+        validations.push({
+          status: "info",
+          message: `Failure-reporting options fo=${tags.fo} configured — ${explanations}${foSuffix}`,
+        });
+      }
+      if (invalidTokens.length > 0) {
+        const labeled = invalidTokens.map((t) => (t === "" ? "(empty)" : t));
+        validations.push({
+          status: "warn",
+          message: `Failure-reporting options fo=${tags.fo} include unrecognized token(s): ${labeled.join(", ")} — RFC 7489 §6.3 only defines 0, 1, d, s${foSuffix}`,
+        });
+      }
+    }
   }
 
   const hasFailure = validations.some((v) => v.status === "fail");

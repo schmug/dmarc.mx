@@ -95,6 +95,17 @@ export const DEFAULT_SCORING_CONFIG: ScoringConfig = {
   dkimRotationSelectorCount: 2,
 };
 
+// DMARC pct must be a bare 1-3 digit decimal integer 0-100 (RFC 7489 §6.3).
+// Anything else — non-numeric, out of range, or malformed — is invalid and
+// receivers apply pct=100 (see src/analyzers/dmarc.ts's own pct validation),
+// so scoring must not let a garbage value like "1junk" parse as 1 and
+// trigger the low-pct downgrade.
+function parseDmarcPct(pct: string | undefined): number {
+  if (pct === undefined || !/^\d{1,3}$/.test(pct)) return 100;
+  const value = Number(pct);
+  return value <= 100 ? value : 100;
+}
+
 // ── Single decision engine ─────────────────────────────────
 
 interface ScoringResult {
@@ -144,7 +155,7 @@ function resolveScoring(
     };
   }
 
-  const pct = dmarc.tags?.pct ? Number.parseInt(dmarc.tags.pct, 10) : 100;
+  const pct = parseDmarcPct(dmarc.tags?.pct);
   const hasSpf = spf.status !== "fail";
   const hasDkim = dkim.status !== "fail";
   const hasBimi = bimi.record !== null;
@@ -360,7 +371,7 @@ function dmarcFactors(
   config: ScoringConfig,
 ): ScoringFactor[] {
   const factors: ScoringFactor[] = [];
-  const pct = dmarc.tags?.pct ? Number.parseInt(dmarc.tags.pct, 10) : 100;
+  const pct = parseDmarcPct(dmarc.tags?.pct);
   if (pct >= config.lowPctDowngradeThreshold && pct < 100) {
     factors.push({
       protocol: "dmarc",
@@ -581,7 +592,7 @@ function generateRecommendations(
   }
 
   // DMARC improvements
-  const pct = dmarc.tags?.pct ? Number.parseInt(dmarc.tags.pct, 10) : 100;
+  const pct = parseDmarcPct(dmarc.tags?.pct);
   if (pct < 100) {
     const lowPct = pct < config.lowPctDowngradeThreshold;
     recs.push({

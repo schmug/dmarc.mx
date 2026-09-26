@@ -172,10 +172,33 @@ function deferralExhausted(domain: Domain, now: number): boolean {
   return now - since > cadence + MAX_DEFERRAL_SECONDS;
 }
 
+// #752 — a run-level resolver failure looks exactly like a domain-side one at
+// the single-domain level: every grade-critical protocol comes back
+// DNS_TIMEOUT, whether that domain's nameservers are dead or our own resolver
+// path is. The two are only distinguishable by how much of the RUN looks that
+// way, which is not known until the run ends. So such a scan is held back
+// rather than written immediately, and the run adjudicates it at the end.
+// `forced` marks a domain past the MAX_DEFERRAL_SECONDS backstop: it is written
+// whatever the verdict, but still counts toward it — dropping it from the tally
+// would let a long outage dilute the fraction and flip the whole run to
+// "record everything".
+type HeldScan = { domain: Domain; result: ScanResult; forced: boolean };
+
+function allCriticalLookupsFailed(result: ScanResult): boolean {
+  return GRADE_CRITICAL_PROTOCOLS.every(
+    (id) => result.protocols[id].lookup_error !== undefined,
+  );
+}
+
 async function rescanOne(
   deps: RescanDeps,
   domain: Domain,
-): Promise<{ alerts: number; error?: unknown; degraded?: boolean }> {
+): Promise<{
+  alerts: number;
+  error?: unknown;
+  degraded?: boolean;
+  held?: HeldScan;
+}> {
   const scanFn =
     deps.scanFn ??
     ((domain: string) =>
@@ -205,6 +228,18 @@ async function rescanOne(
       level: "warning",
     });
     return { alerts: 0, degraded: true };
+  }
+
+  // Domain-side fault on every grade-critical protocol: plausible for one
+  // domain, and exactly what a dead resolver looks like for all of them. Hand it
+  // to the run to adjudicate (#752). A domain past the staleness backstop is
+  // held too, but marked forced so a run-level discard still writes it — no
+  // domain can be held back forever.
+  if (errorCode && allCriticalLookupsFailed(result)) {
+    return {
+      alerts: 0,
+      held: { domain, result, forced: deferralExhausted(domain, deps.now) },
+    };
   }
 
   await recordScan(deps.db, {
@@ -294,6 +329,18 @@ const MAX_DOMAINS_PER_RUN = 150;
 // lookup failures and DB errors are recorded/counted but never halt the run.
 const DEGRADED_STREAK_LIMIT = 10;
 
+// How much of a run has to come back with every grade-critical lookup failed
+// before we blame ourselves rather than the domains. On 2026-09-17 production
+// recorded 143 of 150 domains that way (95%) and the same portfolio came back
+// 150/150 clean the next night — 143 unrelated domains do not break and heal
+// together. A genuinely broken slice of a portfolio is far smaller: the
+// standing DNS_TIMEOUT set is ~10 domains of ~360.
+const UNVERIFIABLE_RUN_FRACTION = 0.5;
+
+// Below this many domains a fraction is not evidence: a two-domain run where
+// both are broken is 100% and means nothing.
+const UNVERIFIABLE_RUN_MINIMUM = 20;
+
 // Entry point for the scheduled() handler. Runs the rescan pipeline across
 // due domains in bounded batches, up to the per-invocation ceiling. Failures
 // on individual domains are caught and counted — one domain's DNS timeout must
@@ -319,6 +366,7 @@ export async function runDueRescans(deps: RescanDeps): Promise<RescanResult> {
   let errors = 0;
   let processed = 0;
   let degradedStreak = 0;
+  const held: HeldScan[] = [];
 
   Sentry.addBreadcrumb({
     category: "cron.rescan",
@@ -366,6 +414,10 @@ export async function runDueRescans(deps: RescanDeps): Promise<RescanResult> {
         continue;
       }
       degradedStreak = 0;
+      if (outcome.value.held) {
+        held.push(outcome.value.held);
+        continue;
+      }
       scanned += 1;
       alertCount += outcome.value.alerts;
     }
@@ -377,6 +429,42 @@ export async function runDueRescans(deps: RescanDeps): Promise<RescanResult> {
         level: "error",
       });
       break;
+    }
+  }
+
+  // Adjudicate the held scans (#752). If enough of the run looks that way the
+  // fault is ours: discard them, so those domains keep their last known grade
+  // and stay due for the next run instead of being overwritten with a grade
+  // that describes our resolver. Otherwise they are findings about those
+  // domains and are recorded as before — still never alerted on or sent to a
+  // webhook, since rescanOne suppresses both for any scan with a lookup_error.
+  // Forced scans are written either way (MAX_DEFERRAL_SECONDS backstop).
+  const runLevelFailure =
+    processed >= UNVERIFIABLE_RUN_MINIMUM &&
+    held.length / processed > UNVERIFIABLE_RUN_FRACTION;
+  const toRecord = runLevelFailure ? held.filter((e) => e.forced) : held;
+  if (runLevelFailure) {
+    const discarded = held.length - toRecord.length;
+    errors += discarded;
+    Sentry.captureMessage(
+      `Discarding ${discarded} of ${processed} scans: every grade-critical lookup failed across the run, so the fault is ours, not the domains'`,
+      "error",
+    );
+  }
+  for (const entry of toRecord) {
+    // Same rule as the batch loop: a DB error is counted, never halts the run.
+    try {
+      await recordScan(deps.db, {
+        domainId: entry.domain.id,
+        grade: entry.result.grade,
+        scoreFactors: entry.result.breakdown.factors,
+        protocolResults: entry.result.protocols,
+        scannedAt: deps.now,
+      });
+      scanned += 1;
+    } catch (err) {
+      errors += 1;
+      Sentry.captureException(err);
     }
   }
 

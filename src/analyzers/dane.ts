@@ -19,37 +19,67 @@ function parseTlsaRecord(data: string): DaneTlsaRecord | null {
   const trimmed = data.trim();
 
   if (trimmed.startsWith("\\#")) {
-    // Drop the "\#" marker and the leading rdlength token, then concatenate the
+    // Drop the "\#" marker, keep the rdlength token, then concatenate the
     // remaining (possibly space-separated) hex octets into one lowercase string.
-    const hex = trimmed
-      .slice(2)
-      .trim()
-      .split(/\s+/)
-      .slice(1)
-      .join("")
-      .toLowerCase();
+    const tokens = trimmed.slice(2).trim().split(/\s+/);
+    if (tokens.length < 2) return null;
+    const rdlength = parseInt(tokens[0], 10);
+    if (Number.isNaN(rdlength)) return null;
+    const hex = tokens.slice(1).join("").toLowerCase();
     // Need at least the 3 header octets (6 hex chars); reject anything non-hex.
     // After this guard every two-char slice is valid hex, so parseInt base-16
     // can never return NaN — no further NaN check needed in this branch.
     if (hex.length < 6 || !/^[0-9a-f]+$/.test(hex)) return null;
+    // RFC 3597 §5: RDLENGTH must equal the actual octet count. A mismatch
+    // means the hex octets are truncated (or padded) relative to what the
+    // record claims, so the data can't be trusted — reject rather than
+    // silently decode a partial/misleading TLSA record.
+    if (hex.length !== rdlength * 2) return null;
     const usage = parseInt(hex.slice(0, 2), 16);
     const selector = parseInt(hex.slice(2, 4), 16);
     const matchingType = parseInt(hex.slice(4, 6), 16);
-    return { usage, selector, matchingType, data: hex.slice(6) };
+    const associationData = hex.slice(6);
+    if (!isValidAssociationData(matchingType, associationData)) return null;
+    return { usage, selector, matchingType, data: associationData };
   }
 
   const parts = trimmed.split(/\s+/);
   if (parts.length < 4) return null;
-  const usage = parseInt(parts[0], 10);
-  const selector = parseInt(parts[1], 10);
-  const matchingType = parseInt(parts[2], 10);
-  if (
-    Number.isNaN(usage) ||
-    Number.isNaN(selector) ||
-    Number.isNaN(matchingType)
-  )
-    return null;
-  return { usage, selector, matchingType, data: parts.slice(3).join("") };
+  const usage = parseTlsaField(parts[0], 3);
+  const selector = parseTlsaField(parts[1], 1);
+  const matchingType = parseTlsaField(parts[2], 2);
+  if (usage === null || selector === null || matchingType === null) return null;
+  const associationData = parts.slice(3).join("");
+  if (!isValidAssociationData(matchingType, associationData)) return null;
+  return { usage, selector, matchingType, data: associationData };
+}
+
+// RFC 6698 §2.1: certificate association data is hex, and matching type
+// pins its length — 1 (SHA-256) is exactly 32 octets, 2 (SHA-512) is
+// exactly 64 octets. Matching type 0 (exact match) carries the full
+// certificate/SPKI and has no fixed length. Reject non-hex data or a
+// length mismatch rather than accepting a truncated/malformed hash that
+// could never match a real certificate.
+const ASSOCIATION_DATA_OCTETS: Partial<Record<number, number>> = {
+  1: 32,
+  2: 64,
+};
+
+function isValidAssociationData(matchingType: number, data: string): boolean {
+  if (!/^[0-9a-f]*$/i.test(data)) return false;
+  const expectedOctets = ASSOCIATION_DATA_OCTETS[matchingType];
+  if (expectedOctets === undefined) return true;
+  return data.length === expectedOctets * 2;
+}
+
+// RFC 6698 §2.1: certificate usage is 0-3, selector is 0-1, matching type is
+// 0-2. `parseInt` alone accepts trailing garbage ("3x" -> 3) and out-of-range
+// values (9, 7, 8), so require the token to be a whole, non-negative number
+// within [0, max] or treat the record as malformed.
+function parseTlsaField(token: string, max: number): number | null {
+  if (!/^\d+$/.test(token)) return null;
+  const value = Number(token);
+  return value <= max ? value : null;
 }
 
 export async function analyzeDane(

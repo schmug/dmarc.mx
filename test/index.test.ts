@@ -1,13 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { COMMON_SELECTORS } from "../src/analyzers/dkim.js";
+import { app, normalizeDomain } from "../src/index.js";
+import { _memoryStore } from "../src/rate-limit.js";
 import {
-  app,
   MAX_SELECTOR_LENGTH,
   MAX_SELECTORS,
-  normalizeDomain,
   parseSelectors,
-} from "../src/index.js";
-import { _memoryStore } from "../src/rate-limit.js";
+} from "../src/security/selectors.js";
 import { LEARN_MODIFIED, LEARN_SIBLINGS } from "../src/views/learn.js";
 import { MX_MODIFIED } from "../src/views/mx.js";
 
@@ -213,6 +212,34 @@ describe("normalizeDomain — XSS payload rejection", () => {
     expect(normalizeDomain("123.example.com")).toBe("123.example.com");
     expect(normalizeDomain("1.2.3.4.example.com")).toBe("1.2.3.4.example.com");
     expect(normalizeDomain("10.example.com")).toBe("10.example.com");
+  });
+});
+
+describe("normalizeDomain — DNS label validation (RFC 1035 / RFC 1123)", () => {
+  it("rejects an empty label from adjacent dots", () => {
+    expect(normalizeDomain("a..com")).toBeNull();
+  });
+
+  it("rejects a label over 63 characters", () => {
+    const label64 = "a".repeat(64);
+    expect(normalizeDomain(`${label64}.com`)).toBeNull();
+  });
+
+  it("accepts a label exactly 63 characters", () => {
+    const label63 = "a".repeat(63);
+    expect(normalizeDomain(`${label63}.com`)).toBe(`${label63}.com`);
+  });
+
+  it("rejects a leading hyphen in a label", () => {
+    expect(normalizeDomain("-bad.com")).toBeNull();
+  });
+
+  it("rejects a trailing hyphen in a label", () => {
+    expect(normalizeDomain("bad-.com")).toBeNull();
+  });
+
+  it("accepts a hyphen in the middle of a label", () => {
+    expect(normalizeDomain("bad-domain.com")).toBe("bad-domain.com");
   });
 });
 
