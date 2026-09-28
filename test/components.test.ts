@@ -408,6 +408,15 @@ describe("monitorSnapshotCard", () => {
     expect(html).toContain('class="monitor-cta"');
   });
 
+  it("mentions Pro below the primary CTA", () => {
+    const html = monitorSnapshotCard(makeScanResult());
+    const ctaIndex = html.indexOf("Start monitoring");
+    const proIndex = html.indexOf('href="/pricing"');
+    expect(ctaIndex).toBeGreaterThan(-1);
+    expect(proIndex).toBeGreaterThan(ctaIndex);
+    expect(html).toContain("$9/mo");
+  });
+
   it("escapes the domain in both the heading and the CTA href", () => {
     const html = monitorSnapshotCard(makeScanResult({ domain: "<evil>.test" }));
     expect(html).not.toContain("<evil>.test</strong>");

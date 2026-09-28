@@ -13,6 +13,7 @@ describe("renderDashboardPage", () => {
       domains: [],
     });
     expect(html).toContain("No domains");
+    expect(html).toContain("3 domains");
   });
 
   it("renders domain rows when domains are provided", () => {
