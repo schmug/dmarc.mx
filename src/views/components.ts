@@ -9,6 +9,7 @@ import type {
   Validation,
 } from "../analyzers/types.js";
 import { lookupMxProvider } from "../data/mx-providers.js";
+import { FREE_WATCHLIST_CAP, PRO_WATCHLIST_CAP } from "../shared/limits.js";
 import type { Recommendation, ScoringFactor } from "../shared/scoring.js";
 
 const DMARC_TOOLTIPS: Record<string, string> = {
@@ -127,6 +128,7 @@ export function monitorSnapshotCard(result: ScanResult): string {
       <a href="${esc(nextUrl)}" class="monitor-cta">Start monitoring</a>
       <span class="monitor-cta-meta">free &middot; no card &middot; MIT open source</span>
     </div>
+    <p class="monitor-pro-note">Watching more than ${FREE_WATCHLIST_CAP} domains? <a href="/pricing">Pro</a> covers ${PRO_WATCHLIST_CAP} with nightly alerts, full history and an API key &mdash; $9/mo.</p>
   </div>
 </section>`;
 }

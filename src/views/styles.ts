@@ -624,6 +624,11 @@ h1.domain-name, .domain-name { font-size: 1.5rem; font-weight: 700; margin: 0; }
   font-size: 0.72rem; color: var(--clr-text-faint);
   font-family: 'SF Mono', 'Fira Code', monospace;
 }
+.monitor-pro-note {
+  margin: 0;
+  font-size: 0.8rem; color: var(--clr-text-faint);
+}
+.monitor-pro-note a { color: var(--clr-accent); }
 @media (max-width: 640px) {
   .monitor-card {
     grid-template-columns: 1fr;

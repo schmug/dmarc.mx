@@ -1,3 +1,4 @@
+import { FREE_WATCHLIST_CAP, PRO_WATCHLIST_CAP } from "../shared/limits.js";
 import {
   emptyPortfolioStats,
   gradeBucket,
@@ -1866,7 +1867,7 @@ function heroVoiceLine(
   if (stats.total === 0) {
     return {
       line: "Add a domain and I'll keep watch.",
-      sub: "Free plan starts with one domain. Upgrade for more.",
+      sub: `Free plan covers ${FREE_WATCHLIST_CAP} domains. Upgrade to Pro for ${PRO_WATCHLIST_CAP}.`,
     };
   }
   if (stats.failing >= 3) {
