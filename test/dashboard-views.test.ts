@@ -403,7 +403,7 @@ describe("renderDashboardPage", () => {
         domains: [sample("A")],
       });
       expect(hasSection(free, "dashboard-banner-free")).toBe(true);
-      expect(free).toContain("$19/mo");
+      expect(free).toContain("$9/mo");
       expect(free).toContain("/pricing");
       const pro = renderDashboardPage({
         email: "u@x.com",

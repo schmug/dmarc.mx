@@ -408,7 +408,7 @@ Run a scan: ${MD_SITE}/check?domain=example.com
 export function renderPricingMarkdown(): string {
   return `# Nightly email-security monitoring — DMARC, SPF, DKIM & more
 
-**$19/mo.** Free forever for one-off scans.
+**$9/mo.** Free forever for one-off scans.
 
 ## Free — $0
 
@@ -420,7 +420,7 @@ Public scanner, no account needed.
 - All analyzers: DMARC, SPF, DKIM, BIMI, MTA-STS, MX, security.txt, TLS-RPT, DNSSEC, DANE
 - Self-hostable (MIT) — <https://github.com/schmug/dmarcheck>
 
-## Pro — $19/mo
+## Pro — $9/mo
 
 Continuous monitoring for the domains you actually care about.
 
