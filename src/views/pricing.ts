@@ -13,12 +13,12 @@ const PRICING_JSON_LD = JSON.stringify({
       offers: {
         "@type": "Offer",
         url: "https://dmarc.mx/pricing",
-        price: "19",
+        price: "9",
         priceCurrency: "USD",
         availability: "https://schema.org/InStock",
         priceSpecification: {
           "@type": "UnitPriceSpecification",
-          price: "19",
+          price: "9",
           priceCurrency: "USD",
           billingDuration: "P1M",
           unitCode: "MON",
@@ -80,7 +80,7 @@ export function renderPricingPage(): string {
   </div>
 
   <h1 class="rubric-title">Nightly email-security monitoring &mdash; DMARC, SPF, DKIM &amp; more</h1>
-  <p class="rubric-intro"><strong>$19/mo.</strong> Free forever for one-off scans.</p>
+  <p class="rubric-intro"><strong>$9/mo.</strong> Free forever for one-off scans.</p>
 
   <div class="bd-card">
     <div class="bd-card-title">Free &mdash; $0</div>
@@ -97,7 +97,7 @@ export function renderPricingPage(): string {
   </div>
 
   <div class="bd-card">
-    <div class="bd-card-title">Pro &mdash; $19/mo</div>
+    <div class="bd-card-title">Pro &mdash; $9/mo</div>
     <div class="bd-card-body">
       <p class="tier-text">Continuous monitoring for the domains you actually care about.</p>
       <ul>
@@ -111,7 +111,7 @@ export function renderPricingPage(): string {
       </ul>
       <p class="tier-text" style="margin-top:12px"><strong>Not in Pro (yet):</strong> DMARC aggregate (RUA) report ingestion, team seats or SSO, white-label or custom domain.</p>
       <div style="text-align:center;margin-top:1.25rem;margin-bottom:0.5rem">
-        <a href="/dashboard/billing/subscribe" class="rubric-cta">Start Pro &mdash; $19/mo</a>
+        <a href="/dashboard/billing/subscribe" class="rubric-cta">Start Pro &mdash; $9/mo</a>
       </div>
       <p class="tier-text" style="text-align:center;font-size:0.9em;margin-top:0.5rem">Requires a free account. You can sign up and kick the tires before upgrading.</p>
     </div>
@@ -162,7 +162,7 @@ export function renderPricingPage(): string {
     title: "Pricing — dmarcheck",
     path: "/pricing",
     description:
-      "Nightly email-security monitoring (DMARC, SPF, DKIM, BIMI, MTA-STS and more) for $19/mo. Free forever for one-off scans. Cancel anytime via Stripe.",
+      "Nightly email-security monitoring (DMARC, SPF, DKIM, BIMI, MTA-STS and more) for $9/mo. Free forever for one-off scans. Cancel anytime via Stripe.",
     jsonLd: PRICING_JSON_LD,
     body,
   });

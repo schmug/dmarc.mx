@@ -23,10 +23,10 @@ describe("pricing page", () => {
     );
   });
 
-  it("advertises $19/mo, nightly monitoring, and every protocol name in the hero", async () => {
+  it("advertises $9/mo, nightly monitoring, and every protocol name in the hero", async () => {
     const res = await app.request("/pricing");
     const html = await res.text();
-    expect(html).toContain("$19/mo");
+    expect(html).toContain("$9/mo");
     expect(html).toContain("Nightly email-security monitoring");
     expect(html).toContain("DMARC");
     expect(html).toContain("MTA-STS");
@@ -51,7 +51,7 @@ describe("pricing page", () => {
     const html = await res.text();
     expect(html).toContain('"@type":"Product"');
     expect(html).toContain('"@type":"FAQPage"');
-    expect(html).toContain('"price":"19"');
+    expect(html).toContain('"price":"9"');
     expect(html).toContain('"priceCurrency":"USD"');
   });
 
@@ -64,7 +64,7 @@ describe("pricing page", () => {
       "text/markdown; charset=utf-8",
     );
     const body = await res.text();
-    expect(body).toContain("$19/mo");
+    expect(body).toContain("$9/mo");
     expect(body).toContain("Nightly email-security monitoring");
     expect(body).not.toMatch(/\[PLACEHOLDER/);
   });

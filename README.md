@@ -22,7 +22,7 @@ Meet **DMarcus**, the @ creature who guards your inbox.
 |  | Where | What you get |
 |---|---|---|
 | **Free scanner** | [dmarc.mx](https://dmarc.mx) | Unlimited on-demand scans, JSON API, 10 req/min per IP |
-| **Pro — $19/mo** | [dmarc.mx/pricing](https://dmarc.mx/pricing) | Nightly monitoring (25 domains), email alerts on grade drops, saved history, bulk scan, 60 req/hour API key |
+| **Pro — $9/mo** | [dmarc.mx/pricing](https://dmarc.mx/pricing) | Nightly monitoring (25 domains), email alerts on grade drops, saved history, bulk scan, 60 req/hour API key |
 | **Self-host** | this repo | Clone, `wrangler deploy`, run your own. MIT-licensed. Pro features activate when you configure D1 / WorkOS / Stripe bindings — optional, see [below](#optional-paid-tier-env-vars). |
 
 The hosted tier at `dmarc.mx` exists for people who'd rather pay than run it. Everything is MIT and there is no crippled-OSS / paid-premium split.

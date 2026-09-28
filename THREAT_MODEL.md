@@ -13,7 +13,7 @@ deployed continuously from `main` via Cloudflare Git integration. Dependencies
 are lean (`hono`, `jose`, `@sentry/cloudflare`).
 
 The same MIT-licensed code runs as three tiers: a free anonymous scanner
-(rate-limited 10 req/IP/min), a Pro tier ($19/mo, active only when D1 + WorkOS
+(rate-limited 10 req/IP/min), a Pro tier ($9/mo, active only when D1 + WorkOS
 + Stripe bindings are configured — nightly cron monitoring, email grade-drop
 alerts, saved scan history, bulk scan, 60 req/hr API keys), and self-hosting.
 It additionally exposes agent-discovery surfaces (RFC 9727 linkset, OpenAPI,
