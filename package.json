@@ -15,7 +15,7 @@
     "typecheck": "wrangler types --check --include-runtime=false --env-interface=GeneratedBindings && tsc --noEmit"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.2",
+    "@biomejs/biome": "^2.5.14",
     "@cloudflare/vitest-pool-workers": "^0.19.0",
     "@cloudflare/workers-types": "^5.20260921.1",
     "@emnapi/core": "^1.11.1",
