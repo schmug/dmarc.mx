@@ -175,47 +175,41 @@ describe("privacy policy", () => {
   });
 });
 
-describe("removed legal routes (terms + index)", () => {
-  it("GET /legal/terms returns 404", async () => {
-    const res = await app.request("/legal/terms");
-    expect(res.status).toBe(404);
-  });
-
+describe("removed legal index route", () => {
   it("GET /legal returns 404", async () => {
     const res = await app.request("/legal");
     expect(res.status).toBe(404);
   });
 
-  it("sitemap.xml does not list /legal/terms or /legal index", async () => {
+  it("sitemap.xml does not list the /legal index", async () => {
     const res = await app.request("/sitemap.xml");
     const body = await res.text();
-    expect(body).not.toContain("<loc>https://dmarc.mx/legal/terms</loc>");
     expect(body).not.toContain("<loc>https://dmarc.mx/legal</loc>");
   });
 });
 
 describe("site footer links", () => {
-  it("landing footer links to /pricing and /legal/privacy only", async () => {
+  it("landing footer links to /pricing, /legal/privacy and /legal/terms", async () => {
     const res = await app.request("/");
     const html = await res.text();
     expect(html).toContain('href="/pricing"');
     expect(html).toContain('href="/legal/privacy"');
-    expect(html).not.toContain('href="/legal/terms"');
+    expect(html).toContain('href="/legal/terms"');
   });
 
-  it("scoring page footer links to /pricing and /legal/privacy only", async () => {
+  it("scoring page footer links to /pricing, /legal/privacy and /legal/terms", async () => {
     const res = await app.request("/scoring");
     const html = await res.text();
     expect(html).toContain('href="/pricing"');
     expect(html).toContain('href="/legal/privacy"');
-    expect(html).not.toContain('href="/legal/terms"');
+    expect(html).toContain('href="/legal/terms"');
   });
 
-  it("pricing page footer references Privacy only (not Terms)", async () => {
+  it("pricing page footer references Privacy and Terms", async () => {
     const res = await app.request("/pricing");
     const html = await res.text();
     expect(html).toContain('href="/legal/privacy"');
-    expect(html).not.toContain('href="/legal/terms"');
+    expect(html).toContain('href="/legal/terms"');
   });
 
   it("indexable pages (/, /scoring, /pricing, /legal/privacy) stay free of noindex", async () => {
@@ -224,5 +218,37 @@ describe("site footer links", () => {
       const html = await res.text();
       expect(html).not.toContain('name="robots"');
     }
+  });
+});
+
+describe("terms of service", () => {
+  it("GET /legal/terms returns the Terms with operator, price, refund window and governing state", async () => {
+    const res = await app.request("/legal/terms");
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain("Cory Rankin");
+    expect(html).toContain("$9");
+    expect(html).toContain("30 days");
+    expect(html).toContain("North Carolina");
+    expect(html).toContain("Wake County, North Carolina");
+    expect(html).toContain("Effective date");
+    expect(html).toContain('href="/legal/privacy"');
+  });
+
+  it("footer links /legal/terms", async () => {
+    const res = await app.request("/");
+    expect(await res.text()).toContain('href="/legal/terms"');
+  });
+
+  it("sitemap lists /legal/terms", async () => {
+    const res = await app.request("/sitemap.xml");
+    expect(await res.text()).toContain("https://dmarc.mx/legal/terms");
+  });
+
+  it("/pricing links /legal/terms", async () => {
+    const res = await app.request("/pricing");
+    const html = await res.text();
+    expect(html).toContain('href="/legal/terms"');
+    expect(html).toContain("By subscribing you agree to the");
   });
 });

@@ -113,6 +113,7 @@ export function renderPricingPage(): string {
       <div style="text-align:center;margin-top:1.25rem;margin-bottom:0.5rem">
         <a href="/dashboard/billing/subscribe" class="rubric-cta">Start Pro &mdash; $9/mo</a>
       </div>
+      <p class="tier-text" style="text-align:center;font-size:0.9em;margin-top:0.5rem">By subscribing you agree to the <a href="/legal/terms">Terms</a>.</p>
       <p class="tier-text" style="text-align:center;font-size:0.9em;margin-top:0.5rem">Requires a free account. You can sign up and kick the tires before upgrading.</p>
     </div>
   </div>
@@ -145,6 +146,10 @@ export function renderPricingPage(): string {
         <p>Cloudflare D1 (US region). Scan results are retained while your account is active and deleted on request or within 30 days of account closure. See the <a href="/legal/privacy">Privacy Policy</a> for full detail.</p>
       </div>
       <div class="rubric-protocol">
+        <h3>Where are the Terms of Service?</h3>
+        <p>At <a href="/legal/terms">/legal/terms</a>. They cover acceptable use, availability, the refund policy, and governing law.</p>
+      </div>
+      <div class="rubric-protocol">
         <h3>What about Pro API rate limits?</h3>
         <p>60 requests per hour per API key, versus 10 requests per minute per IP for anonymous callers. If you have a real reason to need more, email <a href="mailto:support@dmarc.mx">support@dmarc.mx</a>.</p>
       </div>
@@ -155,7 +160,7 @@ export function renderPricingPage(): string {
     <a href="/" class="rubric-cta">Scan a domain &rarr;</a>
   </div>
 
-  <div class="learn-link" style="text-align:center">See <a href="/legal/privacy">Privacy</a>. Questions? <a href="mailto:support@dmarc.mx">support@dmarc.mx</a></div>
+  <div class="learn-link" style="text-align:center">See <a href="/legal/privacy">Privacy</a> and <a href="/legal/terms">Terms</a>. Questions? <a href="mailto:support@dmarc.mx">support@dmarc.mx</a></div>
 </main>`;
 
   return page({
