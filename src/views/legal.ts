@@ -1,3 +1,4 @@
+import { LEGAL_ENTITY, venueText } from "../shared/legal-entity.js";
 import { generateCreature } from "./components.js";
 import { page } from "./html.js";
 
@@ -137,6 +138,88 @@ export function renderPrivacyPage(): string {
     path: "/legal/privacy",
     description:
       "How dmarcheck collects, uses, and retains your data. Short, first-person, no dark patterns.",
+    body,
+  });
+}
+
+const TERMS_EFFECTIVE_DATE = "2026-10-03";
+
+export function renderTermsPage(): string {
+  const { operatorName, entityType, governingState } = LEGAL_ENTITY;
+  const card = (title: string, inner: string) => `  <div class="bd-card">
+    <div class="bd-card-title">${title}</div>
+    <div class="bd-card-body">
+      ${inner}
+    </div>
+  </div>`;
+
+  const body = `<main class="breakdown">
+  <div class="report-nav">
+    <a href="/">${generateCreature("sm")} Home</a>
+  </div>
+  <h1 class="rubric-title">Terms of Service</h1>
+  <p class="rubric-intro"><em>Effective date: ${TERMS_EFFECTIVE_DATE}</em></p>
+
+${card(
+  "Who operates the service",
+  `<p class="tier-text"><strong>dmarcheck</strong> at <code>dmarc.mx</code> is operated by ${operatorName}, a ${entityType} (&ldquo;I&rdquo;). By using the hosted service you agree to these Terms. The self-hosted OSS project is licensed separately under MIT; these Terms cover the hosted service only. How I handle your data is in the <a href="/legal/privacy">Privacy Policy</a>.</p>`,
+)}
+
+${card(
+  "Acceptable use",
+  `<p class="tier-text">You may scan any domain, because the DNS records I read are public. Don't abuse the service: no evading or circumventing rate limits, no attacks on the service or its infrastructure, no using it to harass others, and no automated use beyond the documented API and your plan's limits. I may block traffic that does.</p>`,
+)}
+
+${card(
+  "Availability",
+  `<p class="tier-text">The free tier is provided as-is, with no SLA. Pro is best-effort: I aim to keep it running and rescans on schedule, but I don't promise uninterrupted service.</p>`,
+)}
+
+${card(
+  "Pro subscription",
+  `<p class="tier-text">Pro costs $9/mo, billed monthly through Stripe. Cancel anytime in the Stripe Customer Portal; access continues until the end of the paid period. For a full refund within 30 days of a charge, email <a href="mailto:support@dmarc.mx">support@dmarc.mx</a>. See <a href="/pricing">Pricing</a>.</p>`,
+)}
+
+${card(
+  "Account termination",
+  `<p class="tier-text">You can close your account at any time from your dashboard settings. I may suspend or terminate an account for abuse or non-payment.</p>`,
+)}
+
+${card(
+  "Disclaimer of warranties",
+  `<p class="tier-text">The service and its scan results are provided &ldquo;as is&rdquo; and &ldquo;as available,&rdquo; without warranties of any kind, express or implied, including merchantability, fitness for a particular purpose, accuracy, and non-infringement. Scan grades are informational and not a guarantee of email deliverability or security.</p>`,
+)}
+
+${card(
+  "Limitation of liability",
+  `<p class="tier-text">To the maximum extent permitted by law, my total liability for any claim relating to the service is limited to the fees you paid me in the 12 months before the claim arose.</p>`,
+)}
+
+${card(
+  "Governing law",
+  `<p class="tier-text">These Terms are governed by the laws of the State of ${governingState}, United States. Any dispute will be brought in ${venueText()}.</p>`,
+)}
+
+${card(
+  "Changes",
+  `<p class="tier-text">If I change these Terms, I'll post the new version here with an updated effective date.</p>`,
+)}
+
+${card(
+  "Contact",
+  `<p class="tier-text"><a href="mailto:support@dmarc.mx">support@dmarc.mx</a> &middot; <a href="/legal/privacy">Privacy Policy</a></p>`,
+)}
+
+  <div style="text-align:center;margin-top:2rem;margin-bottom:1rem">
+    <a href="/" class="rubric-cta">Scan a domain &rarr;</a>
+  </div>
+</main>`;
+
+  return page({
+    title: "Terms of Service — dmarcheck",
+    path: "/legal/terms",
+    description:
+      "Terms of Service for the dmarcheck hosted service at dmarc.mx. Short, first-person, plain language.",
     body,
   });
 }

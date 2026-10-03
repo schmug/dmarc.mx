@@ -18,7 +18,7 @@ import {
   renderLearnSpf,
   renderLearnTlsRpt,
 } from "../views/learn.js";
-import { renderPrivacyPage } from "../views/legal.js";
+import { renderPrivacyPage, renderTermsPage } from "../views/legal.js";
 import {
   renderLandingMarkdown,
   renderLearnHubMarkdown,
@@ -91,3 +91,4 @@ contentRoutes.get("/legal/privacy", (c) => {
   if (wantsMarkdown(c)) return markdownResponse(c, renderPrivacyMarkdown());
   return c.html(renderPrivacyPage());
 });
+contentRoutes.get("/legal/terms", (c) => c.html(renderTermsPage()));

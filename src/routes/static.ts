@@ -202,6 +202,11 @@ const STATIC_SITEMAP_URLS: Array<{
     priority: "0.3",
     lastmod: OTHER_STATIC_LASTMOD,
   },
+  {
+    loc: "https://dmarc.mx/legal/terms",
+    priority: "0.3",
+    lastmod: OTHER_STATIC_LASTMOD,
+  },
   { loc: "https://dmarc.mx/learn", priority: "0.7", lastmod: LEARN_MODIFIED },
   {
     loc: "https://dmarc.mx/learn/dmarc",
