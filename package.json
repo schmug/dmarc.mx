@@ -22,7 +22,7 @@
     "@emnapi/runtime": "^1.11.1",
     "@types/dns-packet": "^5.6.1",
     "@types/node": "^26.1.0",
-    "@vitest/coverage-v8": "^4.1.11",
+    "@vitest/coverage-v8": "^5.0.2",
     "minimatch": "^10.2.5",
     "sharp": "^0.35.4",
     "tsx": "^4.22.4",
