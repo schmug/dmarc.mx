@@ -953,31 +953,34 @@ describe("cron/runDueRescans", () => {
     it.each([
       ["DNS_TIMEOUT", makeUnreachableScanResult],
       ["EBADQUERY", makeDegradedScanResult],
-    ])("records a %s domain past the deferral ceiling even when the run is discarded", async (_code, makeStaleResult) => {
-      seedDueDomains(20);
-      makeStale(1);
+    ])(
+      "records a %s domain past the deferral ceiling even when the run is discarded",
+      async (_code, makeStaleResult) => {
+        seedDueDomains(20);
+        makeStale(1);
 
-      const scanFn = vi.fn(async (domain: string) =>
-        domain === "d1.example"
-          ? makeStaleResult(domain)
-          : makeUnreachableScanResult(domain),
-      );
+        const scanFn = vi.fn(async (domain: string) =>
+          domain === "d1.example"
+            ? makeStaleResult(domain)
+            : makeUnreachableScanResult(domain),
+        );
 
-      const result = await runDueRescans({
-        db: makeD1Mock(),
-        now,
-        scanFn: scanFn as never,
-        fireWebhookFn: vi.fn().mockResolvedValue(undefined) as never,
-      });
+        const result = await runDueRescans({
+          db: makeD1Mock(),
+          now,
+          scanFn: scanFn as never,
+          fireWebhookFn: vi.fn().mockResolvedValue(undefined) as never,
+        });
 
-      expect(history.size).toBe(1);
-      expect([...history.values()][0]?.domain_id).toBe(1);
-      expect(domains.get(1)?.last_scanned_at).toBe(now);
-      expect(domains.get(2)?.last_scanned_at).toBeLessThan(now - weekSeconds);
-      expect(alerts.size).toBe(0);
-      expect(result.scanned).toBe(1);
-      expect(result.errors).toBe(19);
-    });
+        expect(history.size).toBe(1);
+        expect([...history.values()][0]?.domain_id).toBe(1);
+        expect(domains.get(1)?.last_scanned_at).toBe(now);
+        expect(domains.get(2)?.last_scanned_at).toBeLessThan(now - weekSeconds);
+        expect(alerts.size).toBe(0);
+        expect(result.scanned).toBe(1);
+        expect(result.errors).toBe(19);
+      },
+    );
 
     // A forced-through scan is still an all-lookups-failed outcome, so it still
     // counts toward the run-level verdict. Recording it mid-run and dropping it
