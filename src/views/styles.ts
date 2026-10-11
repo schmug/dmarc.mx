@@ -662,6 +662,7 @@ h1.domain-name, .domain-name { font-size: 1.5rem; font-weight: 700; margin: 0; }
   margin: 0;
 }
 .bd-card-body { padding: 12px 18px 16px; }
+.bd-card-body ul { margin: 8px 0; padding-left: 20px; font-size: 0.9rem; line-height: 1.6; }
 .tier-text { font-size: 0.9rem; line-height: 1.6; color: var(--clr-text); }
 
 /* Factors table */

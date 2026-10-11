@@ -315,7 +315,7 @@ describe("/.well-known/ai-catalog.json", () => {
       "/.well-known/agent-skills/scan-domain/SKILL.md",
     ]);
     for (const e of body.entries) {
-      expect(e.id).toMatch(/^urn:air:dmarc\.mx:[a-z]+:[a-z0-9-]+$/);
+      expect(e.identifier).toMatch(/^urn:air:dmarc\.mx:[a-z]+:[a-z0-9-]+$/);
       expect(e.representativeQueries.length).toBeGreaterThanOrEqual(2);
     }
   });

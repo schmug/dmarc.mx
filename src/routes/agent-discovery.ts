@@ -57,7 +57,7 @@ const AI_CATALOG_JSON = JSON.stringify({
   host: { name: "dmarc.mx", url: CANONICAL_ORIGIN },
   entries: [
     {
-      id: "urn:air:dmarc.mx:mcp:scan-domain",
+      identifier: "urn:air:dmarc.mx:mcp:scan-domain",
       displayName: "dmarc.mx MCP server",
       type: "application/json",
       url: `${CANONICAL_ORIGIN}/mcp`,
@@ -67,7 +67,7 @@ const AI_CATALOG_JSON = JSON.stringify({
       ],
     },
     {
-      id: "urn:air:dmarc.mx:api:openapi",
+      identifier: "urn:air:dmarc.mx:api:openapi",
       displayName: "dmarc.mx OpenAPI 3.1 description",
       type: "application/openapi+json",
       url: `${CANONICAL_ORIGIN}/openapi.json`,
@@ -77,7 +77,7 @@ const AI_CATALOG_JSON = JSON.stringify({
       ],
     },
     {
-      id: "urn:air:dmarc.mx:skill:scan-domain",
+      identifier: "urn:air:dmarc.mx:skill:scan-domain",
       displayName: "scan-domain skill",
       type: "text/markdown",
       url: `${CANONICAL_ORIGIN}/.well-known/agent-skills/scan-domain/SKILL.md`,
