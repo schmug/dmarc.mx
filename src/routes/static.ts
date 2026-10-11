@@ -158,6 +158,7 @@ staticRoutes.get("/robots.txt", (c) => {
 Allow: /
 Disallow: /api/
 Disallow: /*format=csv
+Content-Signal: search=yes, ai-input=yes, ai-train=no
 Sitemap: https://dmarc.mx/sitemap.xml
 `;
   return c.body(body, 200, {
