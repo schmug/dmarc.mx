@@ -137,6 +137,17 @@ app.use("*", async (c, next) => {
   const contentType = c.res.headers.get("content-type") ?? "";
   const isHtml = contentType.includes("text/html");
   if (isHtml) {
+    // Decided before the CSP is built: the beacon POSTs pageviews to
+    // cloudflareinsights.com, so connect-src must allow it exactly when injected.
+    const token = (c.env as Env | undefined)?.CF_ANALYTICS_TOKEN;
+    const path = c.req.path;
+    const isAnalyticsEligible =
+      token &&
+      CF_ANALYTICS_TOKEN_RE.test(token) &&
+      !ANALYTICS_SKIP_PATH_PREFIXES.some((p) => path.startsWith(p));
+    const connectSrc = isAnalyticsEligible
+      ? "'self' https://cloudflareinsights.com"
+      : "'self'";
     const frameAncestors = ["'self'", ...EMBED_ALLOWED_ORIGINS].join(" ");
     // Per-request nonce eliminates 'unsafe-inline' from script-src. Scripts
     // with a matching nonce attribute execute; all others are blocked.
@@ -145,7 +156,7 @@ app.use("*", async (c, next) => {
     );
     c.res.headers.set(
       "Content-Security-Policy",
-      `default-src 'none'; script-src 'nonce-${nonce}' 'strict-dynamic'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; manifest-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors ${frameAncestors}`,
+      `default-src 'none'; script-src 'nonce-${nonce}' 'strict-dynamic'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ${connectSrc}; manifest-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors ${frameAncestors}`,
     );
     if (!c.res.headers.has("Link")) {
       c.res.headers.set("Link", AGENT_DISCOVERY_LINK_HEADER);
@@ -163,12 +174,6 @@ app.use("*", async (c, next) => {
     // are not executable JS and don't fall under script-src).  Combine with the
     // optional Cloudflare Analytics beacon injection to avoid reading the body
     // twice — HTML responses are buffered strings, never true streams.
-    const token = (c.env as Env | undefined)?.CF_ANALYTICS_TOKEN;
-    const path = c.req.path;
-    const isAnalyticsEligible =
-      token &&
-      CF_ANALYTICS_TOKEN_RE.test(token) &&
-      !ANALYTICS_SKIP_PATH_PREFIXES.some((p) => path.startsWith(p));
     let body = (await c.res.text()).replace(
       /<script(?!\s+type=["']application\/ld\+json)/g,
       `<script nonce="${nonce}"`,
