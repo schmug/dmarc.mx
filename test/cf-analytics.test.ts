@@ -133,3 +133,31 @@ describe("Cloudflare Web Analytics beacon injection", () => {
     });
   });
 });
+
+describe("CSP connect-src for the analytics beacon", () => {
+  const connectSrc = (res: Response) =>
+    /connect-src ([^;]+);/.exec(
+      res.headers.get("content-security-policy") ?? "",
+    )?.[1];
+
+  it("allows cloudflareinsights.com when the beacon is injected", async () => {
+    const res = await app.request("/", {}, envWithToken);
+    expect(connectSrc(res)).toBe("'self' https://cloudflareinsights.com");
+  });
+
+  it("stays 'self' only without a token", async () => {
+    const res = await app.request("/", {}, envBlank);
+    expect(connectSrc(res)).toBe("'self'");
+  });
+
+  it("stays 'self' only with an invalid token", async () => {
+    const res = await app.request("/", {}, { CF_ANALYTICS_TOKEN: "nope" });
+    expect(connectSrc(res)).toBe("'self'");
+  });
+
+  it("stays 'self' only on skipped paths", async () => {
+    const res = await app.request("/auth/login", {}, envWithToken);
+    const csp = res.headers.get("content-security-policy") ?? "";
+    expect(csp).not.toContain("cloudflareinsights.com");
+  });
+});
