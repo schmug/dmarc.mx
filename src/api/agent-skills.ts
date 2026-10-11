@@ -1,17 +1,16 @@
 // Agent Skills discovery index — Cloudflare RFC v0.2.0.
 // https://github.com/cloudflare/agent-skills-discovery-rfc
 //
-// Lists discoverable skills for AI agents. We expose one skill, `scan_domain`,
-// in two formats: a prose SKILL.md (the format isitagentready.com itself uses)
-// and a pointer at our OpenAPI 3.1 doc for machine-readable detail.
+// Lists discoverable skills for AI agents. We expose one skill, `scan-domain`,
+// as a prose SKILL.md (the format isitagentready.com itself uses). The OpenAPI
+// doc and MCP server card are not skill types; SKILL.md links to both and the
+// api-catalog / Link headers advertise them.
 //
 // The index is built lazily because Web Crypto digests are async and Workers
 // don't allow top-level await. Cached per Worker instance after the first
 // request.
 
-import { MCP_SERVER_CARD } from "../mcp/handler.js";
 import { CANONICAL_ORIGIN } from "./catalog.js";
-import { OPENAPI_JSON } from "./openapi.js";
 
 export const SCAN_DOMAIN_SKILL_MD = `# scan_domain
 
@@ -80,14 +79,14 @@ Server card at \`https://dmarc.mx/.well-known/mcp/server-card.json\`.
 `;
 
 const SKILLS_SCHEMA_URL =
-  "https://raw.githubusercontent.com/cloudflare/agent-skills-discovery-rfc/main/schemas/v0.2.0/index.json";
+  "https://schemas.agentskills.io/discovery/0.2.0/schema.json";
 
 interface SkillEntry {
   name: string;
   type: string;
   description: string;
   url: string;
-  sha256: string;
+  digest: string;
 }
 
 interface SkillsIndex {
@@ -111,38 +110,18 @@ export async function getAgentSkillsIndexJson(
   const cached = cache.get(origin);
   if (cached) return cached;
 
-  const [skillSha, openapiSha, mcpCardSha] = await Promise.all([
-    sha256Hex(SCAN_DOMAIN_SKILL_MD),
-    sha256Hex(OPENAPI_JSON),
-    sha256Hex(MCP_SERVER_CARD),
-  ]);
+  const skillSha = await sha256Hex(SCAN_DOMAIN_SKILL_MD);
 
   const index: SkillsIndex = {
     $schema: SKILLS_SCHEMA_URL,
     skills: [
       {
-        name: "scan_domain",
-        type: "markdown",
+        name: "scan-domain",
+        type: "skill-md",
         description:
           "Run a DNS-only DMARC/SPF/DKIM/BIMI/MTA-STS scan and return a graded report.",
         url: `${origin}/.well-known/agent-skills/scan-domain/SKILL.md`,
-        sha256: skillSha,
-      },
-      {
-        name: "scan_domain",
-        type: "openapi",
-        description:
-          "OpenAPI 3.1 description of the scan API and related endpoints.",
-        url: `${origin}/openapi.json`,
-        sha256: openapiSha,
-      },
-      {
-        name: "scan_domain",
-        type: "mcp",
-        description:
-          "MCP streamable-HTTP tool — call scan_domain via JSON-RPC 2.0 at POST /mcp. This url serves the MCP server card (the POST transport lives at /mcp).",
-        url: `${origin}/.well-known/mcp/server-card.json`,
-        sha256: mcpCardSha,
+        digest: `sha256:${skillSha}`,
       },
     ],
   };
