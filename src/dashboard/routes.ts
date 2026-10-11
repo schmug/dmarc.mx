@@ -317,7 +317,8 @@ function buildDrawerDetail(
     const prevDmarcRecord =
       typeof (prevParsed?.dmarc as { record?: unknown } | undefined)?.record ===
       "string"
-        ? ((prevParsed?.dmarc as { record: string }).record ?? null)
+        ? ((prevParsed?.dmarc as { record?: string } | undefined)?.record ??
+          null)
         : null;
     const ageSec = latest.scanned_at - prev.scanned_at;
     if (
