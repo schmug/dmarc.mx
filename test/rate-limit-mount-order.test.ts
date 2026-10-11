@@ -111,37 +111,39 @@ beforeEach(() => {
 });
 
 describe("rate limiter covers every metered path on the exported app", () => {
-  it.each(
-    LIMITED_ROUTES,
-  )("$method $url (limiter $pattern) answers 429 on request ceiling+1", async (route) => {
-    const headers: Record<string, string> = {
-      "CF-Connecting-IP": "198.51.100.23",
-    };
-    if (route.body !== undefined) headers["Content-Type"] = "application/json";
+  it.each(LIMITED_ROUTES)(
+    "$method $url (limiter $pattern) answers 429 on request ceiling+1",
+    async (route) => {
+      const headers: Record<string, string> = {
+        "CF-Connecting-IP": "198.51.100.23",
+      };
+      if (route.body !== undefined)
+        headers["Content-Type"] = "application/json";
 
-    const responses: Response[] = [];
-    for (let i = 0; i <= FREE_LIMIT; i++) {
-      responses.push(
-        await app.request(
-          route.url,
-          { method: route.method, headers, body: route.body },
-          {},
-        ),
-      );
-    }
-    const statuses = responses.map((r) => r.status);
+      const responses: Response[] = [];
+      for (let i = 0; i <= FREE_LIMIT; i++) {
+        responses.push(
+          await app.request(
+            route.url,
+            { method: route.method, headers, body: route.body },
+            {},
+          ),
+        );
+      }
+      const statuses = responses.map((r) => r.status);
 
-    expect(
-      statuses.slice(0, FREE_LIMIT),
-      `statuses: ${statuses}`,
-    ).not.toContain(429);
-    expect(statuses[FREE_LIMIT], `statuses: ${statuses}`).toBe(429);
+      expect(
+        statuses.slice(0, FREE_LIMIT),
+        `statuses: ${statuses}`,
+      ).not.toContain(429);
+      expect(statuses[FREE_LIMIT], `statuses: ${statuses}`).toBe(429);
 
-    const blocked = responses[FREE_LIMIT];
-    expect(blocked.headers.get("X-RateLimit-Limit")).toBe(String(FREE_LIMIT));
-    expect(blocked.headers.get("X-RateLimit-Remaining")).toBe("0");
-    expect(blocked.headers.get("X-RateLimit-Window")).toBe("60s");
-    expect(blocked.headers.get("Content-Type")).toContain(route.blockedType);
-    expect(await blocked.text()).toContain(route.blockedBody);
-  });
+      const blocked = responses[FREE_LIMIT];
+      expect(blocked.headers.get("X-RateLimit-Limit")).toBe(String(FREE_LIMIT));
+      expect(blocked.headers.get("X-RateLimit-Remaining")).toBe("0");
+      expect(blocked.headers.get("X-RateLimit-Window")).toBe("60s");
+      expect(blocked.headers.get("Content-Type")).toContain(route.blockedType);
+      expect(await blocked.text()).toContain(route.blockedBody);
+    },
+  );
 });
