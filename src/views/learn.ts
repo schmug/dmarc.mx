@@ -135,6 +135,11 @@ export const LEARN_SIBLINGS: Array<{
     protocol: "DANE/TLSA",
     blurb: "TLSA records pinning MX certificates over DNSSEC.",
   },
+  {
+    slug: "sender-requirements",
+    protocol: "Sender requirements",
+    blurb: "Gmail, Yahoo, and Outlook bulk-sender rules.",
+  },
 ];
 
 function siblingLinks(currentSlug: string): string {
@@ -147,7 +152,7 @@ function siblingLinks(currentSlug: string): string {
   return `<ul class="learn-siblings">${items}</ul>`;
 }
 
-function learnCta(placeholder: string): string {
+export function learnCta(placeholder: string): string {
   return `<div class="bd-card">
     <div class="bd-card-title">Check your domain</div>
     <div class="bd-card-body">
@@ -168,7 +173,7 @@ const LEARN_FOOTER = `<div class="foss-callout">
     </a>
   </div>`;
 
-function renderLearnPage(opts: LearnPageOptions): string {
+export function renderLearnPage(opts: LearnPageOptions): string {
   const jsonLd = learnJsonLd({
     protocol: opts.protocol,
     slug: opts.slug,

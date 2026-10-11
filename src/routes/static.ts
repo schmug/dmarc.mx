@@ -253,6 +253,11 @@ const STATIC_SITEMAP_URLS: Array<{
     priority: "0.6",
     lastmod: LEARN_MODIFIED,
   },
+  {
+    loc: "https://dmarc.mx/learn/sender-requirements",
+    priority: "0.8",
+    lastmod: LEARN_MODIFIED,
+  },
   { loc: "https://dmarc.mx/mx", priority: "0.7", lastmod: MX_MODIFIED },
   {
     loc: "https://dmarc.mx/mx/outlook",
