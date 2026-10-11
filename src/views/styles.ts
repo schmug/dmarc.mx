@@ -449,6 +449,15 @@ h1.domain-name, .domain-name { font-size: 1.5rem; font-weight: 700; margin: 0; }
   white-space: nowrap;
 }
 .copy-btn:hover { background: var(--clr-accent); color: var(--clr-on-accent); border-color: var(--clr-accent); }
+.badge-embed { margin-top: 1rem; font-size: 0.85rem; }
+.badge-embed summary { color: var(--clr-text-dim); cursor: pointer; list-style: none; }
+.badge-embed summary::-webkit-details-marker { display: none; }
+.badge-embed summary::before { content: '\\25B8 '; }
+.badge-embed[open] summary::before { content: '\\25BE '; }
+.badge-embed summary:hover { color: var(--clr-accent); }
+.badge-embed-body { margin-top: 0.5rem; }
+.badge-embed-preview { display: block; height: 20px; }
+.badge-embed-label { margin-top: 0.75rem; color: var(--clr-text-muted); font-size: 0.75rem; }
 .record-expand { margin-top: 12px; }
 .record-expand summary {
   cursor: pointer; color: var(--clr-text-muted); font-size: 0.8rem;
