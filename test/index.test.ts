@@ -767,6 +767,13 @@ describe("SEO routes", () => {
     expect(body).toContain("Sitemap: https://dmarc.mx/sitemap.xml");
   });
 
+  it("declares Content Signals in the * group before Sitemap", async () => {
+    const body = await (await app.request("/robots.txt")).text();
+    const line = "Content-Signal: search=yes, ai-input=yes, ai-train=no";
+    expect(body).toContain(`${line}\n`);
+    expect(body.indexOf(line)).toBeLessThan(body.indexOf("Sitemap:"));
+  });
+
   it("disallows CSV export URLs without blocking plain /check pages", async () => {
     const res = await app.request("/robots.txt");
     const body = await res.text();

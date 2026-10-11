@@ -3,7 +3,11 @@ import {
   getAgentSkillsIndexJson,
   SCAN_DOMAIN_SKILL_MD,
 } from "../api/agent-skills.js";
-import { AGENT_CARD_JSON, API_CATALOG_JSON } from "../api/catalog.js";
+import {
+  AGENT_CARD_JSON,
+  API_CATALOG_JSON,
+  CANONICAL_ORIGIN,
+} from "../api/catalog.js";
 import { LLMS_TXT } from "../api/llms-txt.js";
 import { OPENAPI_JSON } from "../api/openapi.js";
 import type { Env } from "../env.js";
@@ -46,6 +50,52 @@ agentDiscoveryRoutes.get(
     });
   },
 );
+
+// ARD manifest — static catalog of the MCP server, OpenAPI doc and skill.
+const AI_CATALOG_JSON = JSON.stringify({
+  specVersion: "0.1",
+  host: { name: "dmarc.mx", url: CANONICAL_ORIGIN },
+  entries: [
+    {
+      identifier: "urn:air:dmarc.mx:mcp:scan-domain",
+      displayName: "dmarc.mx MCP server",
+      type: "application/json",
+      url: `${CANONICAL_ORIGIN}/mcp`,
+      representativeQueries: [
+        "check DMARC for a domain",
+        "grade a domain's email security",
+      ],
+    },
+    {
+      identifier: "urn:air:dmarc.mx:api:openapi",
+      displayName: "dmarc.mx OpenAPI 3.1 description",
+      type: "application/openapi+json",
+      url: `${CANONICAL_ORIGIN}/openapi.json`,
+      representativeQueries: [
+        "how do I call the DMARC scan API",
+        "list dmarc.mx API endpoints",
+      ],
+    },
+    {
+      identifier: "urn:air:dmarc.mx:skill:scan-domain",
+      displayName: "scan-domain skill",
+      type: "text/markdown",
+      url: `${CANONICAL_ORIGIN}/.well-known/agent-skills/scan-domain/SKILL.md`,
+      representativeQueries: [
+        "check SPF and DKIM for a domain",
+        "scan a domain for MTA-STS and BIMI",
+      ],
+    },
+  ],
+});
+
+agentDiscoveryRoutes.get("/.well-known/ai-catalog.json", (c) => {
+  return c.body(AI_CATALOG_JSON, 200, {
+    "Content-Type": "application/json",
+    "Access-Control-Allow-Origin": "*",
+    "Cache-Control": "public, max-age=86400",
+  });
+});
 
 // DNS-AID agent metadata contract — draft-mozleywilliams-dnsop-dnsaid.
 // Publishes the scan_domain capability at the HTTP layer; the matching DNS

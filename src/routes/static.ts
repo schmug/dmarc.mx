@@ -158,6 +158,7 @@ staticRoutes.get("/robots.txt", (c) => {
 Allow: /
 Disallow: /api/
 Disallow: /*format=csv
+Content-Signal: search=yes, ai-input=yes, ai-train=no
 Sitemap: https://dmarc.mx/sitemap.xml
 `;
   return c.body(body, 200, {
@@ -251,6 +252,11 @@ const STATIC_SITEMAP_URLS: Array<{
   {
     loc: "https://dmarc.mx/learn/dane",
     priority: "0.6",
+    lastmod: LEARN_MODIFIED,
+  },
+  {
+    loc: "https://dmarc.mx/learn/sender-requirements",
+    priority: "0.8",
     lastmod: LEARN_MODIFIED,
   },
   { loc: "https://dmarc.mx/mx", priority: "0.7", lastmod: MX_MODIFIED },

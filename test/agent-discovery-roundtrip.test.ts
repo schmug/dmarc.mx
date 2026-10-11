@@ -87,7 +87,7 @@ describe("Agent Skills index integrity", () => {
         name: string;
         type: string;
         url: string;
-        sha256: string;
+        digest: string;
       }>;
     };
 
@@ -104,9 +104,9 @@ describe("Agent Skills index integrity", () => {
       const body = await res.text();
       const computedHex = await sha256Hex(body);
       expect(
-        computedHex,
+        `sha256:${computedHex}`,
         `sha256 mismatch for ${skill.type} skill at ${path}`,
-      ).toBe(skill.sha256);
+      ).toBe(skill.digest);
     }
   });
 
@@ -121,7 +121,7 @@ describe("Agent Skills index integrity", () => {
       const res = await app.request(path);
       const ct = res.headers.get("Content-Type") ?? "";
 
-      if (skill.type === "markdown") {
+      if (skill.type === "skill-md") {
         expect(
           ct,
           `markdown skill at ${path} should be text/markdown`,
@@ -138,7 +138,7 @@ describe("Agent Skills index integrity", () => {
   it("sha256 verification works with base64url encoding too", async () => {
     const indexRes = await app.request("/.well-known/agent-skills/index.json");
     const index = (await indexRes.json()) as {
-      skills: Array<{ type: string; url: string; sha256: string }>;
+      skills: Array<{ type: string; url: string; digest: string }>;
     };
 
     for (const skill of index.skills) {
@@ -153,7 +153,7 @@ describe("Agent Skills index integrity", () => {
 
       // Also verify the hex in the index round-trips correctly.
       const computedHex = await sha256Hex(body);
-      expect(computedHex).toBe(skill.sha256);
+      expect(`sha256:${computedHex}`).toBe(skill.digest);
     }
   });
 });

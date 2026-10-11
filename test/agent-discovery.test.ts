@@ -237,7 +237,7 @@ describe("markdown content negotiation", () => {
 });
 
 describe("/.well-known/agent-skills/index.json", () => {
-  it("returns a v0.2.0 skills index with sha256 digests", async () => {
+  it("returns a v0.2.0 skills index with valid entry fields", async () => {
     const res = await app.request("/.well-known/agent-skills/index.json");
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toBe(
@@ -250,27 +250,28 @@ describe("/.well-known/agent-skills/index.json", () => {
         type: string;
         description: string;
         url: string;
-        sha256: string;
+        digest: string;
       }>;
     };
-    expect(body.$schema).toContain("agent-skills-discovery-rfc");
-    expect(body.skills.length).toBeGreaterThanOrEqual(2);
-    const types = body.skills.map((s) => s.type);
-    expect(types).toContain("markdown");
-    expect(types).toContain("openapi");
+    expect(body.$schema).toBe(
+      "https://schemas.agentskills.io/discovery/0.2.0/schema.json",
+    );
+    expect(body.skills.length).toBeGreaterThanOrEqual(1);
     for (const skill of body.skills) {
-      expect(skill.name).toBe("scan_domain");
+      expect(skill.name).toMatch(/^[a-z0-9-]{1,64}$/);
+      expect(["skill-md", "archive"]).toContain(skill.type);
+      expect(skill.description.length).toBeLessThanOrEqual(1024);
       expect(skill.url).toMatch(/^https:\/\/dmarc\.mx\//);
-      expect(skill.sha256).toMatch(/^[0-9a-f]{64}$/);
+      expect(skill.digest).toMatch(/^sha256:[0-9a-f]{64}$/);
     }
   });
 
   it("digest matches the served SKILL.md byte-for-byte", async () => {
     const indexRes = await app.request("/.well-known/agent-skills/index.json");
     const index = (await indexRes.json()) as {
-      skills: Array<{ type: string; url: string; sha256: string }>;
+      skills: Array<{ type: string; url: string; digest: string }>;
     };
-    const markdownEntry = index.skills.find((s) => s.type === "markdown");
+    const markdownEntry = index.skills.find((s) => s.type === "skill-md");
     expect(markdownEntry).toBeDefined();
 
     const skillRes = await app.request(
@@ -287,27 +288,36 @@ describe("/.well-known/agent-skills/index.json", () => {
     const hex = Array.from(new Uint8Array(digest))
       .map((b) => b.toString(16).padStart(2, "0"))
       .join("");
-    expect(hex).toBe(markdownEntry?.sha256);
+    expect(`sha256:${hex}`).toBe(markdownEntry?.digest);
   });
+});
 
-  it("openapi entry digest matches /openapi.json byte-for-byte", async () => {
-    const indexRes = await app.request("/.well-known/agent-skills/index.json");
-    const index = (await indexRes.json()) as {
-      skills: Array<{ type: string; url: string; sha256: string }>;
+describe("/.well-known/ai-catalog.json", () => {
+  it("returns static JSON with CORS and the three entries", async () => {
+    const res = await app.request("/.well-known/ai-catalog.json");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toBe("application/json");
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBe("*");
+    expect(res.headers.get("Cache-Control")).toBe("public, max-age=86400");
+    const body = (await res.json()) as {
+      specVersion: string;
+      host: { name: string; url: string };
+      entries: Array<{
+        id: string;
+        url: string;
+        representativeQueries: string[];
+      }>;
     };
-    const openapiEntry = index.skills.find((s) => s.type === "openapi");
-    expect(openapiEntry).toBeDefined();
-
-    const openapiRes = await app.request("/openapi.json");
-    const text = await openapiRes.text();
-    const digest = await crypto.subtle.digest(
-      "SHA-256",
-      new TextEncoder().encode(text),
-    );
-    const hex = Array.from(new Uint8Array(digest))
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
-    expect(hex).toBe(openapiEntry?.sha256);
+    expect(body.host.name).toBe("dmarc.mx");
+    expect(body.entries.map((e) => new URL(e.url).pathname)).toEqual([
+      "/mcp",
+      "/openapi.json",
+      "/.well-known/agent-skills/scan-domain/SKILL.md",
+    ]);
+    for (const e of body.entries) {
+      expect(e.identifier).toMatch(/^urn:air:dmarc\.mx:[a-z]+:[a-z0-9-]+$/);
+      expect(e.representativeQueries.length).toBeGreaterThanOrEqual(2);
+    }
   });
 });
 

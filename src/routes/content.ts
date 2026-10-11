@@ -18,6 +18,7 @@ import {
   renderLearnSpf,
   renderLearnTlsRpt,
 } from "../views/learn.js";
+import { renderSenderRequirementsPage } from "../views/learn-senders.js";
 import { renderPrivacyPage, renderTermsPage } from "../views/legal.js";
 import {
   renderLandingMarkdown,
@@ -66,6 +67,9 @@ contentRoutes.get("/learn/security-txt", (c) =>
 contentRoutes.get("/learn/tls-rpt", (c) => c.html(renderLearnTlsRpt()));
 contentRoutes.get("/learn/dnssec", (c) => c.html(renderLearnDnssec()));
 contentRoutes.get("/learn/dane", (c) => c.html(renderLearnDane()));
+contentRoutes.get("/learn/sender-requirements", (c) =>
+  c.html(renderSenderRequirementsPage()),
+);
 
 contentRoutes.get("/mx", (c) => {
   if (wantsMarkdown(c)) return markdownResponse(c, renderMxHubMarkdown());
