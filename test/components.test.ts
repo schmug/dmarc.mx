@@ -480,6 +480,32 @@ describe("CSV download links", () => {
     );
   });
 
+  it("renderReport offers the embeddable badge with the encoded domain", () => {
+    const html = renderReport(makeScanResult());
+    expect(html).toContain("Show this grade on your site");
+    expect(html).toContain(
+      '<img class="badge-embed-preview" src="/badge?domain=example.com"',
+    );
+    expect(html).toContain(
+      "[![Email security grade](https://dmarc.mx/badge?domain=example.com)](https://dmarc.mx/check?domain=example.com)",
+    );
+    expect(html).toContain(
+      "&lt;a href=&quot;https://dmarc.mx/check?domain=example.com&quot;&gt;&lt;img src=&quot;https://dmarc.mx/badge?domain=example.com&quot;",
+    );
+  });
+
+  it("renderReportHeader includes the badge block", () => {
+    expect(renderReportHeader(makeScanResult())).toContain("badge-embed");
+  });
+
+  it("badge block escapes hostile domain input", () => {
+    const html = renderReport(
+      makeScanResult({ domain: '"><script>alert(1)</script>' }),
+    );
+    expect(html).not.toContain("<script>alert(1)</script>");
+    expect(html).toContain("%22%3E%3Cscript%3E");
+  });
+
   it("renderReportHeader marks the CSV export anchor rel=nofollow", () => {
     const html = renderReportHeader(makeScanResult());
     expect(html).toContain(

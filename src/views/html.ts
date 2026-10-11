@@ -472,6 +472,7 @@ function reportBody(result: ScanResult): string {
     <a href="/api/check?domain=${encodeURIComponent(result.domain)}">View JSON &nearr;</a> &middot;
     <a href="/check?domain=${encodeURIComponent(result.domain)}&format=csv" class="csv-download" rel="nofollow">Download CSV &darr;</a>
   </div>
+  ${renderBadgeEmbed(result.domain)}
   ${renderMxCard(mx)}
   ${renderDmarcCard(dmarc)}
   ${renderSpfCard(spf)}
@@ -493,6 +494,25 @@ function reportBody(result: ScanResult): string {
     </a>
   </div>
 </main>`;
+}
+
+function renderBadgeEmbed(domain: string): string {
+  const enc = encodeURIComponent(domain);
+  const badgeUrl = `${SITE_ORIGIN}/badge?domain=${enc}`;
+  const checkUrl = `${SITE_ORIGIN}/check?domain=${enc}`;
+  const markdown = `[![Email security grade](${badgeUrl})](${checkUrl})`;
+  const html = `<a href="${checkUrl}"><img src="${badgeUrl}" alt="Email security grade"></a>`;
+  const snippet = (label: string, text: string) =>
+    `<div class="badge-embed-label">${label}</div>
+      <div class="record-raw"><code>${esc(text)}</code><button type="button" class="copy-btn" data-copy="${esc(text)}" aria-label="Copy ${label} snippet">Copy</button></div>`;
+  return `<details class="badge-embed">
+    <summary>Show this grade on your site</summary>
+    <div class="badge-embed-body">
+      <img class="badge-embed-preview" src="/badge?domain=${enc}" alt="Email security grade badge for ${esc(domain)}" height="20">
+      ${snippet("Markdown", markdown)}
+      ${snippet("HTML", html)}
+    </div>
+  </details>`;
 }
 
 export function renderReport(result: ScanResult): string {
@@ -518,7 +538,8 @@ export function renderReportHeader(result: ScanResult): string {
     <time datetime="${esc(result.timestamp)}">Scanned ${esc(new Date(result.timestamp).toUTCString())}</time> &middot;
     <a href="/api/check?domain=${encodeURIComponent(result.domain)}">View JSON &nearr;</a> &middot;
     <a href="/check?domain=${encodeURIComponent(result.domain)}&format=csv" class="csv-download" rel="nofollow">Download CSV &darr;</a>
-  </div>`;
+  </div>
+  ${renderBadgeEmbed(result.domain)}`;
 }
 
 export function renderReportFooter(result: ScanResult): string {
@@ -978,6 +999,18 @@ export function renderApiDocs(): string {
         <li><code>Accept: text/markdown</code> &rarr; markdown for agents</li>
         <li><code>format=csv</code> &rarr; CSV download</li>
       </ul>
+    </div>
+  </div>
+
+  <div class="bd-card">
+    <div class="bd-card-title">GET /badge</div>
+    <div class="bd-card-body">
+      <p>Embeddable SVG grade badge for READMEs and status pages. Always returns an SVG; cached for an hour.</p>
+      <ul>
+        <li><code>domain</code> <em>(required)</em> — <code>[a-z0-9.-]+</code></li>
+      </ul>
+      <p><strong>Markdown:</strong></p>
+      <pre><code>[![Email security grade](${SITE_ORIGIN}/badge?domain=example.com)](${SITE_ORIGIN}/check?domain=example.com)</code></pre>
     </div>
   </div>
 

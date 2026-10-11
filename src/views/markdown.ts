@@ -318,6 +318,16 @@ Content-negotiated human endpoint.
 - \`Accept: text/markdown\` → this rendering, for agents
 - \`format=csv\` → CSV download
 
+### \`GET /badge\`
+
+Embeddable SVG grade badge for READMEs and status pages. Always returns an SVG; cached for an hour.
+
+- \`domain\` _(required)_ — \`[a-z0-9.-]+\`
+
+\`\`\`
+[![Email security grade](${MD_SITE}/badge?domain=example.com)](${MD_SITE}/check?domain=example.com)
+\`\`\`
+
 ## Response shape
 
 See \`ScanResult\` in <${MD_SITE}/openapi.json>. Summary:
