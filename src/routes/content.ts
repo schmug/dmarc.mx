@@ -19,6 +19,7 @@ import {
   renderLearnTlsRpt,
 } from "../views/learn.js";
 import { renderSenderRequirementsPage } from "../views/learn-senders.js";
+import { renderSpfLookupsPage } from "../views/learn-spf-lookups.js";
 import { renderPrivacyPage, renderTermsPage } from "../views/legal.js";
 import {
   renderLandingMarkdown,
@@ -69,6 +70,9 @@ contentRoutes.get("/learn/dnssec", (c) => c.html(renderLearnDnssec()));
 contentRoutes.get("/learn/dane", (c) => c.html(renderLearnDane()));
 contentRoutes.get("/learn/sender-requirements", (c) =>
   c.html(renderSenderRequirementsPage()),
+);
+contentRoutes.get("/learn/spf-too-many-lookups", (c) =>
+  c.html(renderSpfLookupsPage()),
 );
 
 contentRoutes.get("/mx", (c) => {
