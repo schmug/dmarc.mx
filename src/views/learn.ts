@@ -378,7 +378,7 @@ export function renderLearnSpf(): string {
         <div><dt><code>redirect</code></dt><dd>Hand off the entire policy to another domain. Counts as one lookup and replaces the rest of your record.</dd></div>
         <div><dt><code>-all</code></dt><dd>Hardfail. Anything not matched above should be rejected.</dd></div>
         <div><dt><code>~all</code></dt><dd>Softfail. Anything not matched is suspicious but not blocked — useful during rollout.</dd></div>
-        <div><dt><code>?all</code></dt><dd>Neutral. No opinion. Provides essentially no protection.</dd></div>
+        <div><dt><code>?all</code></dt><dd>Neutral. No opinion. Provides essentially no protection. Leaving out <code>all</code> entirely (with no <code>redirect</code>) behaves the same as <code>?all</code>, and dmarcheck lowers the grade one step for neutral endings.</dd></div>
         <div><dt><code>+all</code></dt><dd>Pass everything. <strong>Never use this</strong>; it authorizes every sender on the internet.</dd></div>
       </dl>
     </div>
