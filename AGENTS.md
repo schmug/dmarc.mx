@@ -13,7 +13,7 @@ Live at dmarc.mx | Repo: github.com/schmug/dmarcheck
 
 ## Commands
 
-- `npm run dev` — local dev on port 8790
+- `npm run dev` — local dev on port 8790. To preview the dashboard fixtures at `/_dev/dashboard`, put `DEV_FIXTURES=1` in `.dev.vars` (the route 404s otherwise; do not add it to `wrangler.toml`)
 - `npm test` — vitest
 - `npm run lint` — biome check (lint + format check)
 - `npm run lint:fix` — biome auto-fix

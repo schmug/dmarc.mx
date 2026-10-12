@@ -249,14 +249,11 @@ app.route("/dashboard", dashboardRoutes);
 
 // Local-only dashboard fixture preview. Lets a developer eyeball every
 // scenario (current / fire / allGreen / firstRun / free / zero) without
-// going through WorkOS. Self-gated on the absence of WORKOS_API_KEY:
-// production always has it set, `wrangler dev` (without a .dev.vars file)
-// does not. If a self-host operator does set up local secrets, they can
-// still hit the route via .dev.vars omission of this single key.
+// going through WorkOS. Fail-closed: served only when DEV_FIXTURES is
+// explicitly "1" (set in .dev.vars, never in wrangler.toml); otherwise 404.
 app.get("/_dev/dashboard", async (c) => {
-  const apiKey = (c.env as { WORKOS_API_KEY?: string } | undefined)
-    ?.WORKOS_API_KEY;
-  if (apiKey && apiKey.length > 0) return c.text("Not Found", 404);
+  const optIn = (c.env as { DEV_FIXTURES?: string } | undefined)?.DEV_FIXTURES;
+  if (optIn !== "1") return c.text("Not Found", 404);
   const {
     renderDashboardFixture,
     renderDashboardFixtureIndex,
