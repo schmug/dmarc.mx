@@ -140,6 +140,11 @@ export const LEARN_SIBLINGS: Array<{
     protocol: "Sender requirements",
     blurb: "Gmail, Yahoo, and Outlook bulk-sender rules.",
   },
+  {
+    slug: "spf-too-many-lookups",
+    protocol: "SPF lookups",
+    blurb: "Fix SPF permerror from too many DNS lookups.",
+  },
 ];
 
 function siblingLinks(currentSlug: string): string {
@@ -405,6 +410,8 @@ export function renderLearnSpf(): string {
       </ol>
     </div>
   </div>
+
+  <p class="tier-text">Hit the limit? See <a href="/learn/spf-too-many-lookups">how to fix SPF PermError: too many DNS lookups</a>.</p>
 
   ${learnCta("Enter a domain to scan for SPF")}
   `;
