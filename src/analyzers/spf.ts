@@ -153,12 +153,14 @@ export async function analyzeSpf(
     } else if (allMech === "+all" || allMech === "all") {
       validations.push({
         status: "fail",
-        message: "Uses +all — allows any sender, effectively no protection",
+        message:
+          "Ends in +all: any server on the internet passes SPF for this domain. Replace it with ~all or -all.",
       });
     } else if (allMech === "?all") {
       validations.push({
         status: "warn",
-        message: "Uses ?all (neutral) — provides no guidance to receivers",
+        message:
+          "Ends in ?all (neutral): receivers get no instruction for unlisted senders. Change it to ~all or -all.",
       });
     }
 
@@ -170,6 +172,17 @@ export async function analyzeSpf(
         message: `Terms after ${allMech} are unreachable and never evaluated (RFC 7208 §5.1): ${termsAfterAll.join(", ")}`,
       });
     }
+  }
+
+  const hasRedirect = tree.mechanisms.some((m) =>
+    m.replace(/^[+\-~?]/, "").startsWith("redirect="),
+  );
+  if (!allMech && !hasRedirect) {
+    validations.push({
+      status: "warn",
+      message:
+        "No all mechanism: unlisted senders default to neutral, same as ?all. Add ~all or -all at the end.",
+    });
   }
 
   // Deprecated ptr check. Strip the optional qualifier (+ - ~ ?) so
@@ -244,7 +257,14 @@ export async function analyzeSpf(
     lookup_limit: MAX_LOOKUPS,
     include_tree: tree,
     validations,
+    all_qualifier: allMech ? allQualifier(allMech) : null,
+    has_redirect: hasRedirect,
   };
+}
+
+function allQualifier(allMech: string): "-" | "~" | "?" | "+" {
+  const q = allMech[0];
+  return q === "-" || q === "~" || q === "?" ? q : "+";
 }
 
 interface ResolutionContext {

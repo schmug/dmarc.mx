@@ -34,6 +34,10 @@ export interface SpfResult {
   include_tree: SpfIncludeNode | null;
   validations: Validation[];
   lookup_error?: { code: string; message: string };
+  /** Qualifier of the terminal `all` mechanism (bare `all` = "+"); null when absent. */
+  all_qualifier?: "-" | "~" | "?" | "+" | null;
+  /** True when the root record carries a `redirect=` modifier. */
+  has_redirect?: boolean;
 }
 
 export interface DkimSelectorResult {

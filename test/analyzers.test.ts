@@ -223,7 +223,7 @@ describe("analyzeSpf", () => {
     const result = await analyzeSpf("example.com");
     expect(
       result.validations.some(
-        (v) => v.status === "fail" && v.message.includes("allows any sender"),
+        (v) => v.status === "fail" && v.message.includes("Ends in +all"),
       ),
     ).toBe(true);
   });

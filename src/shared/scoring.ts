@@ -363,6 +363,16 @@ function spfFactors(spf: SpfResult, config: ScoringConfig): ScoringFactor[] {
       effect: +1,
     });
   }
+  if (
+    spf.all_qualifier === "?" ||
+    (spf.all_qualifier === null && spf.has_redirect === false)
+  ) {
+    factors.push({
+      protocol: "spf",
+      label: "SPF ends in neutral (?all or no all)",
+      effect: -1,
+    });
+  }
   return factors;
 }
 
