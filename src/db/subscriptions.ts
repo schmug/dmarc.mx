@@ -100,7 +100,7 @@ export async function isStripeEventRecorded(
 ): Promise<boolean> {
   const row = await d1Read(() =>
     db
-      .prepare("SELECT 1 AS exists FROM stripe_events WHERE event_id = ?")
+      .prepare("SELECT 1 AS found FROM stripe_events WHERE event_id = ?")
       .bind(eventId)
       .first(),
   );
