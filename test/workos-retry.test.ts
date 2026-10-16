@@ -133,7 +133,7 @@ function makeRetryDB(
               };
             },
             async first<T>() {
-              if (/SELECT 1 AS exists FROM users WHERE id = \?/i.test(sql)) {
+              if (/SELECT 1 AS found FROM users WHERE id = \?/i.test(sql)) {
                 const userId = args[0] as string;
                 return (users.has(userId) ? { exists: 1 } : null) as T | null;
               }
@@ -391,7 +391,7 @@ describe("sweepWorkosRetries", () => {
                 return { results: [] as T[] };
               },
               async first<T>() {
-                if (/SELECT 1 AS exists FROM users WHERE id = \?/i.test(sql)) {
+                if (/SELECT 1 AS found FROM users WHERE id = \?/i.test(sql)) {
                   userSelectCount += 1;
                   // Guard: no user. Pre-delete check: signup completed.
                   return (
@@ -460,7 +460,7 @@ describe("sweepWorkosRetries", () => {
                 return { results: [] as T[] };
               },
               async first<T>() {
-                if (/SELECT 1 AS exists FROM users WHERE id = \?/i.test(sql)) {
+                if (/SELECT 1 AS found FROM users WHERE id = \?/i.test(sql)) {
                   return (
                     users.has(args[0] as string) ? { exists: 1 } : null
                   ) as T | null;

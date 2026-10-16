@@ -22,7 +22,7 @@ async function localUserExists(
   workosUserId: string,
 ): Promise<boolean> {
   const row = await db
-    .prepare("SELECT 1 AS exists FROM users WHERE id = ?")
+    .prepare("SELECT 1 AS found FROM users WHERE id = ?")
     .bind(workosUserId)
     .first();
   return row !== null;
