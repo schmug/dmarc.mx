@@ -7,11 +7,11 @@
 <p align="center">
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
   <a href="https://dmarc.mx"><img src="https://img.shields.io/badge/Cloudflare%20Workers-Deployed-f38020?logo=cloudflare" alt="Deploy to Cloudflare Workers"></a>
-  <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-5.7-blue?logo=typescript" alt="TypeScript"></a>
-  <a href="https://deepwiki.com/schmug/dmarcheck"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
+  <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-7-blue?logo=typescript" alt="TypeScript"></a>
+  <a href="https://deepwiki.com/schmug/dmarc.mx"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
 </p>
 
-DNS email security analyzer — checks DMARC, SPF, DKIM, BIMI, and MTA-STS records for any domain.
+DNS email security analyzer — checks DMARC, SPF, DKIM, BIMI, MTA-STS, MX, TLS-RPT, DNSSEC, DANE, security.txt and DNSBL for any domain, and grades the result A+ to F.
 
 Meet **DMarcus**, the @ creature who guards your inbox.
 
@@ -34,6 +34,11 @@ The hosted tier at `dmarc.mx` exists for people who'd rather pay than run it. Ev
 - **DKIM** — Auto-probes ~30 common selectors + custom selectors, key strength analysis
 - **BIMI** — Logo and VMC validation, DMARC policy cross-check
 - **MTA-STS** — DNS record + HTTPS policy file fetch and validation
+- **MX** — Mail host discovery and provider identification
+- **TLS-RPT** — TLS reporting record validation
+- **DNSSEC / DANE** — Signed-zone and TLSA record checks for your mail hosts
+- **security.txt** — RFC 9116 contact file fetch and validation
+- **DNSBL** — Spamhaus blocklist checks for your sending IPs (needs a `DNSBL_DQS_KEY`)
 
 ### Dual Output
 
@@ -254,13 +259,14 @@ Replace `vYYYY.M.N` with the tag you want to verify (e.g. `v2026.5.1`).
 
 ```bash
 # 1. Download the manifest and signature bundle
-gh release download vYYYY.M.N -R schmug/dmarcheck --pattern 'SHA256SUMS*'
+gh release download vYYYY.M.N -R schmug/dmarc.mx --pattern 'SHA256SUMS*'
 
 # 2. Verify the Sigstore signature — confirms the bundle was signed by
-#    the release workflow running on the schmug/dmarcheck repository
+#    the release workflow in this repository (renamed from schmug/dmarcheck;
+#    older releases carry the old name, so the regexp accepts both)
 cosign verify-blob \
   --bundle SHA256SUMS.bundle \
-  --certificate-identity-regexp "https://github.com/schmug/dmarcheck/.github/workflows/release.yml" \
+  --certificate-identity-regexp "https://github\.com/schmug/(dmarcheck|dmarc\.mx)/\.github/workflows/release\.yml" \
   --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
   SHA256SUMS
 
