@@ -377,27 +377,35 @@ export async function deleteDomain(
     .run();
 }
 
-// Returns domains whose cadence has come due: monthly domains scanned more
-// than 30 days ago (or never), weekly domains scanned more than 7 days ago.
-// The constants are defined inline because the schema only permits two
-// frequencies today; if we add more, split this into a per-frequency helper.
+// Returns domains whose cadence has come due. Cadence is decided by plan at
+// scan time, not by the stored scan_frequency: a domain whose user has an
+// active/trialing/past_due subscription (the same set as statusToPlan) is
+// "daily" — due when never scanned or scanned more than 20h ago, so the
+// ~24h cron tick never skips a night. Everyone else keeps the stored
+// cadence: monthly (> 30 days) or weekly (> 7 days). No migration is needed
+// and a downgrade reverts automatically. Pro-due domains sort first so the
+// per-run cap in src/cron/rescan.ts can never starve them.
 export async function getDueDomains(
   db: D1Database,
   now: number,
   limit = 500,
 ): Promise<Domain[]> {
+  const dailyCutoff = now - 20 * 60 * 60;
   const monthlyCutoff = now - 30 * 24 * 60 * 60;
   const weeklyCutoff = now - 7 * 24 * 60 * 60;
   const result = await d1Read(() =>
     db
       .prepare(
-        `SELECT * FROM domains
-       WHERE (scan_frequency = 'monthly' AND (last_scanned_at IS NULL OR last_scanned_at < ?))
-          OR (scan_frequency = 'weekly' AND (last_scanned_at IS NULL OR last_scanned_at < ?))
-       ORDER BY last_scanned_at ASC NULLS FIRST
+        `SELECT d.* FROM domains d
+       LEFT JOIN subscriptions s ON s.user_id = d.user_id
+       WHERE (s.status IN ('active', 'trialing', 'past_due') AND (d.last_scanned_at IS NULL OR d.last_scanned_at < ?))
+          OR (COALESCE(s.status, '') NOT IN ('active', 'trialing', 'past_due') AND (
+               (d.scan_frequency = 'monthly' AND (d.last_scanned_at IS NULL OR d.last_scanned_at < ?))
+            OR (d.scan_frequency = 'weekly' AND (d.last_scanned_at IS NULL OR d.last_scanned_at < ?))))
+       ORDER BY (s.status IN ('active', 'trialing', 'past_due')) DESC, d.last_scanned_at ASC NULLS FIRST
        LIMIT ?`,
       )
-      .bind(monthlyCutoff, weeklyCutoff, limit)
+      .bind(dailyCutoff, monthlyCutoff, weeklyCutoff, limit)
       .all<Domain>(),
   );
   return result.results;

@@ -123,7 +123,7 @@ export function monitorSnapshotCard(result: ScanResult): string {
   </div>
   <div class="monitor-divider" aria-hidden="true"></div>
   <div class="monitor-pitch">
-    <p class="monitor-pitch-lede">Monitor <strong>${esc(domain)}</strong> and we'll re-run this check every 24 hours. You'll get an email the moment anything drifts.</p>
+    <p class="monitor-pitch-lede">Monitor <strong>${esc(domain)}</strong> and I'll re-run this check every week, or nightly on Pro. You'll get an email the moment anything drifts.</p>
     <div class="monitor-cta-row">
       <a href="${esc(nextUrl)}" class="monitor-cta">Start monitoring</a>
       <span class="monitor-cta-meta">free &middot; no card &middot; MIT open source</span>
