@@ -1,3 +1,4 @@
+import * as Sentry from "@sentry/cloudflare";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { runDueRescans } from "../src/cron/rescan.js";
 
@@ -5,6 +6,11 @@ import { runDueRescans } from "../src/cron/rescan.js";
 // which exercises rescanOne's default scanFn (i.e. deps.scanFn omitted) so
 // the real call into scan() can be asserted on. Every other test in this
 // file supplies deps.scanFn and never reaches this mock.
+vi.mock("@sentry/cloudflare", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@sentry/cloudflare")>()),
+  captureMessage: vi.fn(),
+}));
+
 vi.mock("../src/orchestrator.js", () => ({
   scan: vi.fn(),
 }));
@@ -57,6 +63,7 @@ let users: Map<string, UserRow>;
 let domains: Map<number, DomainRow>;
 let alerts: Map<number, AlertRow>;
 let history: Map<number, ScanHistoryRow>;
+let proUsers: Set<string>;
 let nextScanId: number;
 let nextAlertId: number;
 
@@ -127,13 +134,20 @@ function makeD1Mock(): D1Database {
       },
       all: async <T>(): Promise<{ results: T[] }> => {
         if (/FROM domains[\s\S]*scan_frequency = 'monthly'/i.test(sql)) {
-          const [monthlyCutoff, weeklyCutoff, limit] = params as [
+          const [dailyCutoff, monthlyCutoff, weeklyCutoff, limit] = params as [
+            number,
             number,
             number,
             number,
           ];
+          const isPro = (d: DomainRow) => proUsers.has(d.user_id);
           const due = [...domains.values()]
             .filter((d) => {
+              if (isPro(d)) {
+                return (
+                  d.last_scanned_at === null || d.last_scanned_at < dailyCutoff
+                );
+              }
               if (d.scan_frequency === "monthly") {
                 return (
                   d.last_scanned_at === null ||
@@ -147,7 +161,11 @@ function makeD1Mock(): D1Database {
               }
               return false;
             })
-            .sort((a, b) => (a.last_scanned_at ?? 0) - (b.last_scanned_at ?? 0))
+            .sort(
+              (a, b) =>
+                Number(isPro(b)) - Number(isPro(a)) ||
+                (a.last_scanned_at ?? 0) - (b.last_scanned_at ?? 0),
+            )
             .slice(0, limit);
           return { results: due as T[] };
         }
@@ -208,8 +226,86 @@ describe("cron/runDueRescans", () => {
     domains = new Map();
     alerts = new Map();
     history = new Map();
+    proUsers = new Set();
     nextScanId = 1;
     nextAlertId = 1;
+  });
+
+  describe("plan-based daily cadence (#909)", () => {
+    const hour = 3600;
+    const row = (
+      id: number,
+      userId: string,
+      freq: string,
+      lastScannedAt: number | null,
+    ): DomainRow => ({
+      id,
+      user_id: userId,
+      domain: `d${id}.com`,
+      is_free: 0,
+      scan_frequency: freq,
+      last_scanned_at: lastScannedAt,
+      last_grade: "A",
+      created_at: 0,
+    });
+    const run = (scanFn: ReturnType<typeof vi.fn>, extra = {}) =>
+      runDueRescans({
+        db: makeD1Mock(),
+        now,
+        scanFn: scanFn as never,
+        ...extra,
+      });
+
+    it("rescans a Pro user's weekly domain at 21h but not at 19h", async () => {
+      proUsers.add("pro");
+      domains.set(1, row(1, "pro", "weekly", now - 21 * hour));
+      domains.set(2, row(2, "pro", "weekly", now - 19 * hour));
+      const scanFn = vi
+        .fn()
+        .mockImplementation(async (d: string) => makeScanResult(d, "A", {}));
+      await run(scanFn);
+      expect(scanFn).toHaveBeenCalledTimes(1);
+      expect(scanFn).toHaveBeenCalledWith("d1.com");
+    });
+
+    it("does not rescan a free user's weekly domain at 21h", async () => {
+      domains.set(1, row(1, "free", "weekly", now - 21 * hour));
+      const scanFn = vi.fn();
+      const result = await run(scanFn);
+      expect(result.scanned).toBe(0);
+      expect(scanFn).not.toHaveBeenCalled();
+    });
+
+    it("scans Pro-due domains before free ones", async () => {
+      proUsers.add("pro");
+      domains.set(1, row(1, "free", "weekly", now - weekSeconds - 5000));
+      domains.set(2, row(2, "pro", "weekly", now - 21 * hour));
+      const order: string[] = [];
+      const scanFn = vi.fn().mockImplementation(async (d: string) => {
+        order.push(d);
+        return makeScanResult(d, "A", {});
+      });
+      await run(scanFn, { batchSize: 1 });
+      expect(order).toEqual(["d2.com", "d1.com"]);
+    });
+
+    it("warns via Sentry when due domains exceed the per-run cap", async () => {
+      const warn = vi.mocked(Sentry.captureMessage);
+      warn.mockClear();
+      proUsers.add("pro");
+      for (let i = 1; i <= 3; i++) {
+        domains.set(i, row(i, "pro", "weekly", now - 21 * hour));
+      }
+      const scanFn = vi
+        .fn()
+        .mockImplementation(async (d: string) => makeScanResult(d, "A", {}));
+      const result = await run(scanFn, { maxDomainsPerRun: 2 });
+      expect(result.scanned).toBe(2);
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("3 domains due, cap is 2"),
+        "warning",
+      );
+    });
   });
 
   it("skips domains that are not yet due", async () => {

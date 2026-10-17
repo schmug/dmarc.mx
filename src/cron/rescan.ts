@@ -334,6 +334,13 @@ async function rescanOne(
 // 150 cap tolerable stays in place as a backstop if the portfolio outgrows
 // this cap again. DEGRADED_STREAK_LIMIT below is unchanged and remains the
 // circuit breaker if the allowance is ever spent anyway.
+//
+// Pro domains are due daily (getDueDomains, #909), so the steady-state load is
+// no longer "whatever came due this week": ~338 Pro-user domains plus a few
+// free ones are due every night, roughly 18-20k of the 100k subrequest limit
+// (~52 per domain). Pro sorts first, so the cap never starves it. When due
+// domains exceed this cap runDueRescans logs a Sentry warning with the count —
+// raise the cap (subrequest-safe up to ~1,900) before Pro users miss a night.
 const MAX_DOMAINS_PER_RUN = 400;
 
 // Backstop for when the ceiling above is still too high (a heavier-than-usual
@@ -377,6 +384,12 @@ export async function runDueRescans(deps: RescanDeps): Promise<RescanResult> {
   const streakLimit = deps.degradedStreakLimit ?? DEGRADED_STREAK_LIMIT;
   const due = await getDueDomains(deps.db, deps.now);
   const budgeted = due.slice(0, maxDomains);
+  if (due.length > maxDomains) {
+    Sentry.captureMessage(
+      `Rescan over cap: ${due.length} domains due, cap is ${maxDomains} — raise MAX_DOMAINS_PER_RUN before Pro users miss a night`,
+      "warning",
+    );
+  }
   let scanned = 0;
   let alertCount = 0;
   let errors = 0;
