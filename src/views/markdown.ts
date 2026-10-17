@@ -432,11 +432,11 @@ Public scanner, no account needed.
 
 ## Pro — $9/mo
 
-Continuous monitoring for the domains you actually care about.
+Your DMARC record is fine today. Then someone edits DNS for a new mail vendor, the record breaks, and your mail starts landing in spam. Pro rescans your domains every night and emails you the morning your grade drops, with the record that changed and the fix.
 
+- Email the morning a grade drops or a protocol regresses, with the fix
 - Saved scan history with per-domain trend views
 - Nightly rescans of your watchlist (up to 25 domains)
-- Email alerts on grade drop or protocol regression
 - Bulk scan: up to 100 domains per request
 - API keys with a 60-request/hour rate limit (6× the anonymous ceiling)
 - Cancel anytime via Stripe Customer Portal — access continues until the period ends

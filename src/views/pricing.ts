@@ -99,11 +99,11 @@ export function renderPricingPage(): string {
   <div class="bd-card">
     <div class="bd-card-title">Pro &mdash; $9/mo</div>
     <div class="bd-card-body">
-      <p class="tier-text">Continuous monitoring for the domains you actually care about.</p>
+      <p class="tier-text">Your DMARC record is fine today. Then someone edits DNS for a new mail vendor, the record breaks, and your mail starts landing in spam. Pro rescans your domains every night and emails you the morning your grade drops, with the record that changed and the fix.</p>
       <ul>
+        <li>Email the morning a grade drops or a protocol regresses, with the fix</li>
         <li>Saved scan history with per-domain trend views</li>
         <li>Nightly rescans of your watchlist (up to 25 domains)</li>
-        <li>Email alerts on grade drop or protocol regression</li>
         <li>Bulk scan: up to 100 domains per request</li>
         <li>API keys with a 60-request/hour rate limit (6&times; the anonymous ceiling)</li>
         <li>Cancel anytime via Stripe Customer Portal &mdash; access continues until the period ends</li>

@@ -1916,7 +1916,7 @@ function heroVoiceLine(
 
 function renderFreeTierBanner(): string {
   return `<div class="dashboard-banner dashboard-banner-free" role="region" aria-label="Plan upgrade">
-  <span class="dashboard-banner-text">You're on the <strong>free plan</strong> — daily scans, alerts, and per-domain detail are Pro features.</span>
+  <span class="dashboard-banner-text">You're on the <strong>free plan</strong>: weekly rescans of up to 3 domains. Pro rescans nightly and keeps full history.</span>
   <a href="/pricing" class="dashboard-banner-cta">Upgrade to Pro — $9/mo</a>
 </div>`;
 }
