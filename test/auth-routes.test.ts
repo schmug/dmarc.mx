@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { csrf } from "hono/csrf";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { authRoutes } from "../src/auth/routes.js";
 
 function createTestApp() {
@@ -175,5 +175,99 @@ describe("auth/routes", () => {
       expect(res.status).toBe(403);
       expect(res.headers.get("Set-Cookie")).toBeNull();
     });
+  });
+});
+
+describe("auth/routes delete re-auth with migrated WorkOS id (#913)", () => {
+  function makeDb(user: {
+    id: string;
+    email: string;
+    workos_user_id: string | null;
+  }) {
+    const prepare = () => ({
+      bind: () => ({
+        first: async () => user,
+        run: async () => ({ success: true, meta: { changes: 1 } }),
+      }),
+    });
+    return { prepare } as unknown as D1Database;
+  }
+
+  async function reauth(
+    user: { id: string; email: string; workos_user_id: string | null },
+    freshWorkosId: string,
+  ) {
+    const { createSessionToken } = await import("../src/auth/session.js");
+    const session = await createSessionToken(
+      { sub: user.id, email: user.email },
+      ENV.SESSION_SECRET,
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({ user: { id: freshWorkosId, email: user.email } }),
+          ),
+      ),
+    );
+    const app = createTestApp();
+    const req = new Request(
+      "http://localhost/auth/callback?code=c&state=delete:nonce",
+      { headers: { Cookie: `oauth_state=delete:nonce; session=${session}` } },
+    );
+    const res = await app.request(req, undefined, {
+      ...ENV,
+      WORKOS_CLIENT_SECRET: "x",
+      DB: makeDb(user),
+    });
+    vi.unstubAllGlobals();
+    return res;
+  }
+
+  it("mints a proof when the fresh WorkOS id matches stored workos_user_id", async () => {
+    const res = await reauth(
+      {
+        id: "user_staging",
+        email: "a@example.com",
+        workos_user_id: "user_prod",
+      },
+      "user_prod",
+    );
+    expect(res.headers.get("Location")).toBe("/dashboard/account/delete");
+    expect(res.headers.get("Set-Cookie")).toContain("delete_proof=");
+  });
+
+  it("falls back to users.id when workos_user_id is null", async () => {
+    const res = await reauth(
+      { id: "user_1", email: "a@example.com", workos_user_id: null },
+      "user_1",
+    );
+    expect(res.headers.get("Location")).toBe("/dashboard/account/delete");
+  });
+
+  it("refuses a proof when the WorkOS identity does not match", async () => {
+    const res = await reauth(
+      {
+        id: "user_staging",
+        email: "a@example.com",
+        workos_user_id: "user_prod",
+      },
+      "user_other",
+    );
+    expect(res.headers.get("Location")).toBe("/dashboard/settings");
+    expect(res.headers.get("Set-Cookie") ?? "").not.toContain("delete_proof=");
+  });
+
+  it("refuses the stale staging id once workos_user_id is set", async () => {
+    const res = await reauth(
+      {
+        id: "user_staging",
+        email: "a@example.com",
+        workos_user_id: "user_prod",
+      },
+      "user_staging",
+    );
+    expect(res.headers.get("Location")).toBe("/dashboard/settings");
   });
 });

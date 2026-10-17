@@ -10,6 +10,13 @@ export interface User {
   api_key_retirement_acknowledged_at: number | null;
   max_domains_override: number | null;
   created_at: number;
+  // WorkOS user id when it differs from `id` (WorkOS environment cutover,
+  // #913). NULL means the WorkOS id is `id`.
+  workos_user_id: string | null;
+}
+
+export function workosIdFor(user: Pick<User, "id" | "workos_user_id">): string {
+  return user.workos_user_id ?? user.id;
 }
 
 export async function createUser(
@@ -22,9 +29,9 @@ export async function createUser(
   const nowSeconds = Math.floor(Date.now() / 1000);
   await db
     .prepare(
-      "INSERT INTO users (id, email, email_domain, api_key_retirement_acknowledged_at) VALUES (?, ?, ?, ?)",
+      "INSERT INTO users (id, email, email_domain, api_key_retirement_acknowledged_at, workos_user_id) VALUES (?, ?, ?, ?, ?)",
     )
-    .bind(input.id, input.email, emailDomain, nowSeconds)
+    .bind(input.id, input.email, emailDomain, nowSeconds, input.id)
     .run();
   // Clear any stale WorkOS-deletion retry from a prior account erasure that
   // failed at the identity-provider step — the user is signing up again.
@@ -56,6 +63,34 @@ export async function deleteUser(
   userId: string,
 ): Promise<void> {
   await db.prepare("DELETE FROM users WHERE id = ?").bind(userId).run();
+}
+
+export async function setWorkosUserId(
+  db: D1Database,
+  userId: string,
+  workosUserId: string,
+): Promise<void> {
+  await db
+    .prepare("UPDATE users SET workos_user_id = ? WHERE id = ?")
+    .bind(workosUserId, userId)
+    .run();
+}
+
+// True when a live local account is bound to this WorkOS identity, either as
+// its `id` or as its `workos_user_id`.
+export async function workosIdentityInUse(
+  db: D1Database,
+  workosUserId: string,
+): Promise<boolean> {
+  const row = await d1Read(() =>
+    db
+      .prepare(
+        "SELECT 1 AS found FROM users WHERE id = ? OR workos_user_id = ? LIMIT 1",
+      )
+      .bind(workosUserId, workosUserId)
+      .first(),
+  );
+  return row !== null;
 }
 
 export async function getUserByEmail(

@@ -22,8 +22,8 @@ async function localUserExists(
   workosUserId: string,
 ): Promise<boolean> {
   const row = await db
-    .prepare("SELECT 1 AS found FROM users WHERE id = ?")
-    .bind(workosUserId)
+    .prepare("SELECT 1 AS found FROM users WHERE id = ? OR workos_user_id = ?")
+    .bind(workosUserId, workosUserId)
     .first();
   return row !== null;
 }
@@ -38,9 +38,11 @@ async function claimRetryRowIfNoLocalUser(
     .prepare(
       `DELETE FROM workos_identity_retry
        WHERE workos_user_id = ?
-         AND NOT EXISTS (SELECT 1 FROM users WHERE id = ?)`,
+         AND NOT EXISTS (
+           SELECT 1 FROM users WHERE id = ? OR workos_user_id = ?
+         )`,
     )
-    .bind(workosUserId, workosUserId)
+    .bind(workosUserId, workosUserId, workosUserId)
     .run();
   return (result.meta?.changes ?? 0) > 0;
 }

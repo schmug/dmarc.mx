@@ -17,7 +17,12 @@ afterEach(() => {
 // (b) assert zero rows remain for the user across every owned table.
 // ---------------------------------------------------------------------------
 interface CascadeState {
-  users: Array<{ id: string; email: string; stripe_customer_id?: string }>;
+  users: Array<{
+    id: string;
+    email: string;
+    stripe_customer_id?: string;
+    workos_user_id?: string | null;
+  }>;
   domains: Array<{ id: number; user_id: string }>;
   scanHistory: Array<{ domain_id: number }>;
   alerts: Array<{ domain_id: number }>;
@@ -360,20 +365,8 @@ describe("account/deletion.deleteAccount", () => {
     const fetchMock = stubFetch(order);
     const env = makeEnv(state, order, { WORKOS_API_KEY: "sk_workos" });
 
-    const reregistered = {
-      id: USER.id,
-      email: USER.email,
-      email_domain: "example.com",
-      stripe_customer_id: null,
-      email_alerts_enabled: 1,
-      notify_on_change_only: 0,
-      api_key_retirement_acknowledged_at: 1,
-      max_domains_override: null,
-      created_at: 2,
-    };
-    vi.spyOn(users, "getUserById")
-      .mockResolvedValueOnce(reregistered)
-      .mockResolvedValue(null);
+    vi.spyOn(users, "getUserById").mockResolvedValue(null);
+    vi.spyOn(users, "workosIdentityInUse").mockResolvedValue(true);
 
     const result = await deleteAccount(env, USER);
 
@@ -381,6 +374,36 @@ describe("account/deletion.deleteAccount", () => {
     expect(result.workosFailed).toBe(false);
     expect(order).not.toContain("workos-delete");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("deletes the WorkOS identity by workos_user_id for a migrated user (#913)", async () => {
+    const state = emptyState();
+    state.users.push({ ...USER, workos_user_id: "user_prod_9" });
+    const order: string[] = [];
+    const fetchMock = stubFetch(order);
+    const env = makeEnv(state, order, { WORKOS_API_KEY: "sk_workos" });
+
+    const result = await deleteAccount(env, USER);
+
+    expect(result.workosDeleted).toBe(true);
+    const urls = fetchMock.mock.calls.map((c) => String(c[0]));
+    expect(urls).toEqual([
+      "https://api.workos.com/user_management/users/user_prod_9",
+    ]);
+  });
+
+  it("falls back to users.id when workos_user_id is null (#913)", async () => {
+    const state = emptyState();
+    state.users.push({ ...USER, workos_user_id: null });
+    const order: string[] = [];
+    const fetchMock = stubFetch(order);
+    const env = makeEnv(state, order, { WORKOS_API_KEY: "sk_workos" });
+
+    await deleteAccount(env, USER);
+
+    expect(String(fetchMock.mock.calls[0][0])).toBe(
+      "https://api.workos.com/user_management/users/user_1",
+    );
   });
 
   it("skips WorkOS gracefully when WORKOS_API_KEY is absent", async () => {

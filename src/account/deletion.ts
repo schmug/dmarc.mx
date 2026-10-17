@@ -7,7 +7,12 @@ import {
   cancelSubscription,
 } from "../billing/stripe.js";
 import { getSubscriptionByUserId, statusToPlan } from "../db/subscriptions.js";
-import { deleteUser, getUserById } from "../db/users.js";
+import {
+  deleteUser,
+  getUserById,
+  workosIdentityInUse,
+  workosIdFor,
+} from "../db/users.js";
 import type { Env } from "../env.js";
 import { enqueueWorkosRetry } from "./workos-retry.js";
 
@@ -48,11 +53,15 @@ export async function deleteAccount(
   env: Env,
   user: { id: string; email: string },
 ): Promise<AccountDeletionResult> {
+  // Read the row before the local delete: the WorkOS identity to erase is
+  // `workos_user_id ?? id` (they differ after a WorkOS environment cutover, #913).
+  const fullUser = await getUserById(env.DB, user.id);
+  const workosId = fullUser ? workosIdFor(fullUser) : user.id;
+
   // 1. Stripe — cancel an active subscription first, abort on failure.
   let stripeCancelled = false;
   if (isBillingEnabled(env)) {
     const subscription = await getSubscriptionByUserId(env.DB, user.id);
-    const fullUser = await getUserById(env.DB, user.id);
 
     if (fullUser?.stripe_customer_id) {
       // List+cancel every billable sub on the customer — Stripe is the source
@@ -83,16 +92,16 @@ export async function deleteAccount(
     // delete above and this outbound call, re-creating a live D1 row for the
     // same WorkOS id. Deleting the identity then would permanently lock out the
     // new account — mirror the sweep's pre-delete guard (#615).
-    const reregistered = await getUserById(env.DB, user.id);
+    const reregistered = await workosIdentityInUse(env.DB, workosId);
     if (reregistered) {
       // Identity must stay — createUser already cleared any stale retry row.
     } else {
       try {
-        await deleteWorkosUser(env.WORKOS_API_KEY, user.id);
-        if (await getUserById(env.DB, user.id)) {
+        await deleteWorkosUser(env.WORKOS_API_KEY, workosId);
+        if (await workosIdentityInUse(env.DB, workosId)) {
           Sentry.captureException(
             new Error(
-              `WorkOS identity ${user.id} was deleted after local re-registration during account erasure — manual recovery required`,
+              `WorkOS identity ${workosId} was deleted after local re-registration during account erasure — manual recovery required`,
             ),
           );
         } else {
@@ -101,7 +110,7 @@ export async function deleteAccount(
       } catch (err) {
         workosFailed = true;
         Sentry.captureException(err);
-        await enqueueWorkosRetry(env.DB, user.id);
+        await enqueueWorkosRetry(env.DB, workosId);
       }
     }
   } else {
