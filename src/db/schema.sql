@@ -8,7 +8,8 @@ CREATE TABLE IF NOT EXISTS users (
   notify_on_change_only INTEGER NOT NULL DEFAULT 0,
   api_key_retirement_acknowledged_at INTEGER,
   max_domains_override INTEGER,
-  created_at INTEGER NOT NULL DEFAULT (unixepoch())
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  workos_user_id TEXT
 );
 
 -- Monitored domains
@@ -117,6 +118,8 @@ CREATE TABLE IF NOT EXISTS workos_identity_retry (
 );
 
 -- Indexes for common queries
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_workos_user_id
+  ON users(workos_user_id) WHERE workos_user_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_domains_user_id ON domains(user_id);
 CREATE INDEX IF NOT EXISTS idx_scan_history_domain_id ON scan_history(domain_id);
 CREATE INDEX IF NOT EXISTS idx_alerts_domain_id ON alerts(domain_id);

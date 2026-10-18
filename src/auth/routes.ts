@@ -1,7 +1,13 @@
 import { Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { createDomain } from "../db/domains.js";
-import { createUser, getUserByEmail } from "../db/users.js";
+import {
+  createUser,
+  getUserByEmail,
+  getUserById,
+  setWorkosUserId,
+  workosIdFor,
+} from "../db/users.js";
 import { createReauthProof } from "./reauth.js";
 import {
   clearSessionAndRedirect,
@@ -95,7 +101,15 @@ authRoutes.get("/callback", async (c) => {
     const sessionPayload = sessionToken
       ? await validateSessionToken(sessionToken, env.SESSION_SECRET)
       : null;
-    if (!sessionPayload || sessionPayload.sub !== id) {
+    // Compare against the session user's stored WorkOS id (differs from
+    // users.id after a WorkOS environment cutover, #913).
+    const sessionUser = sessionPayload
+      ? await getUserById(env.DB, sessionPayload.sub)
+      : null;
+    const expectedWorkosId = sessionUser
+      ? workosIdFor(sessionUser)
+      : sessionPayload?.sub;
+    if (!sessionPayload || expectedWorkosId !== id) {
       return c.redirect("/dashboard/settings");
     }
     const proof = await createReauthProof(
@@ -130,6 +144,17 @@ authRoutes.get("/callback", async (c) => {
     user = await getUserByEmail(env.DB, email);
     if (!user) {
       return c.text("Account creation failed", 500);
+    }
+  }
+
+  // Keep the stored WorkOS id current (cutover to a new WorkOS environment).
+  if (user.workos_user_id !== id) {
+    try {
+      await setWorkosUserId(env.DB, user.id, id);
+    } catch (err) {
+      // Never block login on this (e.g. unique-index clash); deletion falls
+      // back to the previously stored id.
+      console.warn("workos_user_id update failed", err);
     }
   }
 
