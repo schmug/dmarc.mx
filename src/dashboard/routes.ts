@@ -1,5 +1,5 @@
 import * as Sentry from "@sentry/cloudflare";
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { deleteAccount } from "../account/deletion.js";
 import {
@@ -1403,7 +1403,15 @@ dashboardRoutes.post("/settings/notify-on-change", async (c) => {
 // API keys: list / generate / revoke. The cleartext `POST /settings/api-key`
 // handler from Phase 1 is intentionally gone — keys are now hashed server-side
 // and the raw value is surfaced only at generation time on this page.
-dashboardRoutes.get("/settings/api-keys", async (c) => {
+//
+// Shared renderer for GET (key list only) and the generate POST (key list plus
+// the just-minted raw key). The raw key travels ONLY in the POST response body
+// — never in a URL, which Workers Logs/Traces, Sentry and browser history all
+// record (CWE-598). no-store keeps that body out of every cache.
+async function renderApiKeysPageResponse(
+  c: Context,
+  justCreated: string | null,
+): Promise<Response> {
   const session = c.get("user" as never) as SessionPayload;
   const db = (c.env as { DB: D1Database }).DB;
   const user = await getUserById(db, session.sub);
@@ -1419,8 +1427,6 @@ dashboardRoutes.get("/settings/api-keys", async (c) => {
     );
   }
   const rows = await listApiKeysByUser(db, session.sub);
-  const justCreated =
-    c.req.query("created") === "1" ? (c.req.query("raw") ?? null) : null;
   return c.html(
     renderApiKeysPage({
       email: user.email,
@@ -1428,8 +1434,14 @@ dashboardRoutes.get("/settings/api-keys", async (c) => {
       justCreated,
       showRetirementBanner,
     }),
+    200,
+    { "Cache-Control": "no-store" },
   );
-});
+}
+
+dashboardRoutes.get("/settings/api-keys", (c) =>
+  renderApiKeysPageResponse(c, null),
+);
 
 dashboardRoutes.post("/settings/api-keys/generate", async (c) => {
   const session = c.get("user" as never) as SessionPayload;
@@ -1449,14 +1461,10 @@ dashboardRoutes.post("/settings/api-keys/generate", async (c) => {
     hash: generated.hash,
   });
 
-  // Shuttle the raw value through a redirect URL so the GET renders it once.
-  // Anyone capable of reading the user's browser history already owns the key,
-  // so this is no weaker than rendering it inline after the POST.
-  const params = new URLSearchParams({
-    created: "1",
-    raw: generated.raw,
-  });
-  return c.redirect(`/dashboard/settings/api-keys?${params.toString()}`, 303);
+  // Render the raw key directly in this POST response rather than redirecting
+  // with it in a query string: a redirect URL lands in Workers Logs/Traces,
+  // Sentry transactions and browser history, undoing the hash-only storage.
+  return renderApiKeysPageResponse(c, generated.raw);
 });
 
 dashboardRoutes.post("/settings/api-keys/revoke", async (c) => {
