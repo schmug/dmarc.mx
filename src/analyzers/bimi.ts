@@ -96,6 +96,61 @@ async function fetchLogo(
 }
 
 /**
+ * Return the value after the first "Not After :" label in a cert body, or
+ * null. Gives exactly what the former
+ * `body.match(/Not\s+After\s*:\s*(.+?)(?:\r?\n|$)/i)?.[1]` captured, in
+ * linear time. That regex backtracked quadratically on an attacker-served
+ * body (up to CERT_MAX_BYTES): a long whitespace run after the colon followed
+ * by a lone `\r` made it re-scan the rest of the line once per whitespace
+ * character.
+ * Kept from the regex, on purpose:
+ *   - A value counts only if it is followed by `\n`, `\r\n` or end of body.
+ *     A lone `\r`, U+2028 or U+2029 fails that occurrence, and the search
+ *     moves on to the next label.
+ *   - If the value fails, shorter splits of the whitespace after the colon
+ *     are tried, longest first, so a whitespace-only value that ends at an
+ *     embedded `\n` is accepted. It trims to "" and still ends the search.
+ */
+export function findNotAfterValue(body: string): string | null {
+  // Group 1 is the whole whitespace run after the colon.
+  const label = /Not\s+After\s*:(\s*)/gi;
+  // The characters `.` does not match without the `s` flag.
+  const lineBreak = /[\n\r\u2028\u2029]/g;
+  // Cache of the last line-break search: [scanFrom, lineEnd) holds no line
+  // break, so many labels on one line do not rescan it.
+  let scanFrom = -1;
+  let lineEnd = -1;
+  for (let m = label.exec(body); m !== null; m = label.exec(body)) {
+    const textStart = m.index + m[0].length;
+    const afterColon = textStart - m[1].length;
+    if (textStart < scanFrom || textStart > lineEnd) {
+      lineBreak.lastIndex = textStart;
+      scanFrom = textStart;
+      lineEnd = lineBreak.exec(body)?.index ?? body.length;
+    }
+    // `end` is the first line break (or body end) at or after `start`.
+    let end = lineEnd;
+    for (let start = textStart; start >= afterColon; start--) {
+      if (start === body.length) continue; // the value needs one character
+      const ch = body[start];
+      if (ch === "\n" || ch === "\r" || ch === "\u2028" || ch === "\u2029") {
+        end = start;
+        continue;
+      }
+      if (
+        end === body.length ||
+        body[end] === "\n" ||
+        (body[end] === "\r" && body[end + 1] === "\n")
+      ) {
+        return body.slice(start, end);
+      }
+    }
+    label.lastIndex = m.index + 1;
+  }
+  return null;
+}
+
+/**
  * Fetch the VMC/CMC PEM certificate and validate reachability, PEM format,
  * and expiry. Only raw fetch bytes are read — no cert content reaches HTML.
  */
@@ -163,9 +218,9 @@ async function fetchCert(
     // Match patterns like: "Not After : Jan  1 00:00:00 2025 GMT"
     // which appear in PEM bundles that include human-readable cert info,
     // or in cert chains serialized with OpenSSL text output.
-    const notAfterMatch = body.match(/Not\s+After\s*:\s*(.+?)(?:\r?\n|$)/i);
-    if (notAfterMatch) {
-      const notAfterStr = notAfterMatch[1].trim();
+    const notAfterValue = findNotAfterValue(body);
+    if (notAfterValue !== null) {
+      const notAfterStr = notAfterValue.trim();
       const notAfter = new Date(notAfterStr);
       if (!Number.isNaN(notAfter.getTime())) {
         if (notAfter < new Date()) {
