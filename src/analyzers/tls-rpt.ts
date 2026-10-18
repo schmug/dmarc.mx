@@ -11,7 +11,13 @@ import type { TlsRptResult, Validation } from "./types.js";
 // Requires a local@domain address with a dotted domain — rejects `mailto:`
 // and `mailto:not-an-address`, which the bare startsWith("mailto:") check
 // used to accept.
-const MAILTO_ADDRESS_RE = /^mailto:[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// The domain part is matched as: one char, then non-dots up to the first
+// dot, then the rest. That accepts exactly the same strings as
+// `[^\s@]+\.[^\s@]+` (a dot that is neither the first nor last char), but
+// with no ambiguous split point, so it runs in linear time. The overlapping
+// form backtracked O(n^2) on an attacker-served `_smtp._tls` TXT such as
+// `rua=mailto:a@` + "." * n + "@" (CWE-1333).
+const MAILTO_ADDRESS_RE = /^mailto:[^\s@]+@[^\s@][^\s@.]*\.[^\s@]+$/;
 
 export async function analyzeTlsRpt(
   domain: string,

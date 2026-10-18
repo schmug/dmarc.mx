@@ -215,6 +215,24 @@ describe("analyzeTlsRpt", () => {
     ).toBe(true);
   });
 
+  it("rejects a dot-stuffed mailto: domain without quadratic backtracking", async () => {
+    // The old /[^\s@]+\.[^\s@]+$/ domain match took ~0.8s at 40k dots and
+    // grew O(n^2); at 200k dots it would blow the test timeout.
+    const rua = `mailto:a@${".".repeat(200_000)}@`;
+    mockQueryTxt.mockResolvedValue({
+      entries: [`v=TLSRPTv1; rua=${rua}`],
+      raw: `v=TLSRPTv1; rua=${rua}`,
+    });
+    const result = await analyzeTlsRpt("example.com");
+    expect(result.status).toBe("warn");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "warn" && v.message.includes("mailto:/https:// format"),
+      ),
+    ).toBe(true);
+  });
+
   it("accepts a valid mailto: address", async () => {
     mockQueryTxt.mockResolvedValue({
       entries: ["v=TLSRPTv1; rua=mailto:tlsrpt@example.com"],
