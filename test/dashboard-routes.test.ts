@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
+import { hashApiKey } from "../src/auth/api-key.js";
 import { createSessionToken } from "../src/auth/session.js";
 import { dashboardRoutes } from "../src/dashboard/routes.js";
 
@@ -1713,7 +1714,7 @@ describe("dashboard/routes", () => {
       expect(body).not.toContain("Save this key now");
     });
 
-    it("shows the raw key banner only on the created=1 redirect", async () => {
+    it("never renders a raw key from the query string and is no-store", async () => {
       const db = createMockDB({
         users: [
           {
@@ -1736,9 +1737,10 @@ describe("dashboard/routes", () => {
         { headers: { Cookie: cookie } },
       );
       expect(res.status).toBe(200);
+      expect(res.headers.get("Cache-Control")).toBe("no-store");
       const body = await res.text();
-      expect(body).toContain("Save this key now");
-      expect(body).toContain(raw);
+      expect(body).not.toContain("Save this key now");
+      expect(body).not.toContain(raw);
     });
 
     it("acks the retirement banner via waitUntil on first visit", async () => {
@@ -1784,9 +1786,23 @@ describe("dashboard/routes", () => {
       expect(res.headers.get("Location")).toBe("/auth/login");
     });
 
-    it("creates an api_keys row and redirects with the raw key in the query string (shown once)", async () => {
+    it("creates an api_keys row and renders the raw key in the no-store POST response, never in a URL", async () => {
       const writes: Array<{ sql: string; bindings: unknown[] }> = [];
-      const db = createMockDB({ writes });
+      const db = createMockDB({
+        users: [
+          {
+            id: "user_1",
+            email: "alice@example.com",
+            email_domain: "example.com",
+            stripe_customer_id: null,
+            email_alerts_enabled: 1,
+            api_key_retirement_acknowledged_at: 1700000000,
+            created_at: 1700000000,
+          },
+        ],
+        apiKeys: [],
+        writes,
+      });
       const app = createTestApp(db);
       const cookie = await makeSessionCookie("user_1", "alice@example.com");
 
@@ -1799,24 +1815,43 @@ describe("dashboard/routes", () => {
         body: "name=ci-pipeline",
       });
 
-      expect(res.status).toBe(303);
-      const loc = res.headers.get("Location") ?? "";
-      expect(loc.startsWith("/dashboard/settings/api-keys?")).toBe(true);
-      expect(loc).toContain("created=1");
-      expect(loc).toContain("raw=dmk_");
+      expect(res.status).toBe(200);
+      expect(res.headers.get("Location")).toBeNull();
+      expect(res.headers.get("Cache-Control")).toBe("no-store");
 
       const insert = writes.find((w) => w.sql.includes("INSERT INTO api_keys"));
       expect(insert).toBeDefined();
       // bindings: id, userId, name, prefix, hash
       expect(insert?.bindings[1]).toBe("user_1");
       expect(insert?.bindings[2]).toBe("ci-pipeline");
-      expect(String(insert?.bindings[3] ?? "")).toMatch(/^dmk_.{8}$/);
-      expect(String(insert?.bindings[4] ?? "")).toMatch(/^[0-9a-f]{64}$/);
+      const prefix = String(insert?.bindings[3] ?? "");
+      expect(prefix).toMatch(/^dmk_.{8}$/);
+      const hash = String(insert?.bindings[4] ?? "");
+      expect(hash).toMatch(/^[0-9a-f]{64}$/);
+
+      const body = await res.text();
+      expect(body).toContain("Save this key now");
+      const shown = body.match(/dmk_[A-Za-z0-9_-]{32}/)?.[0] ?? "";
+      expect(shown.startsWith(prefix)).toBe(true);
+      expect(await hashApiKey(shown)).toBe(hash);
     });
 
     it("stores name as null when the form field is blank", async () => {
       const writes: Array<{ sql: string; bindings: unknown[] }> = [];
-      const db = createMockDB({ writes });
+      const db = createMockDB({
+        users: [
+          {
+            id: "user_1",
+            email: "alice@example.com",
+            email_domain: "example.com",
+            stripe_customer_id: null,
+            email_alerts_enabled: 1,
+            api_key_retirement_acknowledged_at: 1700000000,
+            created_at: 1700000000,
+          },
+        ],
+        writes,
+      });
       const app = createTestApp(db);
       const cookie = await makeSessionCookie("user_1", "alice@example.com");
 
@@ -1828,7 +1863,7 @@ describe("dashboard/routes", () => {
         },
         body: "name=",
       });
-      expect(res.status).toBe(303);
+      expect(res.status).toBe(200);
 
       const insert = writes.find((w) => w.sql.includes("INSERT INTO api_keys"));
       expect(insert?.bindings[2]).toBeNull();
