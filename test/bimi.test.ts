@@ -5,7 +5,11 @@ vi.mock("../src/dns/client.js", () => ({
   queryMx: vi.fn(),
 }));
 
-import { analyzeBimi, prefetchBimiDns } from "../src/analyzers/bimi.js";
+import {
+  analyzeBimi,
+  findNotAfterValue,
+  prefetchBimiDns,
+} from "../src/analyzers/bimi.js";
 import { queryTxt } from "../src/dns/client.js";
 
 const mockQueryTxt = vi.mocked(queryTxt);
@@ -43,6 +47,16 @@ function pemCertResponse(notAfter = "Jan  1 00:00:00 2099 GMT"): Response {
     status: 200,
     headers: new Headers({ "content-type": "application/x-pem-file" }),
     body: makeBody(pem),
+  } as unknown as Response;
+}
+
+/** Mock a successful cert fetch response with an exact body. */
+function certBodyResponse(text: string): Response {
+  return {
+    ok: true,
+    status: 200,
+    headers: new Headers({ "content-type": "application/x-pem-file" }),
+    body: makeBody(text),
   } as unknown as Response;
 }
 
@@ -555,6 +569,84 @@ describe("analyzeBimi", () => {
     expect(validCert?.learnAnchor).toBeUndefined();
   });
 
+  it("does not parse a Not After line ended by a lone CR (CR-only body)", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: [
+        "v=BIMI1; l=https://example.com/logo.svg; a=https://example.com/vmc.pem",
+      ],
+      raw: "v=BIMI1; l=https://example.com/logo.svg; a=https://example.com/vmc.pem",
+    });
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(svgLogoResponse())
+      .mockResolvedValueOnce(
+        certBodyResponse(
+          "-----BEGIN CERTIFICATE-----\rMIIFake==\r-----END CERTIFICATE-----\rNot After : Jan  1 00:00:00 2020 GMT\r",
+        ),
+      );
+
+    const result = await analyzeBimi("example.com", "reject");
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "pass" && v.message.includes("expiry date not parsed"),
+      ),
+    ).toBe(true);
+    expect(result.validations.some((v) => v.message.includes("expired"))).toBe(
+      false,
+    );
+  });
+
+  it("skips a Not After ended by a lone CR and uses the next one ended by LF", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: [
+        "v=BIMI1; l=https://example.com/logo.svg; a=https://example.com/vmc.pem",
+      ],
+      raw: "v=BIMI1; l=https://example.com/logo.svg; a=https://example.com/vmc.pem",
+    });
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(svgLogoResponse())
+      .mockResolvedValueOnce(
+        certBodyResponse(
+          "-----BEGIN CERTIFICATE-----\nMIIFake==\n-----END CERTIFICATE-----\nNot After : Jan  1 00:00:00 2099 GMT\rNot After : Jan  1 00:00:00 2020 GMT\n",
+        ),
+      );
+
+    const result = await analyzeBimi("example.com", "reject");
+    expect(result.status).toBe("fail");
+    expect(
+      result.validations.some(
+        (v) => v.status === "fail" && v.message === "Certificate is expired",
+      ),
+    ).toBe(true);
+  });
+
+  it("parses an attacker cert body built for regex backtracking in linear time", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: [
+        "v=BIMI1; l=https://example.com/logo.svg; a=https://example.com/vmc.pem",
+      ],
+      raw: "v=BIMI1; l=https://example.com/logo.svg; a=https://example.com/vmc.pem",
+    });
+    // Just under the 100 KB cert cap. The former Not After regex backtracked
+    // O(n^2) on this body and took seconds.
+    const body = `-----BEGIN CERTIFICATE-----\nMIIFake==\n-----END CERTIFICATE-----\nNot After :${" ".repeat(102_000)}a\rb`;
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(svgLogoResponse())
+      .mockResolvedValueOnce(certBodyResponse(body));
+
+    const t0 = Date.now();
+    const result = await analyzeBimi("example.com", "reject");
+    const elapsed = Date.now() - t0;
+
+    expect(elapsed).toBeLessThan(500);
+    expect(
+      result.validations.some(
+        (v) =>
+          v.status === "pass" && v.message.includes("expiry date not parsed"),
+      ),
+    ).toBe(true);
+  });
+
   it("warns when cert fetch throws (network error)", async () => {
     mockQueryTxt.mockResolvedValue({
       entries: [
@@ -700,5 +792,86 @@ describe("prefetchBimiDns", () => {
       "default._bimi.example.com",
       undefined,
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// findNotAfterValue
+// ---------------------------------------------------------------------------
+
+describe("findNotAfterValue", () => {
+  // The regex fetchCert used before the ReDoS fix. Its capture is the oracle:
+  // findNotAfterValue must return the same value for every body.
+  const FORMER_REGEX = /Not\s+After\s*:\s*(.+?)(?:\r?\n|$)/i;
+  const former = (body: string) => body.match(FORMER_REGEX)?.[1] ?? null;
+  const LS = String.fromCharCode(0x2028); // LINE SEPARATOR
+  const PS = String.fromCharCode(0x2029); // PARAGRAPH SEPARATOR
+  const NBSP = String.fromCharCode(0xa0);
+
+  it("returns what the former regex captured", () => {
+    const bodies = [
+      "Not After : Jan  1 00:00:00 2020 GMT\n",
+      "Not After : Jan  1 00:00:00 2020 GMT\r\n",
+      "Not After : Jan  1 00:00:00 2020 GMT",
+      "Not After : Jan  1 00:00:00 2020 GMT\r",
+      `Not After : Jan  1 00:00:00 2020 GMT${LS}`,
+      "Not After : Jan  1 00:00:00\r2020 GMT\n",
+      "Not After : Jan  1 00:00:00 2099 GMT\rNot After : Jan  1 00:00:00 2020 GMT\n",
+      // Whitespace before an embedded \n is accepted and ends the search.
+      "Not After :  \n 2020\n",
+      // A later label inside a failed line whose whitespace crosses the \r.
+      "Not After :x Not After :\r  2020\n",
+      "Not After :   ",
+      "Not After :",
+      "",
+    ];
+    // Deterministic pseudo-random short bodies from the tokens that steer
+    // the regex.
+    const tokens = [
+      "Not After :",
+      "Not",
+      "After",
+      "not\tafter:",
+      ":",
+      " ",
+      "\t",
+      "\n",
+      "\r",
+      "\r\n",
+      LS,
+      PS,
+      NBSP,
+      "x",
+      "2020",
+    ];
+    let seed = 1;
+    const next = (bound: number) => {
+      seed = (Math.imul(seed, 1103515245) + 12345) >>> 0;
+      return (seed >>> 16) % bound;
+    };
+    for (let i = 0; i < 20_000; i++) {
+      let body = "";
+      const length = next(12);
+      for (let j = 0; j < length; j++) body += tokens[next(tokens.length)];
+      bodies.push(body);
+    }
+
+    const mismatches = bodies.filter(
+      (body) => findNotAfterValue(body) !== former(body),
+    );
+    expect(mismatches).toEqual([]);
+  });
+
+  it("stays linear on many labels on one line followed by a lone CR", () => {
+    const body = `${"Not After :x".repeat(8000)}\rb`;
+
+    const t0 = Date.now();
+    const value = findNotAfterValue(body);
+    const elapsed = Date.now() - t0;
+
+    expect(value).toBeNull();
+    // Rescanning the line once per label (labels x line length) takes
+    // hundreds of ms here.
+    expect(elapsed).toBeLessThan(100);
   });
 });
