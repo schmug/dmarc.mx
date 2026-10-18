@@ -21,6 +21,15 @@ const PROTOCOL_NAMES: Record<string, string> = {
 };
 
 const CSV_DANGEROUS_START_RE = /^[=+\-@\t\r\n]/;
+// A spreadsheet may split a .csv on ';' or tab (locale / import settings) and
+// may break rows on CR/LF inside a field it does not treat as quoted, so each
+// of those characters can start a new cell mid-field. Neutralize a formula
+// trigger that follows one, with any spaces or double quotes in between (a
+// cell reading `""=1+1` still evaluates in a reader that honours a leading
+// quote). The gap alternatives are disjoint single characters, so this stays
+// linear on attacker-controlled DNS text.
+const CSV_DANGEROUS_AFTER_SEPARATOR_RE =
+  /([;\t\r\n](?:"|[^\S\t\r\n])*)([=+\-@])/g;
 const CSV_NEEDS_QUOTING_RE = /[,"\r\n]/;
 
 export function escapeCsvField(value: string): string {
@@ -31,6 +40,7 @@ export function escapeCsvField(value: string): string {
   if (CSV_DANGEROUS_START_RE.test(safeValue)) {
     safeValue = `'${safeValue}`;
   }
+  safeValue = safeValue.replace(CSV_DANGEROUS_AFTER_SEPARATOR_RE, "$1'$2");
 
   if (CSV_NEEDS_QUOTING_RE.test(safeValue)) {
     return `"${safeValue.replace(/"/g, '""')}"`;

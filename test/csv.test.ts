@@ -123,15 +123,33 @@ describe("escapeCsvField", () => {
   });
 
   it("prepends a single quote for fields starting with tab", () => {
-    expect(escapeCsvField("\t=1+1")).toBe("'\t=1+1");
+    expect(escapeCsvField("\t=1+1")).toBe("'\t'=1+1");
   });
 
   it("prepends a single quote for fields starting with carriage return", () => {
-    expect(escapeCsvField("\r=1+1")).toBe('"\'\r=1+1"');
+    expect(escapeCsvField("\r=1+1")).toBe("\"'\r'=1+1\"");
   });
 
   it("prepends a single quote for fields starting with newline", () => {
-    expect(escapeCsvField("\n=1+1")).toBe('"\'\n=1+1"');
+    expect(escapeCsvField("\n=1+1")).toBe("\"'\n'=1+1\"");
+  });
+
+  it("neutralizes a formula trigger after an embedded semicolon", () => {
+    expect(escapeCsvField("v=DMARC1;=HYPERLINK(1)")).toBe(
+      "v=DMARC1;'=HYPERLINK(1)",
+    );
+    expect(escapeCsvField("a; +1")).toBe("a; '+1");
+    expect(escapeCsvField("v=DMARC1; p=reject")).toBe("v=DMARC1; p=reject");
+  });
+
+  it("neutralizes a formula trigger after an embedded tab, CR or LF", () => {
+    expect(escapeCsvField("a\t-1")).toBe("a\t'-1");
+    expect(escapeCsvField("a\n@SUM(1)")).toBe('"a\n\'@SUM(1)"');
+  });
+
+  it("neutralizes a trigger after a separator and double quotes", () => {
+    expect(escapeCsvField('a;"=1+1')).toBe('"a;""\'=1+1"');
+    expect(escapeCsvField('a\t"=1+1')).toBe('"a\t""\'=1+1"');
   });
 
   it("returns plain string unchanged", () => {
@@ -158,6 +176,31 @@ describe("escapeCsvField", () => {
     expect(escapeCsvField("")).toBe("");
   });
 });
+
+// Models a spreadsheet that splits on `sep` and on line breaks and honours a
+// double quote only at the start of a cell, keeping any text after the
+// closing quote (so `""=1+1` reads as `=1+1`).
+function lenientCells(csv: string, sep: string): string[] {
+  const cells: string[] = [];
+  const isBreak = (ch: string) => ch === sep || ch === "\r" || ch === "\n";
+  let i = 0;
+  while (i < csv.length) {
+    let cell = "";
+    if (csv[i] === '"') {
+      // Quoted section: "" is a literal quote, a lone " closes it.
+      for (i++; i < csv.length; i++) {
+        if (csv[i] === '"' && csv[i + 1] !== '"') break;
+        if (csv[i] === '"') i++;
+        cell += csv[i];
+      }
+      i++;
+    }
+    while (i < csv.length && !isBreak(csv[i])) cell += csv[i++];
+    cells.push(cell);
+    i++;
+  }
+  return cells;
+}
 
 describe("generateCsv", () => {
   it("starts with UTF-8 BOM", () => {
@@ -264,6 +307,21 @@ describe("generateCsv", () => {
     expect(csv).toContain(
       '"v=DMARC1; p=reject; rua=mailto:dmarc@example.com,mailto:admin@example.com"',
     );
+  });
+
+  it("leaves no formula-led cell when split on ';' or tab", () => {
+    const result = makeScanResult();
+    result.protocols.dmarc.record =
+      'v=DMARC1;=HYPERLINK("http://evil.example");"=1+1;\t-1';
+    result.protocols.mta_sts.validations = [
+      { status: "fail", message: 'Unknown policy mode "x;"=1+1;y"' },
+    ];
+    const csv = generateCsv(result);
+    const formulaLed = /^[\s"]*[=+\-@]/;
+    for (const sep of [";", "\t"]) {
+      const cells = lenientCells(csv, sep);
+      expect(cells.filter((cell) => formulaLed.test(cell))).toEqual([]);
+    }
   });
 
   it("includes domain and grade in every row", () => {
