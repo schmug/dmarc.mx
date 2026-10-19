@@ -20,6 +20,8 @@ export interface RescanResult {
   errors: number;
   /** Due domains deliberately not attempted this run — deferred to the next. */
   skipped: number;
+  /** Held scans that verified on the sequential retry before adjudication. */
+  recovered: number;
 }
 
 type WebhookFireFn = (
@@ -461,6 +463,45 @@ export async function runDueRescans(deps: RescanDeps): Promise<RescanResult> {
     }
   }
 
+  // Retry every held domain once, one at a time, before adjudicating. The
+  // batch phase runs batchSize × ~52 lookups concurrently behind the
+  // per-invocation connection limit, and DNS_TIMEOUT_MS starts at call time,
+  // not when the fetch opens a connection — so slow lookups (DANE) can push
+  // grade-critical ones past it. Alone, the same domain usually verifies. Only
+  // domains still held afterwards count toward the run-level verdict.
+  const retrying = held.splice(0, held.length);
+  let recovered = 0;
+  if (retrying.length > 0) {
+    for (const entry of retrying) {
+      let outcome: Awaited<ReturnType<typeof rescanOne>>;
+      try {
+        outcome = await rescanOne(deps, entry.domain);
+      } catch (err) {
+        errors += 1;
+        Sentry.captureException(err);
+        continue;
+      }
+      if (outcome.error) {
+        errors += 1;
+        Sentry.captureException(outcome.error);
+      } else if (outcome.degraded) {
+        errors += 1;
+      } else if (outcome.held) {
+        held.push(outcome.held);
+      } else {
+        recovered += 1;
+        scanned += 1;
+        alertCount += outcome.alerts;
+      }
+    }
+    Sentry.addBreadcrumb({
+      category: "cron.rescan",
+      message: `Sequential retry of held scans: ${recovered} of ${retrying.length} recovered`,
+      data: { retried: retrying.length, recovered },
+      level: "info",
+    });
+  }
+
   // Adjudicate the held scans (#752). If enough of the run looks that way the
   // fault is ours: discard them, so those domains keep their last known grade
   // and stay due for the next run instead of being overwritten with a grade
@@ -501,10 +542,10 @@ export async function runDueRescans(deps: RescanDeps): Promise<RescanResult> {
 
   Sentry.addBreadcrumb({
     category: "cron.rescan",
-    message: `Rescan complete: scanned=${scanned}, alerts=${alertCount}, errors=${errors}, skipped=${skipped}`,
-    data: { scanned, alerts: alertCount, errors, skipped },
+    message: `Rescan complete: scanned=${scanned}, alerts=${alertCount}, errors=${errors}, skipped=${skipped}, recovered=${recovered}`,
+    data: { scanned, alerts: alertCount, errors, skipped, recovered },
     level: errors > 0 ? "warning" : "info",
   });
 
-  return { scanned, alerts: alertCount, errors, skipped };
+  return { scanned, alerts: alertCount, errors, skipped, recovered };
 }
