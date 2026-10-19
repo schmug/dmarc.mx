@@ -353,7 +353,13 @@ describe("cron/runDueRescans", () => {
       scanFn: scanFn as never,
     });
 
-    expect(result).toEqual({ scanned: 1, alerts: 0, errors: 0, skipped: 0 });
+    expect(result).toEqual({
+      scanned: 1,
+      alerts: 0,
+      errors: 0,
+      skipped: 0,
+      recovered: 0,
+    });
     expect(scanFn).toHaveBeenCalledWith("stale.com");
     expect(history.size).toBe(1);
     expect([...history.values()][0].grade).toBe("A");
@@ -953,7 +959,8 @@ describe("cron/runDueRescans", () => {
       });
 
       // The run is not halted by the broken head.
-      expect(scanFn.mock.calls.length).toBe(60);
+      // 60 batch scans plus one sequential retry of each held domain.
+      expect(scanFn.mock.calls.length).toBe(80);
       expect(result.skipped).toBe(0);
 
       // The broken domains advance: recorded, so last_scanned_at moves and
@@ -1032,6 +1039,81 @@ describe("cron/runDueRescans", () => {
       // The unverified domains keep their previous grade and stay due.
       expect(domains.get(1)?.last_grade).toBe("A");
       expect(domains.get(1)?.last_scanned_at).toBe(previous);
+    });
+
+    // Held scans get one sequential retry before the run-level verdict: under
+    // batch contention slow lookups time out grade-critical ones that resolve
+    // fine alone.
+    it("records held scans that verify on the sequential retry and does not discard", async () => {
+      seedDueDomains(40);
+      const seen = new Set<string>();
+      const scanFn = vi.fn(async (domain: string) => {
+        const first = !seen.has(domain);
+        seen.add(domain);
+        return first
+          ? makeUnreachableScanResult(domain)
+          : makeScanResult(domain, "A", {});
+      });
+
+      const result = await runDueRescans({
+        db: makeD1Mock(),
+        now,
+        scanFn: scanFn as never,
+        fireWebhookFn: vi.fn().mockResolvedValue(undefined) as never,
+      });
+
+      expect(history.size).toBe(40);
+      expect(result.scanned).toBe(40);
+      expect(result.recovered).toBe(40);
+      expect(result.errors).toBe(0);
+      expect(alerts.size).toBe(0);
+      expect(scanFn).toHaveBeenCalledTimes(80);
+    });
+
+    it("still discards when held scans fail again on the retry", async () => {
+      seedDueDomains(40);
+      const scanFn = vi.fn(async (domain: string) =>
+        makeUnreachableScanResult(domain),
+      );
+
+      const result = await runDueRescans({
+        db: makeD1Mock(),
+        now,
+        scanFn: scanFn as never,
+        fireWebhookFn: vi.fn().mockResolvedValue(undefined) as never,
+      });
+
+      expect(history.size).toBe(0);
+      expect(result.scanned).toBe(0);
+      expect(result.recovered).toBe(0);
+      expect(result.errors).toBe(40);
+      expect(scanFn).toHaveBeenCalledTimes(80);
+    });
+
+    it("retries held scans sequentially", async () => {
+      seedDueDomains(30);
+      const seen = new Set<string>();
+      let inFlight = 0;
+      let retryMax = 0;
+      const scanFn = vi.fn(async (domain: string) => {
+        const first = !seen.has(domain);
+        seen.add(domain);
+        if (first) return makeUnreachableScanResult(domain);
+        inFlight += 1;
+        retryMax = Math.max(retryMax, inFlight);
+        await new Promise((r) => setTimeout(r, 1));
+        inFlight -= 1;
+        return makeScanResult(domain, "A", {});
+      });
+
+      await runDueRescans({
+        db: makeD1Mock(),
+        now,
+        scanFn: scanFn as never,
+        fireWebhookFn: vi.fn().mockResolvedValue(undefined) as never,
+      });
+
+      expect(retryMax).toBe(1);
     });
 
     // #752 acceptance 4 — the run-level discard must not become a permanent
