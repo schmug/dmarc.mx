@@ -23,13 +23,35 @@ import {
 
 const MD_SITE = "https://dmarc.mx";
 
+// Values below originate from DNS TXT records and HTTP responses on an
+// attacker-controlled domain, and this export is fed straight to LLM agents.
+// Fenced content must not be able to close its fence, and inline content must
+// not be able to open headings, links, or new lines.
+
+/** Wrap multi-line content in a fence longer than any backtick run inside it. */
+function fence(content: string): string {
+  const runs = content.match(/`+/g) ?? [];
+  const longest = runs.reduce((m, r) => Math.max(m, r.length), 0);
+  const ticks = "`".repeat(Math.max(3, longest + 1));
+  return `${ticks}\n${content}\n${ticks}`;
+}
+
+/** Collapse to one line and backslash-escape markdown metacharacters. */
+function inline(value: string | number | null | undefined): string {
+  return String(value ?? "")
+    .replace(/[\p{Cc}\u2028\u2029]+/gu, " ")
+    .replace(/[\\`*_[\]()<>#!|~&]/g, "\\$&");
+}
+
 function bullet(items: string[]): string {
   return items.length === 0 ? "" : items.map((s) => `- ${s}`).join("\n");
 }
 
 function validationLines(validations: Validation[]): string {
   if (validations.length === 0) return "- _(no findings)_";
-  return validations.map((v) => `- **${v.status}** — ${v.message}`).join("\n");
+  return validations
+    .map((v) => `- **${v.status}** — ${inline(v.message)}`)
+    .join("\n");
 }
 
 function renderSecurityTxtMarkdown(s: SecurityTxtResult): string {
@@ -43,16 +65,17 @@ ${validationLines(s.validations)}`;
   const f = s.fields;
   const fieldLines: string[] = [];
   if (f.contact.length > 0)
-    fieldLines.push(`- Contact: ${f.contact.join(", ")}`);
-  if (f.expires) fieldLines.push(`- Expires: ${f.expires}`);
-  if (f.policy.length > 0) fieldLines.push(`- Policy: ${f.policy.join(", ")}`);
+    fieldLines.push(`- Contact: ${f.contact.map(inline).join(", ")}`);
+  if (f.expires) fieldLines.push(`- Expires: ${inline(f.expires)}`);
+  if (f.policy.length > 0)
+    fieldLines.push(`- Policy: ${f.policy.map(inline).join(", ")}`);
   if (f.encryption.length > 0)
-    fieldLines.push(`- Encryption: ${f.encryption.join(", ")}`);
+    fieldLines.push(`- Encryption: ${f.encryption.map(inline).join(", ")}`);
   if (f.preferred_languages)
-    fieldLines.push(`- Preferred-Languages: ${f.preferred_languages}`);
+    fieldLines.push(`- Preferred-Languages: ${inline(f.preferred_languages)}`);
   return `## security.txt — ${s.status}
 
-Source: <${s.source_url}>${s.signed ? " (PGP-signed)" : ""}
+Source: ${inline(s.source_url)}${s.signed ? " (PGP-signed)" : ""}
 
 ${fieldLines.join("\n")}
 
@@ -67,12 +90,12 @@ _No TLS-RPT record found at _smtp._tls TXT._
 
 ${validationLines(t.validations)}`;
   }
-  const ruaLine = t.tags?.rua ? `rua: ${t.tags.rua}` : "rua: _(missing)_";
+  const ruaLine = t.tags?.rua
+    ? `rua: ${inline(t.tags.rua)}`
+    : "rua: _(missing)_";
   return `## TLS-RPT — ${t.status}
 
-\`\`\`
-${t.record}
-\`\`\`
+${fence(t.record)}
 
 ${ruaLine}
 
@@ -99,7 +122,7 @@ function renderDaneMarkdown(d: DaneResult): string {
       ? hostsWithTlsa
           .map(
             (h) =>
-              `- ${h.exchange}: ${h.tlsaRecords.length} TLSA record${h.tlsaRecords.length !== 1 ? "s" : ""}${h.dnssecValidated ? " (DNSSEC validated)" : " (DNSSEC not validated)"}`,
+              `- ${inline(h.exchange)}: ${h.tlsaRecords.length} TLSA record${h.tlsaRecords.length !== 1 ? "s" : ""}${h.dnssecValidated ? " (DNSSEC validated)" : " (DNSSEC not validated)"}`,
           )
           .join("\n")
       : "_No TLSA records found._";
@@ -116,7 +139,7 @@ function renderDnsblMarkdown(d: DnsblResult): string {
       ? d.checked
           .map(
             (c) =>
-              `- ${c.ip} (${c.source}): ${c.verdict}${c.verdict === "listed" && c.zones?.length ? ` — ${c.zones.join(", ")}` : ""}`,
+              `- ${inline(c.ip)} (${inline(c.source)}): ${inline(c.verdict)}${c.verdict === "listed" && c.zones?.length ? ` — ${c.zones.map(inline).join(", ")}` : ""}`,
           )
           .join("\n")
       : "_No sending IPs checked._";
@@ -164,32 +187,32 @@ export function renderReportMarkdown(result: ScanResult): string {
     .sort((a, b) => a.priority - b.priority)
     .map(
       (r) =>
-        `- **P${r.priority} · ${r.protocol.toUpperCase()}** — ${r.title}. ${r.description} _(${r.impact})_`,
+        `- **P${r.priority} · ${r.protocol.toUpperCase()}** — ${inline(r.title)}. ${inline(r.description)} _(${inline(r.impact)})_`,
     )
     .join("\n");
 
   const factors = breakdown.factors
     .map(
       (f) =>
-        `- ${f.protocol.toUpperCase()}: ${f.label} (${f.effect >= 0 ? "+" : ""}${f.effect})`,
+        `- ${f.protocol.toUpperCase()}: ${inline(f.label)} (${f.effect >= 0 ? "+" : ""}${f.effect})`,
     )
     .join("\n");
 
-  return `# ${domain} — Grade ${grade}
+  return `# ${inline(domain)} — Grade ${grade}
 
-_Scanned ${timestamp}_
+_Scanned ${inline(timestamp)}_
 
-**Tier:** ${breakdown.tier} — ${breakdown.tierReason}
-**Modifier:** ${breakdown.modifierLabel} (${breakdown.modifier >= 0 ? "+" : ""}${breakdown.modifier})
+**Tier:** ${inline(breakdown.tier)} — ${inline(breakdown.tierReason)}
+**Modifier:** ${inline(breakdown.modifierLabel)} (${breakdown.modifier >= 0 ? "+" : ""}${breakdown.modifier})
 
 ## Summary
 
-- MX records: ${summary.mx_records}${summary.mx_providers.length ? ` (${summary.mx_providers.join(", ")})` : ""}
-- DMARC policy: ${summary.dmarc_policy ?? "_none_"}
-- SPF: ${summary.spf_result} (${summary.spf_lookups})
+- MX records: ${summary.mx_records}${summary.mx_providers.length ? ` (${summary.mx_providers.map(inline).join(", ")})` : ""}
+- DMARC policy: ${summary.dmarc_policy ? inline(summary.dmarc_policy) : "_none_"}
+- SPF: ${inline(summary.spf_result)} (${inline(summary.spf_lookups)})
 - DKIM selectors found: ${summary.dkim_selectors_found}
 - BIMI: ${summary.bimi_enabled ? "enabled" : "not configured"}
-- MTA-STS mode: ${summary.mta_sts_mode ?? "_none_"}
+- MTA-STS mode: ${summary.mta_sts_mode ? inline(summary.mta_sts_mode) : "_none_"}
 
 ## Recommendations
 
@@ -201,13 +224,13 @@ ${factors || "- _(no factors)_"}
 
 ## DMARC — ${protocols.dmarc.status}
 
-${protocols.dmarc.record ? `\`\`\`\n${protocols.dmarc.record}\n\`\`\`` : "_No DMARC record found._"}
+${protocols.dmarc.record ? fence(protocols.dmarc.record) : "_No DMARC record found._"}
 
 ${validationLines(protocols.dmarc.validations)}
 
 ## SPF — ${protocols.spf.status}
 
-${protocols.spf.record ? `\`\`\`\n${protocols.spf.record}\n\`\`\`` : "_No SPF record found._"}
+${protocols.spf.record ? fence(protocols.spf.record) : "_No SPF record found._"}
 
 Lookups used: ${protocols.spf.lookups_used} / ${protocols.spf.lookup_limit}
 
@@ -221,21 +244,21 @@ ${validationLines(protocols.dkim.validations)}
 
 ## BIMI — ${protocols.bimi.status}
 
-${protocols.bimi.record ? `\`\`\`\n${protocols.bimi.record}\n\`\`\`` : "_No BIMI record found._"}
+${protocols.bimi.record ? fence(protocols.bimi.record) : "_No BIMI record found._"}
 
 ${validationLines(protocols.bimi.validations)}
 
 ## MTA-STS — ${protocols.mta_sts.status}
 
-${protocols.mta_sts.dns_record ? `\`\`\`\n${protocols.mta_sts.dns_record}\n\`\`\`` : "_No MTA-STS DNS record found._"}
+${protocols.mta_sts.dns_record ? fence(protocols.mta_sts.dns_record) : "_No MTA-STS DNS record found._"}
 
-${protocols.mta_sts.policy ? `Policy: mode=${protocols.mta_sts.policy.mode}, max_age=${protocols.mta_sts.policy.max_age}, mx=[${protocols.mta_sts.policy.mx.join(", ")}]` : ""}
+${protocols.mta_sts.policy ? `Policy: mode=${inline(protocols.mta_sts.policy.mode)}, max_age=${inline(protocols.mta_sts.policy.max_age)}, mx=[${protocols.mta_sts.policy.mx.map(inline).join(", ")}]` : ""}
 
 ${validationLines(protocols.mta_sts.validations)}
 
 ## MX — ${protocols.mx.status}
 
-${bullet(protocols.mx.records.map((r) => `${r.priority} ${r.exchange}${r.provider ? ` _(${r.provider.name})_` : ""}`)) || "_No MX records found._"}
+${bullet(protocols.mx.records.map((r) => `${inline(r.priority)} ${inline(r.exchange)}${r.provider ? ` _(${inline(r.provider.name)})_` : ""}`)) || "_No MX records found._"}
 
 ${validationLines(protocols.mx.validations)}
 
@@ -262,13 +285,14 @@ function renderDkimSelectors(
   if (entries.length === 0) return "_No DKIM selectors probed._";
   return entries
     .map(([name, r]) => {
-      if (!r.found) return `- \`${name}\` — not found`;
+      const label = `\`${name.replace(/[^A-Za-z0-9._-]/g, "?")}\``;
+      if (!r.found) return `- ${label} — not found`;
       const parts: string[] = [];
       if (r.key_type) parts.push(r.key_type);
       if (r.key_bits) parts.push(`${r.key_bits} bits`);
       if (r.testing) parts.push("testing");
       if (r.revoked) parts.push("revoked");
-      return `- \`${name}\` — ${parts.join(", ") || "found"}`;
+      return `- ${label} — ${inline(parts.join(", ")) || "found"}`;
     })
     .join("\n");
 }
