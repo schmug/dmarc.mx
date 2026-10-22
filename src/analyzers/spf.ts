@@ -137,7 +137,7 @@ export async function analyzeSpf(
   }
 
   // all mechanism check
-  const allIndex = tree.mechanisms.findIndex((m) => m.endsWith("all"));
+  const allIndex = tree.mechanisms.findIndex((m) => /^[+\-~?]?all$/i.test(m));
   const allMech = allIndex === -1 ? undefined : tree.mechanisms[allIndex];
   if (allMech) {
     if (allMech === "-all") {
