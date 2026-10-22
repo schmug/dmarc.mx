@@ -3,13 +3,15 @@ import type { ScanBudget } from "../dns/scan-budget.js";
 import type { TxtRecord } from "../dns/types.js";
 import { LEARN_ANCHORS, learnAnchorHref } from "../shared/learn-anchors.js";
 import { parseTags } from "../shared/parse-tags.js";
+import { isAllowedWebhookUrl } from "../shared/ssrf.js";
 import type { BimiResult, Validation } from "./types.js";
 
 // Fetch posture for BIMI artifacts (logo and VMC/CMC cert):
-//   - `redirect: "follow"` — BIMI has no RFC-level prohibition on redirects,
-//     unlike MTA-STS (RFC 8461 §3.3). Real-world BIMI logo and cert hosts
-//     commonly redirect CDN URLs. Contrast with mta-sts.ts which must use
-//     "manual" to comply with RFC 8461 §3.3. See CLAUDE.md §Security.
+//   - Redirects are followed manually (`redirect: "manual"`, max 3 hops) —
+//     BIMI has no RFC-level prohibition on redirects, unlike MTA-STS
+//     (RFC 8461 §3.3), and real-world logo/cert hosts commonly redirect CDN
+//     URLs. Each hop is re-checked against the SSRF guard (src/shared/ssrf.ts)
+//     so a 3xx cannot pivot to an internal host.
 //   - 30s timeout — keeps a stalled upstream from hanging the whole scan.
 //   - Hard body size limits — prevents an attacker-controlled server from
 //     streaming megabytes into Worker memory.
@@ -32,6 +34,38 @@ function isSelfHostedLogo(url: string): boolean {
   }
 }
 
+const MAX_REDIRECTS = 3;
+
+/**
+ * Fetch a user-controlled BIMI URL with the SSRF guard applied to the initial
+ * URL and to every redirect hop. Returns null if any hop is blocked, not
+ * https, or the hop cap is exceeded — callers treat that as unreachable.
+ */
+async function guardedFetch(
+  url: string,
+  timeoutMs: number,
+): Promise<Response | null> {
+  let current = url;
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    if (!isAllowedWebhookUrl(current)) return null;
+    const resp = await fetch(current, {
+      headers: { "User-Agent": "dmarcheck/1.0" },
+      redirect: "manual",
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (resp.status < 300 || resp.status >= 400) return resp;
+    const location = resp.headers.get("location");
+    if (!location) return resp;
+    resp.body?.cancel();
+    try {
+      current = new URL(location, current).toString();
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
 export function prefetchBimiDns(
   domain: string,
   budget?: ScanBudget,
@@ -47,11 +81,14 @@ async function fetchLogo(
   url: string,
 ): Promise<{ ok: boolean; message: string }> {
   try {
-    const resp = await fetch(url, {
-      headers: { "User-Agent": "dmarcheck/1.0" },
-      redirect: "follow",
-      signal: AbortSignal.timeout(LOGO_TIMEOUT_MS),
-    });
+    const resp = await guardedFetch(url, LOGO_TIMEOUT_MS);
+    if (!resp) {
+      return {
+        ok: false,
+        message:
+          "Logo fetch blocked: URL or redirect targets a disallowed host, or too many redirects",
+      };
+    }
 
     if (!resp.ok) {
       return {
@@ -158,11 +195,14 @@ async function fetchCert(
   url: string,
 ): Promise<{ ok: boolean; expired?: boolean; message: string }> {
   try {
-    const resp = await fetch(url, {
-      headers: { "User-Agent": "dmarcheck/1.0" },
-      redirect: "follow",
-      signal: AbortSignal.timeout(CERT_TIMEOUT_MS),
-    });
+    const resp = await guardedFetch(url, CERT_TIMEOUT_MS);
+    if (!resp) {
+      return {
+        ok: false,
+        message:
+          "Certificate fetch blocked: URL or redirect targets a disallowed host, or too many redirects",
+      };
+    }
 
     if (!resp.ok) {
       return {

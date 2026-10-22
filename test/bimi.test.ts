@@ -150,6 +150,58 @@ describe("analyzeBimi", () => {
     ).toBe(true);
   });
 
+  it("does not fetch a logo URL on a blocked host", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=BIMI1; l=https://localhost./logo.svg"],
+      raw: "v=BIMI1; l=https://localhost./logo.svg",
+    });
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const result = await analyzeBimi("example.com", "reject");
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(
+      result.validations.some(
+        (v) => v.status === "warn" && v.message.includes("blocked"),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not follow a logo redirect to a blocked host", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=BIMI1; l=https://cdn.example.net/logo.svg"],
+      raw: "v=BIMI1; l=https://cdn.example.net/logo.svg",
+    });
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
+      ok: false,
+      status: 302,
+      headers: new Headers({ location: "https://[::127.0.0.1]/x.svg" }),
+      body: null,
+    } as unknown as Response);
+    const result = await analyzeBimi("example.com", "reject");
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(result.validations.some((v) => v.message.includes("blocked"))).toBe(
+      true,
+    );
+  });
+
+  it("follows a public redirect but caps hops at 3", async () => {
+    mockQueryTxt.mockResolvedValue({
+      entries: ["v=BIMI1; l=https://cdn.example.net/logo.svg"],
+      raw: "v=BIMI1; l=https://cdn.example.net/logo.svg",
+    });
+    const redirect = () =>
+      ({
+        ok: false,
+        status: 301,
+        headers: new Headers({ location: "https://cdn.example.net/next.svg" }),
+        body: null,
+      }) as unknown as Response;
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async () => redirect());
+    await analyzeBimi("example.com", "reject");
+    expect(fetchSpy).toHaveBeenCalledTimes(4); // initial + 3 hops
+  });
+
   it("parses valid BIMI record with logo and authority", async () => {
     mockQueryTxt.mockResolvedValue({
       entries: [
@@ -759,7 +811,7 @@ describe("analyzeBimi", () => {
     ).toBe(true);
   });
 
-  it("uses redirect:follow for BIMI fetches (not manual)", async () => {
+  it("uses redirect:manual for BIMI fetches (hops re-checked by the SSRF guard)", async () => {
     mockQueryTxt.mockResolvedValue({
       entries: [
         "v=BIMI1; l=https://example.com/logo.svg; a=https://example.com/vmc.pem",
@@ -773,9 +825,8 @@ describe("analyzeBimi", () => {
 
     await analyzeBimi("example.com", "reject");
 
-    // Both calls must use redirect:"follow" (not "manual" which is MTA-STS-specific)
     for (const call of fetchSpy.mock.calls) {
-      expect(call[1]).toEqual(expect.objectContaining({ redirect: "follow" }));
+      expect(call[1]).toEqual(expect.objectContaining({ redirect: "manual" }));
     }
   });
 });

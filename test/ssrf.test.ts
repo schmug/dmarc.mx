@@ -88,3 +88,30 @@ describe("shared/ssrf.isAllowedWebhookUrl", () => {
     expect(isAllowedWebhookUrl("https://hook.example/receive")).toBe(true);
   });
 });
+
+describe("shared/ssrf bypass forms", () => {
+  it("blocks trailing-dot hostnames", () => {
+    for (const h of ["localhost.", "x.internal.", "127.0.0.1.", "a.local.."]) {
+      expect(isBlockedFetchHost(h)).toBe(true);
+    }
+    expect(isBlockedFetchHost("example.com.")).toBe(false);
+  });
+
+  it("blocks IPv4-compatible and NAT64 IPv6 embedding a private IPv4", () => {
+    for (const u of [
+      "https://[::127.0.0.1]/",
+      "https://[64:ff9b::7f00:1]/",
+      "https://[64:ff9b::169.254.169.254]/",
+      "https://[::a00:5]/",
+    ]) {
+      expect(isAllowedWebhookUrl(u)).toBe(false);
+    }
+    expect(isBlockedFetchHost("[::127.0.0.1]")).toBe(true);
+    expect(isBlockedFetchHost("64:ff9b::7f00:1")).toBe(true);
+  });
+
+  it("allows NAT64 / IPv6 embedding a public IPv4 or a global address", () => {
+    expect(isBlockedFetchHost("64:ff9b::808:808")).toBe(false);
+    expect(isBlockedFetchHost("2606:4700::1111")).toBe(false);
+  });
+});
