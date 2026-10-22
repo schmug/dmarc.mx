@@ -73,6 +73,18 @@ describe("accessJwtMiddleware", () => {
     expect(verify).not.toHaveBeenCalled();
   });
 
+  it.each([
+    `${PROTECTED_HOST}:443`,
+    `${PROTECTED_HOST}.`,
+    `${PROTECTED_HOST}.:443`,
+    PROTECTED_HOST.toUpperCase(),
+  ])("requires a JWT for host variant %s", async (host) => {
+    const verify = vi.fn();
+    const app = makeApp(verify as unknown as VerifyFn);
+    const res = await app.request("/", { headers: { host } }, ENV_OK);
+    expect(res.status).toBe(401);
+  });
+
   it("returns 401 surfacing the verifier's reason when the JWT fails validation", async () => {
     const verify = vi.fn().mockResolvedValue({
       ok: false,

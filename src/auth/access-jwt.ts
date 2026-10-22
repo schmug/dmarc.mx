@@ -115,7 +115,14 @@ export interface AccessMiddlewareOptions {
   verify?: VerifyFn;
 }
 
-const defaultIsProtectedHost = (host: string) => host.endsWith(".workers.dev");
+// Normalise before comparing: a port (`x.workers.dev:443`) or trailing dot
+// (`x.workers.dev.`) must not slip past the suffix check.
+export function normalizeHost(host: string): string {
+  return host.trim().toLowerCase().replace(/:\d*$/, "").replace(/\.+$/, "");
+}
+
+const defaultIsProtectedHost = (host: string) =>
+  normalizeHost(host).endsWith(".workers.dev");
 
 interface AccessEnv {
   ACCESS_AUD?: string;
