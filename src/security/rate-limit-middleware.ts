@@ -9,6 +9,7 @@ import { getPlanForUser } from "../db/subscriptions.js";
 import {
   checkRateLimit,
   getRateLimitConfig,
+  type RateLimitConfig,
   type RateLimitResult,
   rateLimitHeaders,
 } from "../rate-limit.js";
@@ -59,9 +60,14 @@ export function rateLimitMiddleware(
   // costs 1 token, the historical behavior. Bulk-scan uses this to charge
   // proportional to its in-band scan count instead of counting as one request.
   weightFn?: (c: Context) => Promise<number>,
+  // Optional scope override. Omitted → `resolveRateLimitScope` (bearer/IP).
+  // The dashboard routes pass a per-session-user scope instead.
+  scopeFn?: (c: Context) => { identity: string; config: RateLimitConfig },
 ) {
   return async (c: Context, next: () => Promise<void>) => {
-    const { identity, config } = await resolveRateLimitScope(c);
+    const { identity, config } = scopeFn
+      ? scopeFn(c)
+      : await resolveRateLimitScope(c);
     const weight = weightFn ? await weightFn(c) : 1;
     // The Durable Object RPC is awaited end-to-end, so the counter is durably
     // updated before the decision is used — no deferred write to drain.

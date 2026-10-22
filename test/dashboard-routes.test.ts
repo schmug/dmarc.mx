@@ -1898,6 +1898,22 @@ describe("dashboard/routes", () => {
   });
 
   describe("POST /dashboard/domain/:domain/scan", () => {
+    it("returns a 429 page once the per-user scan limit is exceeded", async () => {
+      const db = createMockDB({ domains: [] });
+      const app = createTestApp(db);
+      const cookie = await makeSessionCookie("user_ratelimit", "r@example.com");
+      let last: Response | undefined;
+      for (let i = 0; i < 31; i++) {
+        last = await app.request("/dashboard/domain/notmine.com/scan", {
+          method: "POST",
+          headers: { Cookie: cookie },
+        });
+      }
+      expect(last?.status).toBe(429);
+      expect(await last?.text()).toContain("Scan limit reached");
+      expect(last?.headers.get("X-RateLimit-Limit")).toBe("30");
+    });
+
     it("redirects to /auth/login without a session cookie", async () => {
       const db = createMockDB({});
       const app = createTestApp(db);

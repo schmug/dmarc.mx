@@ -92,21 +92,23 @@ function checkRateLimitMemory(
 
   const entry = memoryStore.get(identity);
 
+  // The window is fixed at its first request: `expires` and `resetAt` are
+  // only written when a new window opens, so a client that keeps calling
+  // cannot extend its own block. Once `now >= resetAt` the window rolls.
   let count: number;
   let resetAt: number;
-  if (entry && entry.expires > now) {
+  let expires: number;
+  if (entry && entry.expires > now && nowSec < entry.resetAt) {
     count = entry.count + weight;
     resetAt = entry.resetAt;
+    expires = entry.expires;
   } else {
     count = weight;
     resetAt = nowSec + config.windowSec;
+    expires = now + config.windowSec * 1000;
   }
 
-  memoryStore.set(identity, {
-    count,
-    expires: now + config.windowSec * 1000,
-    resetAt,
-  });
+  memoryStore.set(identity, { count, expires, resetAt });
 
   const allowed = count <= config.limit;
   const remaining = Math.max(0, config.limit - count);
