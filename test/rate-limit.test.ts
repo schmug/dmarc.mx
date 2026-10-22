@@ -265,3 +265,28 @@ describe("rate-limit", () => {
     });
   });
 });
+
+describe("rate-limit in-memory window rolling", () => {
+  beforeEach(() => {
+    _memoryStore.clear();
+    _resetCallCount();
+  });
+
+  it("does not extend the window on blocked requests and resets after resetAt", async () => {
+    vi.useFakeTimers();
+    const cfg = { limit: 2, windowSec: 60 };
+    const first = await checkRateLimit("ip:roll", cfg);
+    await checkRateLimit("ip:roll", cfg);
+    // Keep hammering past the limit, every 20s, until just before resetAt.
+    vi.advanceTimersByTime(20_000);
+    expect((await checkRateLimit("ip:roll", cfg)).allowed).toBe(false);
+    vi.advanceTimersByTime(20_000);
+    expect((await checkRateLimit("ip:roll", cfg)).allowed).toBe(false);
+    vi.advanceTimersByTime(21_000);
+    const after = await checkRateLimit("ip:roll", cfg);
+    expect(after.allowed).toBe(true);
+    expect(after.count).toBe(1);
+    expect(after.resetAt).toBeGreaterThan(first.resetAt);
+    vi.useRealTimers();
+  });
+});

@@ -67,6 +67,8 @@ import type { Env } from "../env.js";
 import { getRecord } from "../inbox/store.js";
 import { isValidToken } from "../inbox/tokens.js";
 import { scan } from "../orchestrator.js";
+import type { RateLimitConfig } from "../rate-limit.js";
+import { rateLimitMiddleware } from "../security/rate-limit-middleware.js";
 import { normalizeDomain } from "../shared/domain.js";
 import { PRO_WATCHLIST_CAP, watchlistCapFor } from "../shared/limits.js";
 import { tallyProtocolFailures } from "../shared/portfolio.js";
@@ -90,6 +92,7 @@ import {
   renderSettingsPage,
   toApiKeyListEntry,
 } from "../views/dashboard.js";
+import { renderError } from "../views/html.js";
 import { dispatchWebhook } from "../webhooks/dispatcher.js";
 import {
   isWebhookFormat,
@@ -396,6 +399,26 @@ export const dashboardRoutes = new Hono();
 
 // All dashboard routes require auth
 dashboardRoutes.use("*", requireAuth);
+
+// Per-user throttle for the dashboard's DNS fan-out routes. `/dashboard` is
+// mounted above the src/index.ts limiter block, so these are metered here,
+// after requireAuth, keyed on the session user id (separate bucket per kind).
+function dashboardScanLimiter(kind: string, config: RateLimitConfig) {
+  return rateLimitMiddleware(
+    (c, result, headers) =>
+      c.html(
+        renderError(
+          `Scan limit reached. You can run more scans in ${Math.max(1, Math.ceil((result.resetAt * 1000 - Date.now()) / 60000))} minute(s).`,
+        ),
+        { status: 429, headers },
+      ),
+    undefined,
+    (c) => ({
+      identity: `user:${(c.get("user" as never) as SessionPayload).sub}:dash-${kind}`,
+      config,
+    }),
+  );
+}
 
 // Billing sub-routes (upgrade / portal). Self-gates on isBillingEnabled so a
 // self-host deploy without Stripe env vars still 404s these cleanly.
@@ -897,6 +920,10 @@ dashboardRoutes.get("/bulk", async (c) => {
   );
 });
 
+dashboardRoutes.post(
+  "/bulk",
+  dashboardScanLimiter("bulk", { limit: 10, windowSec: 3600 }),
+);
 dashboardRoutes.post("/bulk", async (c) => {
   const session = c.get("user" as never) as SessionPayload;
   const db = (c.env as { DB: D1Database }).DB;
@@ -1082,6 +1109,10 @@ dashboardRoutes.get("/domain/:domain/history", async (c) => {
 // Manual scan trigger — runs the orchestrator for a user-owned domain and
 // persists the result to scan_history + domains.last_*. Rate-limiting comes
 // from the session cookie gating this path (plus D1 write volume per user).
+dashboardRoutes.post(
+  "/domain/:domain/scan",
+  dashboardScanLimiter("scan", { limit: 30, windowSec: 3600 }),
+);
 dashboardRoutes.post("/domain/:domain/scan", async (c) => {
   const session = c.get("user" as never) as SessionPayload;
   const db = (c.env as { DB: D1Database }).DB;
