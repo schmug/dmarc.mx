@@ -161,13 +161,13 @@ app.use("*", async (c, next) => {
     if (!c.res.headers.has("Link")) {
       c.res.headers.set("Link", AGENT_DISCOVERY_LINK_HEADER);
     }
-    // Short edge cache so Cloudflare can absorb landing/scoring/report traffic
-    // without hitting the Worker on every request. Browsers still revalidate.
-    if (!c.res.headers.has("Cache-Control")) {
-      c.res.headers.set(
-        "Cache-Control",
-        "public, max-age=0, s-maxage=300, stale-while-revalidate=600",
-      );
+    // HTML embeds the per-request CSP nonce (and /check varies on
+    // X-Scan-Fetch), so it must never be shared-cached: browsers revalidate,
+    // and any non-200 page (429, 500, ...) is never stored at all.
+    if (c.res.status !== 200) {
+      c.res.headers.set("Cache-Control", "private, no-store");
+    } else if (!c.res.headers.has("Cache-Control")) {
+      c.res.headers.set("Cache-Control", "private, max-age=0");
     }
 
     // Inject nonce into all <script> tags (excluding JSON-LD data blocks which

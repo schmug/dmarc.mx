@@ -1258,11 +1258,28 @@ describe("bare /check request", () => {
 });
 
 describe("HTML Cache-Control and X-Robots-Tag", () => {
-  it("sets a short edge Cache-Control on HTML responses", async () => {
+  it("marks 200 HTML private so the nonce is never shared-cached", async () => {
     const res = await app.request("/");
+    expect(res.status).toBe(200);
     const cc = res.headers.get("Cache-Control");
-    expect(cc).toContain("s-maxage=300");
-    expect(cc).toContain("stale-while-revalidate");
+    expect(cc).toBe("private, max-age=0");
+    expect(cc).not.toContain("public");
+    expect(cc).not.toContain("s-maxage");
+  });
+
+  it("sets private, no-store on a 400 HTML error page", async () => {
+    const res = await app.request("/alerts/unsubscribe");
+    expect(res.status).toBe(400);
+    expect(res.headers.get("content-type")).toContain("text/html");
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store");
+  });
+
+  it("sets private, no-store on a 500 HTML error page", async () => {
+    // No env bound: reading c.env.SESSION_SECRET throws into app.onError.
+    const res = await app.request("/alerts/unsubscribe?token=x");
+    expect(res.status).toBe(500);
+    expect(res.headers.get("content-type")).toContain("text/html");
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store");
   });
 
   it("does not set X-Robots-Tag on HTML responses", async () => {
