@@ -38,6 +38,6 @@
   },
   "overrides": {
     "sharp": "$sharp",
-    "undici": "^7.29.0"
+    "undici": "^7.30.1"
   }
 }
