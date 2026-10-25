@@ -2,6 +2,7 @@ import { COMMON_SELECTORS } from "../analyzers/dkim.js";
 import { LEARN_ANCHORS } from "../shared/learn-anchors.js";
 import { esc, generateCreature } from "./components.js";
 import { page, SITE_ORIGIN } from "./html.js";
+import { FIX_PAGES } from "./learn-fixes.js";
 
 // Learn pages are tutorial/deep-dive content — distinct in shape from the
 // /scoring page which owns the FAQPage schema. These pages emit TechArticle +
@@ -145,6 +146,7 @@ export const LEARN_SIBLINGS: Array<{
     protocol: "SPF lookups",
     blurb: "Fix SPF permerror from too many DNS lookups.",
   },
+  ...FIX_PAGES.map(({ slug, protocol, blurb }) => ({ slug, protocol, blurb })),
 ];
 
 function siblingLinks(currentSlug: string): string {

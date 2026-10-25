@@ -7,6 +7,7 @@ import {
 import { parseScoringConfig } from "../shared/scoring-config.js";
 import { renderLandingPage, renderScoringRubric } from "../views/html.js";
 import {
+  learnCta,
   renderLearnBimi,
   renderLearnDane,
   renderLearnDkim,
@@ -14,10 +15,12 @@ import {
   renderLearnDnssec,
   renderLearnHub,
   renderLearnMtaSts,
+  renderLearnPage,
   renderLearnSecurityTxt,
   renderLearnSpf,
   renderLearnTlsRpt,
 } from "../views/learn.js";
+import { FIX_PAGES, type FixPage } from "../views/learn-fixes.js";
 import { renderSenderRequirementsPage } from "../views/learn-senders.js";
 import { renderSpfLookupsPage } from "../views/learn-spf-lookups.js";
 import { renderPrivacyPage, renderTermsPage } from "../views/legal.js";
@@ -74,6 +77,23 @@ contentRoutes.get("/learn/sender-requirements", (c) =>
 contentRoutes.get("/learn/spf-too-many-lookups", (c) =>
   c.html(renderSpfLookupsPage()),
 );
+
+function renderFixPage(page: FixPage): string {
+  return renderLearnPage({
+    protocol: page.protocol,
+    slug: page.slug,
+    title: page.title,
+    headline: page.headline,
+    description: page.description,
+    body: `${page.body}
+  ${learnCta(page.cta)}
+  <p class="tier-text" style="margin-top:12px">Records drift when vendors or admins change things. Pro rechecks up to 25 domains nightly and emails you when a grade drops &mdash; <a href="/pricing">$9/mo</a>.</p>`,
+  });
+}
+
+for (const page of FIX_PAGES) {
+  contentRoutes.get(`/learn/${page.slug}`, (c) => c.html(renderFixPage(page)));
+}
 
 contentRoutes.get("/mx", (c) => {
   if (wantsMarkdown(c)) return markdownResponse(c, renderMxHubMarkdown());

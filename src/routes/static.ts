@@ -11,6 +11,7 @@ import {
   webManifest,
 } from "../views/favicon.js";
 import { LEARN_MODIFIED } from "../views/learn.js";
+import { FIX_MODIFIED, FIX_PAGES } from "../views/learn-fixes.js";
 import { MX_MODIFIED } from "../views/mx.js";
 import { JS } from "../views/scripts.js";
 import { CSS } from "../views/styles.js";
@@ -264,6 +265,11 @@ const STATIC_SITEMAP_URLS: Array<{
     priority: "0.8",
     lastmod: LEARN_MODIFIED,
   },
+  ...FIX_PAGES.map((p) => ({
+    loc: `https://dmarc.mx/learn/${p.slug}`,
+    priority: "0.8",
+    lastmod: FIX_MODIFIED,
+  })),
   { loc: "https://dmarc.mx/mx", priority: "0.7", lastmod: MX_MODIFIED },
   {
     loc: "https://dmarc.mx/mx/outlook",
