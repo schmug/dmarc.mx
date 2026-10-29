@@ -34,7 +34,7 @@
     "@sentry/cloudflare": "^11.6.0",
     "dns-packet": "^5.6.1",
     "hono": "^4.13.13",
-    "jose": "^6.2.12"
+    "jose": "^6.2.13"
   },
   "overrides": {
     "sharp": "$sharp",
