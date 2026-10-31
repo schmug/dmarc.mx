@@ -75,6 +75,16 @@ export function navLoginButton(): string {
 </a>`;
 }
 
+export function monitorLoginUrl(domain: string): string {
+  return `/auth/login?next=/dashboard&prompt=monitor:${encodeURIComponent(domain)}`;
+}
+
+// Compact prompt near the grade: the full monitor card sits below every
+// protocol section, where most visitors never scroll.
+export function monitorStrip(domain: string): string {
+  return `<p class="monitor-strip">Records drift when vendors or admins change things. <a href="${esc(monitorLoginUrl(domain))}">Monitor ${esc(domain)}</a> and I'll email you when this grade changes &mdash; free, no card.</p>`;
+}
+
 export function monitorSnapshotCard(result: ScanResult): string {
   const { domain, protocols, timestamp } = result;
   const policy = protocols.dmarc.tags?.p;
@@ -86,7 +96,7 @@ export function monitorSnapshotCard(result: ScanResult): string {
     if (protocols.dkim.selectors[name].found) dkimCount++;
   }
   const bimiOk = !!protocols.bimi.tags;
-  const nextUrl = `/auth/login?next=/dashboard&prompt=monitor:${encodeURIComponent(domain)}`;
+  const nextUrl = monitorLoginUrl(domain);
   const stamp = new Date(timestamp).toLocaleTimeString("en-US", {
     hour: "2-digit",
     minute: "2-digit",
