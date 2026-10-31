@@ -572,6 +572,17 @@ h1.domain-name, .domain-name { font-size: 1.5rem; font-weight: 700; margin: 0; }
 }
 .snippet-link:hover { text-decoration: underline; }
 
+/* Above-the-fold monitor prompt */
+.monitor-strip {
+  margin: 12px 0 4px;
+  padding: 10px 14px;
+  border-left: 3px solid var(--clr-accent);
+  background: var(--clr-surface, transparent);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+.monitor-strip a { color: var(--clr-accent); font-weight: 600; }
+
 /* Post-scan monitor upsell */
 .monitor-card {
   display: grid;
