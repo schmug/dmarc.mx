@@ -84,7 +84,9 @@ jobs:
         run: |
           git tag "$VERSION"
           git push origin "$VERSION"
-          gh release create "$VERSION" --title "$VERSION" --notes "$NOTES" sbom.cdx.json
+          # Draft first: the repo has immutable releases, so assets can only be
+          # attached before publishing. Published in the final upload step.
+          gh release create "$VERSION" --draft --title "$VERSION" --notes "$NOTES" sbom.cdx.json
 
       - name: Generate SHA256SUMS
         if: steps.check.outputs.skip != 'true'
@@ -103,16 +105,12 @@ jobs:
             exit 1
           fi
           SLUG="${{ github.repository }}"
-          # Download the auto-generated source archives GitHub creates for each release tag.
-          # These may take a few seconds to appear; retry once if the first attempt fails.
-          gh release download "$VERSION" --repo "$SLUG" --archive=tar.gz \
-            --output "dmarcheck-${VERSION}.tar.gz" || \
-          gh release download "$VERSION" --repo "$SLUG" --archive=tar.gz \
-            --output "dmarcheck-${VERSION}.tar.gz"
-          gh release download "$VERSION" --repo "$SLUG" --archive=zip \
-            --output "dmarcheck-${VERSION}.zip" || \
-          gh release download "$VERSION" --repo "$SLUG" --archive=zip \
-            --output "dmarcheck-${VERSION}.zip"
+          # Source archives come from the tag (the release is still a draft).
+          # These are the same codeload archives the published release links to.
+          for ext in tar.gz zip; do
+            curl -fsSL --retry 3 -o "dmarcheck-${VERSION}.${ext}" \
+              "https://github.com/${SLUG}/archive/refs/tags/${VERSION}.${ext}"
+          done
           sha256sum sbom.cdx.json \
             "dmarcheck-${VERSION}.tar.gz" \
             "dmarcheck-${VERSION}.zip" > SHA256SUMS
@@ -138,6 +136,7 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           gh release upload "$VERSION" SHA256SUMS SHA256SUMS.bundle
+          gh release edit "$VERSION" --draft=false --latest
 
       - name: Verify SHA256SUMS signature (post-release smoke)
         if: steps.check.outputs.skip != 'true'
