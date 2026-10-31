@@ -8,6 +8,10 @@ updates:
     open-pull-requests-limit: 5
     labels:
       - "dependencies"
+    # One PR per week for routine bumps; majors and security fixes stay separate.
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
 
   # MTA-STS Worker npm dependencies
   - package-ecosystem: "npm"
@@ -17,6 +21,9 @@ updates:
     open-pull-requests-limit: 5
     labels:
       - "dependencies"
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
 
   # GitHub Actions used in .github/workflows — keeps SHA-pinned actions up to date
   - package-ecosystem: "github-actions"
@@ -27,3 +34,9 @@ updates:
     labels:
       - "dependencies"
       - "ci"
+    groups:
+      # CodeQL init and analyze must share a version or the Analyze job fails.
+      codeql:
+        patterns: ["github/codeql-action*"]
+      actions-minor-and-patch:
+        update-types: ["minor", "patch"]
