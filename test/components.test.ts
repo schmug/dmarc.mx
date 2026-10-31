@@ -553,3 +553,17 @@ describe("validationList — learnAnchor links (#524)", () => {
     );
   });
 });
+
+describe("monitorStrip", () => {
+  it("puts the monitor prompt above the protocol sections in both report renderers", () => {
+    const result = makeScanResult();
+    const link = `/auth/login?next=/dashboard&amp;prompt=monitor:${encodeURIComponent(result.domain)}`;
+    for (const html of [renderReport(result), renderReportHeader(result)]) {
+      const strip = html.indexOf('class="monitor-strip"');
+      expect(strip).toBeGreaterThan(-1);
+      expect(html.slice(strip, strip + 400)).toContain(link);
+      const mxCard = html.indexOf(">MX<");
+      if (mxCard > -1) expect(strip).toBeLessThan(mxCard);
+    }
+  });
+});

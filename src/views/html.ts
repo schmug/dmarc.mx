@@ -26,6 +26,7 @@ import {
   gradeClass,
   lookupCounter,
   monitorSnapshotCard,
+  monitorStrip,
   mtaStsPolicyTable,
   mxTable,
   navLoginButton,
@@ -472,6 +473,7 @@ function reportBody(result: ScanResult): string {
     <a href="/api/check?domain=${encodeURIComponent(result.domain)}">View JSON &nearr;</a> &middot;
     <a href="/check?domain=${encodeURIComponent(result.domain)}&format=csv" class="csv-download" rel="nofollow">Download CSV &darr;</a>
   </div>
+  ${monitorStrip(result.domain)}
   ${renderBadgeEmbed(result.domain)}
   ${renderMxCard(mx)}
   ${renderDmarcCard(dmarc)}
@@ -539,6 +541,7 @@ export function renderReportHeader(result: ScanResult): string {
     <a href="/api/check?domain=${encodeURIComponent(result.domain)}">View JSON &nearr;</a> &middot;
     <a href="/check?domain=${encodeURIComponent(result.domain)}&format=csv" class="csv-download" rel="nofollow">Download CSV &darr;</a>
   </div>
+  ${monitorStrip(result.domain)}
   ${renderBadgeEmbed(result.domain)}`;
 }
 
