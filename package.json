@@ -15,26 +15,26 @@
     "typecheck": "wrangler types --check --include-runtime=false --env-interface=GeneratedBindings && tsc --noEmit"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.6.3",
+    "@biomejs/biome": "^2.6.4",
     "@cloudflare/vitest-pool-workers": "^0.23.0",
-    "@cloudflare/workers-types": "^5.20261028.1",
+    "@cloudflare/workers-types": "^5.20261102.1",
     "@emnapi/core": "^1.11.3",
     "@emnapi/runtime": "^1.11.1",
     "@types/dns-packet": "^5.6.1",
-    "@types/node": "^26.6.5",
+    "@types/node": "^26.6.6",
     "@vitest/coverage-v8": "^4.1.12",
-    "minimatch": "^11.0.2",
+    "minimatch": "^11.0.4",
     "sharp": "^0.35.5",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vitest": "^4.1.12",
-    "wrangler": "^4.154.0"
+    "wrangler": "^4.156.1"
   },
   "dependencies": {
     "@sentry/cloudflare": "^11.10.0",
     "dns-packet": "^5.6.1",
-    "hono": "^4.13.14",
-    "jose": "^6.2.13"
+    "hono": "^4.13.16",
+    "jose": "^6.2.15"
   },
   "overrides": {
     "sharp": "$sharp",
