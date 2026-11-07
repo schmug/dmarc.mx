@@ -810,6 +810,7 @@ dashboardRoutes.get("/domain/add", async (c) => {
       email: session.email,
       error: null,
       usage: { plan, current, cap: watchlistCapFor(plan, override) },
+      domainValue: normalizeDomain(c.req.query("domain")) ?? undefined,
     }),
   );
 });

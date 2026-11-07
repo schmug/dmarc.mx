@@ -8,6 +8,7 @@ import {
   setWorkosUserId,
   workosIdFor,
 } from "../db/users.js";
+import { normalizeDomain } from "../shared/domain.js";
 import { createReauthProof } from "./reauth.js";
 import {
   clearSessionAndRedirect,
@@ -16,6 +17,16 @@ import {
 } from "./session.js";
 
 export const authRoutes = new Hono();
+
+// "Monitor <domain>" CTAs link to /auth/login?prompt=monitor:<domain>. Carry
+// the domain across the WorkOS round-trip so the callback can land the user
+// on a prefilled add-domain form instead of dropping what they asked for.
+const MONITOR_INTENT_COOKIE = "monitor_intent";
+
+function monitorIntentFrom(prompt: string | undefined): string | null {
+  if (!prompt?.startsWith("monitor:")) return null;
+  return normalizeDomain(prompt.slice("monitor:".length));
+}
 
 authRoutes.get("/login", (c) => {
   const env = c.env as {
@@ -37,6 +48,18 @@ authRoutes.get("/login", (c) => {
     provider: "authkit",
     state,
   });
+  const intent = monitorIntentFrom(c.req.query("prompt"));
+  if (intent) {
+    setCookie(c, MONITOR_INTENT_COOKIE, intent, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "Lax",
+      path: "/",
+      maxAge: 10 * 60,
+    });
+    // Visitors arriving from a report are almost always new.
+    params.set("screen_hint", "sign-up");
+  }
   return c.redirect(
     `https://api.workos.com/user_management/authorize?${params}`,
   );
@@ -172,6 +195,15 @@ authRoutes.get("/callback", async (c) => {
     maxAge: 7 * 24 * 60 * 60, // 7 days
   });
 
+  const intent = normalizeDomain(getCookie(c, MONITOR_INTENT_COOKIE));
+  if (intent) {
+    deleteCookie(c, MONITOR_INTENT_COOKIE, { path: "/" });
+    if (intent !== email.split("@")[1]?.toLowerCase()) {
+      return c.redirect(
+        `/dashboard/domain/add?domain=${encodeURIComponent(intent)}`,
+      );
+    }
+  }
   return c.redirect("/dashboard");
 });
 

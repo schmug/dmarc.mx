@@ -2142,6 +2142,20 @@ describe("dashboard/routes", () => {
       expect(body).toContain("Add Domain");
       expect(body).toContain('name="domain"');
     });
+
+    it("prefills a valid ?domain= and drops an invalid one", async () => {
+      const db = createMockDB({});
+      const app = createTestApp(db);
+      const cookie = await makeSessionCookie("user_1", "alice@example.com");
+      const get = (q: string) =>
+        app
+          .request(`/dashboard/domain/add?domain=${q}`, {
+            headers: { Cookie: cookie },
+          })
+          .then((r) => r.text());
+      expect(await get("Example.com")).toContain('value="example.com"');
+      expect(await get("%22%3E%3Cb%3Epwn")).not.toContain("<b>pwn");
+    });
   });
 
   describe("POST /dashboard/domain/add", () => {
