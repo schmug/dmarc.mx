@@ -271,3 +271,111 @@ describe("auth/routes delete re-auth with migrated WorkOS id (#913)", () => {
     expect(res.headers.get("Location")).toBe("/dashboard/settings");
   });
 });
+
+describe("auth/routes monitor intent", () => {
+  const user = { id: "u1", email: "a@corp.example", workos_user_id: "u1" };
+  const db = {
+    prepare: () => ({
+      bind: () => ({
+        first: async () => user,
+        run: async () => ({ success: true, meta: { changes: 1 } }),
+      }),
+    }),
+  } as unknown as D1Database;
+
+  async function callback(cookie: string) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ user }))),
+    );
+    const req = new Request("http://localhost/auth/callback?code=c&state=s", {
+      headers: { Cookie: `oauth_state=s; ${cookie}` },
+    });
+    const res = await createTestApp().request(req, undefined, {
+      ...ENV,
+      WORKOS_CLIENT_SECRET: "x",
+      DB: db,
+    });
+    vi.unstubAllGlobals();
+    return res;
+  }
+
+  it("carries a monitor prompt to sign-up and stores the domain", async () => {
+    const res = await createTestApp().request(
+      "/auth/login?next=/dashboard&prompt=monitor:Example.COM",
+      {},
+      ENV,
+    );
+    const url = new URL(res.headers.get("Location") as string);
+    expect(url.searchParams.get("screen_hint")).toBe("sign-up");
+    expect(res.headers.get("Set-Cookie")).toContain(
+      "monitor_intent=example.com",
+    );
+  });
+
+  it("ignores prompts that are not a valid monitor domain", async () => {
+    for (const q of ["", "?prompt=other", "?prompt=monitor:not%20a%20domain"]) {
+      const res = await createTestApp().request(`/auth/login${q}`, {}, ENV);
+      const url = new URL(res.headers.get("Location") as string);
+      expect(url.searchParams.has("screen_hint")).toBe(false);
+      expect(res.headers.get("Set-Cookie") ?? "").not.toContain(
+        "monitor_intent=",
+      );
+    }
+  });
+
+  it("lands on a prefilled add-domain form after login", async () => {
+    const res = await callback("monitor_intent=example.com");
+    expect(res.headers.get("Location")).toBe(
+      "/dashboard/domain/add?domain=example.com",
+    );
+    expect(res.headers.get("Set-Cookie")).toContain("monitor_intent=;");
+  });
+
+  it("goes to the dashboard when the intent is the auto-added email domain", async () => {
+    const res = await callback("monitor_intent=corp.example");
+    expect(res.headers.get("Location")).toBe("/dashboard");
+  });
+
+  it("sets the intent cookie httpOnly, Secure, Lax and short-lived", async () => {
+    const res = await createTestApp().request(
+      "/auth/login?prompt=monitor:example.com",
+      {},
+      ENV,
+    );
+    const cookie = (res.headers.get("Set-Cookie") ?? "")
+      .split(/,(?=\s*\w+=)/)
+      .find((c) => c.includes("monitor_intent=")) as string;
+    expect(cookie).toContain("HttpOnly");
+    expect(cookie).toContain("Secure");
+    expect(cookie).toContain("SameSite=Lax");
+    expect(cookie).toContain("Max-Age=600");
+  });
+
+  it("reduces redirect-shaped prompts to a bare hostname", async () => {
+    for (const p of ["//evil.com", "https://evil.com/x"]) {
+      const res = await createTestApp().request(
+        `/auth/login?prompt=monitor:${encodeURIComponent(p)}`,
+        {},
+        ENV,
+      );
+      expect(res.headers.get("Set-Cookie")).toContain(
+        "monitor_intent=evil.com;",
+      );
+    }
+  });
+
+  it("re-validates a tampered cookie and only redirects in-app", async () => {
+    const res = await callback("monitor_intent=//evil.com");
+    expect(res.headers.get("Location")).toBe(
+      "/dashboard/domain/add?domain=evil.com",
+    );
+    const bad = await callback("monitor_intent=%3Cb%3E.com");
+    expect(bad.headers.get("Location")).toBe("/dashboard");
+  });
+
+  it("goes to the dashboard without an intent", async () => {
+    const res = await callback("");
+    expect(res.headers.get("Location")).toBe("/dashboard");
+  });
+});

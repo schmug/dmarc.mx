@@ -2613,11 +2613,13 @@ export function renderAddDomainPage({
   error,
   usage,
   selectorsValue,
+  domainValue,
 }: {
   email: string;
   error: string | null;
   usage: WatchlistUsage;
   selectorsValue?: string;
+  domainValue?: string;
 }): string {
   const errorBlock = error
     ? `<div class="settings-section" style="border-color:var(--clr-danger, #b91c1c);color:var(--clr-danger, #b91c1c)">${esc(error)}</div>`
@@ -2638,6 +2640,7 @@ ${usageBlock}
     type="text"
     name="domain"
     placeholder="example.com"
+    value="${esc(domainValue ?? "")}"
     autofocus
     required
     autocapitalize="none"
