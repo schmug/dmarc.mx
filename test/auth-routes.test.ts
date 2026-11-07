@@ -337,6 +337,43 @@ describe("auth/routes monitor intent", () => {
     expect(res.headers.get("Location")).toBe("/dashboard");
   });
 
+  it("sets the intent cookie httpOnly, Secure, Lax and short-lived", async () => {
+    const res = await createTestApp().request(
+      "/auth/login?prompt=monitor:example.com",
+      {},
+      ENV,
+    );
+    const cookie = (res.headers.get("Set-Cookie") ?? "")
+      .split(/,(?=\s*\w+=)/)
+      .find((c) => c.includes("monitor_intent=")) as string;
+    expect(cookie).toContain("HttpOnly");
+    expect(cookie).toContain("Secure");
+    expect(cookie).toContain("SameSite=Lax");
+    expect(cookie).toContain("Max-Age=600");
+  });
+
+  it("reduces redirect-shaped prompts to a bare hostname", async () => {
+    for (const p of ["//evil.com", "https://evil.com/x"]) {
+      const res = await createTestApp().request(
+        `/auth/login?prompt=monitor:${encodeURIComponent(p)}`,
+        {},
+        ENV,
+      );
+      expect(res.headers.get("Set-Cookie")).toContain(
+        "monitor_intent=evil.com;",
+      );
+    }
+  });
+
+  it("re-validates a tampered cookie and only redirects in-app", async () => {
+    const res = await callback("monitor_intent=//evil.com");
+    expect(res.headers.get("Location")).toBe(
+      "/dashboard/domain/add?domain=evil.com",
+    );
+    const bad = await callback("monitor_intent=%3Cb%3E.com");
+    expect(bad.headers.get("Location")).toBe("/dashboard");
+  });
+
   it("goes to the dashboard without an intent", async () => {
     const res = await callback("");
     expect(res.headers.get("Location")).toBe("/dashboard");
