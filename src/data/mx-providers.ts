@@ -56,7 +56,7 @@ const MIMECAST_DESCRIPTION =
   "Mimecast is a perimeter security gateway, not a mailbox host — *.mimecast.com MX hostnames sit in front of Microsoft 365 or Google Workspace. Here's how to read them.";
 
 const PROOFPOINT_DESCRIPTION =
-  "Proofpoint runs *.pphosted.com (enterprise) and *.ppe-hosted.com (Essentials/SMB) as MX-front-ends in front of customer mailbox tenants. Here's how to identify each.";
+  'Proofpoint runs *.pphosted.com (enterprise) and *.ppe-hosted.com (Essentials) MX gateways. How to identify each, and what a "PPE Hosted Dispatch" bounce means.';
 
 const FASTMAIL_DESCRIPTION =
   "Fastmail's inbound MX hosts are in1-smtp.messagingengine.com and in2-smtp.messagingengine.com — not fastmail.com. The MessagingEngine name trips up most lookup tools.";
@@ -293,6 +293,13 @@ export const MX_PROVIDERS: readonly MxProvider[] = [
         title: "Who runs it",
         paragraphs: [
           "Proofpoint, Inc. is a US-based security vendor (now owned by Thoma Bravo since 2021). It's one of the largest commercial email security providers, particularly common in financial services, healthcare and government supply chains.",
+        ],
+      },
+      {
+        title: 'What is the "PPE Hosted Dispatch Mail System"?',
+        paragraphs: [
+          "It's the sender line on bounce messages from Proofpoint Essentials. Outbound mail from Essentials customers leaves through `dispatch-us.ppe-hosted.com` or `dispatch-eu.ppe-hosted.com`; when the recipient's server refuses a message, the dispatch system sends the bounce back to you. The bounce itself is not spam or phishing, and it doesn't mean Proofpoint blocked anything.",
+          "The line that matters is the SMTP error quoted inside it. A 550 that mentions SPF, DKIM or DMARC means the recipient rejected the message because your domain doesn't authorize Proofpoint's dispatch hosts, or your DMARC policy failed. Add the dispatch host for your stack to your SPF record, turn on DKIM signing in the Essentials console, then check the domain here to confirm all three pass. Errors about a full mailbox or an unknown user are on the recipient's side.",
         ],
       },
       {
