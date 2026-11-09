@@ -47,28 +47,28 @@ export interface MxProvider {
 }
 
 const OUTLOOK_DESCRIPTION =
-  "Microsoft 365 (formerly Office 365) routes inbound mail through *.mail.protection.outlook.com. Here's what that MX hostname is, who runs it, and which large domains use it.";
+  "*.mail.protection.outlook.com is the Microsoft 365 inbound MX. The record format, the spf.protection.outlook.com include, DKIM selectors, and a free check.";
 
 const GOOGLE_DESCRIPTION =
-  "Google Workspace receives mail at aspmx.l.google.com and four alt MX hosts. Here's what those hostnames mean, who runs them, and how to spot a Workspace tenant.";
+  "aspmx.l.google.com plus alt1–alt4 are the Google Workspace MX hosts. Their priorities, the _spf.google.com include, the DKIM selector, and a free domain check.";
 
 const MIMECAST_DESCRIPTION =
-  "Mimecast is a perimeter security gateway, not a mailbox host — *.mimecast.com MX hostnames sit in front of Microsoft 365 or Google Workspace. Here's how to read them.";
+  "A *.mimecast.com MX means Mimecast filters mail before Microsoft 365 or Google. Regional hostnames, the _netblocks SPF include, and a free domain check.";
 
 const PROOFPOINT_DESCRIPTION =
-  'Proofpoint runs *.pphosted.com (enterprise) and *.ppe-hosted.com (Essentials) MX gateways. How to identify each, and what a "PPE Hosted Dispatch" bounce means.';
+  'pphosted.com is Proofpoint\'s enterprise gateway; ppe-hosted.com is Proofpoint Essentials. What each means, what a "PPE Hosted Dispatch" bounce is, and a free check.';
 
 const FASTMAIL_DESCRIPTION =
-  "Fastmail's inbound MX hosts are in1-smtp.messagingengine.com and in2-smtp.messagingengine.com — not fastmail.com. The MessagingEngine name trips up most lookup tools.";
+  "Fastmail receives mail at in1-smtp and in2-smtp.messagingengine.com, not fastmail.com. The SPF include, the fm1–fm3 DKIM selectors, and a free domain check.";
 
 const ZOHO_DESCRIPTION =
-  "Zoho Mail's inbound MX hosts are mx.zoho.com / mx2.zoho.com (or mx.zoho.eu / mx.zoho.in for regional plans). Here's what those mean and which businesses use them.";
+  "Zoho Mail uses mx.zoho.com, mx2 and mx3 (or .eu, .in, .com.au for regional data centres). The SPF include, the DKIM selector, and a free domain check.";
 
 const SES_DESCRIPTION =
-  "Amazon SES receives mail at inbound-smtp.<region>.amazonaws.com. The region in the hostname tells you which AWS region the receiving account uses.";
+  "Amazon SES receives mail at inbound-smtp.<region>.amazonaws.com, and the region names the AWS account's region. The amazonses.com SPF include, and a free check.";
 
 const CLOUDFLARE_DESCRIPTION =
-  "Cloudflare Email Routing uses route1-3.mx.cloudflare.net as inbound MX hosts. It's a free forwarding service — useful for catch-alls, not a full mailbox.";
+  "route1–3.mx.cloudflare.net mean Cloudflare Email Routing: free forwarding, not a mailbox. How the records look, the SPF include, and a free domain check.";
 
 export const MX_PROVIDERS: readonly MxProvider[] = [
   {
@@ -87,8 +87,7 @@ export const MX_PROVIDERS: readonly MxProvider[] = [
     ],
     parentExamples: ["github.com", "microsoft.com", "linkedin.com"],
     description: OUTLOOK_DESCRIPTION,
-    headline:
-      "What is *.mail.protection.outlook.com? Microsoft 365 inbound MX explained",
+    headline: "mail.protection.outlook.com: the Microsoft 365 MX record",
     intro:
       "An MX record that ends in `mail.protection.outlook.com` means the domain receives mail through Microsoft 365 — formerly Office 365, and the same service that powers Exchange Online tenants. The slug before `mail.protection.outlook.com` is the tenant identifier, derived from the primary domain with dots replaced by dashes.",
     sections: [
@@ -151,8 +150,7 @@ export const MX_PROVIDERS: readonly MxProvider[] = [
     ],
     parentExamples: ["google.com", "stripe.com", "ycombinator.com"],
     description: GOOGLE_DESCRIPTION,
-    headline:
-      "What is aspmx.l.google.com? Google Workspace inbound MX explained",
+    headline: "aspmx.l.google.com: the Google Workspace MX records",
     intro:
       "An MX record set that lists `aspmx.l.google.com` as the primary plus four `alt[1-4].aspmx.l.google.com` hosts is Google Workspace — the business mail service formerly known as G Suite and, before that, Google Apps. Every Workspace tenant uses the same five hostnames, regardless of which domain they're for.",
     sections: [
@@ -209,8 +207,7 @@ export const MX_PROVIDERS: readonly MxProvider[] = [
     ],
     parentExamples: ["barclays.com", "publix.com"],
     description: MIMECAST_DESCRIPTION,
-    headline:
-      "What is *.mimecast.com? Mimecast secure email gateway, explained",
+    headline: "*.mimecast.com MX records: the Mimecast email gateway",
     intro:
       "Mimecast is a security gateway, not a mailbox provider. When a domain's MX points at `*.mimecast.com`, inbound mail lands at Mimecast first — Mimecast performs anti-spam, anti-phishing, sandboxing and policy enforcement, and then relays the cleaned mail to the customer's actual mailbox host (most commonly Microsoft 365 or Google Workspace).",
     sections: [
@@ -267,8 +264,7 @@ export const MX_PROVIDERS: readonly MxProvider[] = [
     ],
     parentExamples: ["uber.com", "intuit.com"],
     description: PROOFPOINT_DESCRIPTION,
-    headline:
-      "What is *.pphosted.com and *.ppe-hosted.com? Proofpoint MX explained",
+    headline: "pphosted.com and ppe-hosted.com: Proofpoint's MX hosts",
     intro:
       "Two MX hostname families both belong to Proofpoint. `*.pphosted.com` is the enterprise tier — large organisations on Proofpoint's flagship Enterprise Protection product. `*.ppe-hosted.com` is Proofpoint Essentials, the SMB tier sold through partner MSPs. Both are perimeter filtering gateways in front of the customer's real mailbox host.",
     sections: [
@@ -328,8 +324,7 @@ export const MX_PROVIDERS: readonly MxProvider[] = [
     ],
     parentExamples: ["fastmail.com", "fastmail.fm"],
     description: FASTMAIL_DESCRIPTION,
-    headline:
-      "What is in1-smtp.messagingengine.com? Fastmail inbound MX explained",
+    headline: "in1-smtp.messagingengine.com: Fastmail's MX records",
     intro:
       "Fastmail's inbound MX hosts are `in1-smtp.messagingengine.com` and `in2-smtp.messagingengine.com`. The `messagingengine.com` domain — not `fastmail.com` — is what trips up most reverse-lookup tools: `messagingengine.com` is Fastmail's infrastructure brand, used for SMTP, IMAP, and SPF includes as well.",
     sections: [
@@ -392,7 +387,7 @@ export const MX_PROVIDERS: readonly MxProvider[] = [
     ],
     parentExamples: ["zoho.com"],
     description: ZOHO_DESCRIPTION,
-    headline: "What is mx.zoho.com? Zoho Mail inbound MX explained",
+    headline: "mx.zoho.com: Zoho Mail MX records, by region",
     intro:
       "Zoho Mail is the business email service from Zoho Corporation, bundled with the broader Zoho CRM/Workplace suite. Customers point their MX records at `mx.zoho.com`, `mx2.zoho.com`, and `mx3.zoho.com` — or the regional equivalents `mx.zoho.eu`, `mx.zoho.in`, and `mx.zoho.com.au` depending on the data residency tier they chose at signup.",
     sections: [
@@ -444,8 +439,7 @@ export const MX_PROVIDERS: readonly MxProvider[] = [
     ],
     parentExamples: [],
     description: SES_DESCRIPTION,
-    headline:
-      "What is inbound-smtp.amazonaws.com? Amazon SES inbound MX explained",
+    headline: "inbound-smtp.amazonaws.com: Amazon SES receiving MX",
     intro:
       "Amazon SES (Simple Email Service) is a transactional email API. Its inbound side — receiving mail at a domain — uses MX hostnames of the form `inbound-smtp.<region>.amazonaws.com`. The region segment tells you which AWS region the receiving SES configuration lives in.",
     sections: [
@@ -496,8 +490,7 @@ export const MX_PROVIDERS: readonly MxProvider[] = [
     ],
     parentExamples: [],
     description: CLOUDFLARE_DESCRIPTION,
-    headline:
-      "What is route1.mx.cloudflare.net? Cloudflare Email Routing explained",
+    headline: "route1.mx.cloudflare.net: Cloudflare Email Routing MX",
     intro:
       "Cloudflare Email Routing is a free email-forwarding service for domains whose DNS is managed by Cloudflare. It doesn't host mailboxes — it accepts mail at `route1-3.mx.cloudflare.net` and forwards it to a destination address the domain owner specified (a Gmail account, a Fastmail account, anything that accepts SMTP).",
     sections: [

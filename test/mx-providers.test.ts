@@ -123,6 +123,14 @@ describe("MX_PROVIDERS catalog", () => {
     expect(new Set(slugs).size).toBe(slugs.length);
   });
 
+  it("keeps titles and descriptions within search-snippet length", () => {
+    for (const p of MX_PROVIDERS) {
+      expect(`${p.headline} — dmarcheck`.length).toBeLessThanOrEqual(70);
+      expect(p.description.length).toBeGreaterThanOrEqual(120);
+      expect(p.description.length).toBeLessThanOrEqual(165);
+    }
+  });
+
   it("requires every provider to have unique meta description and headline", () => {
     // Google demotes near-duplicate pages — keep this invariant tight.
     const descriptions = MX_PROVIDERS.map((p) => p.description);
