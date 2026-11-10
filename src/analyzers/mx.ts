@@ -44,7 +44,7 @@ const PROVIDER_SIGNATURES: ProviderSignature[] = [
   {
     // Formerly Area 1. Distinct from Cloudflare Email Routing
     // (*.mx.cloudflare.net), which forwards rather than filters and is
-    // deliberately not listed here.
+    // listed under Hosting below, never as a gateway.
     pattern: /\.cf-emailsecurity\.net$/,
     name: "Cloudflare Email Security",
     category: "security-gateway",
@@ -88,6 +88,13 @@ const PROVIDER_SIGNATURES: ProviderSignature[] = [
     name: "Proton Mail",
     category: "email-platform",
   },
+  {
+    // SES receiving endpoint only (inbound-smtp.<region>.amazonaws.com).
+    // Anchored at both ends: an EC2 hostname used as an MX is not SES.
+    pattern: /^inbound-smtp\.[a-z0-9-]+\.amazonaws\.com$/,
+    name: "Amazon SES (inbound)",
+    category: "email-platform",
+  },
 
   // Hosting
   {
@@ -97,6 +104,23 @@ const PROVIDER_SIGNATURES: ProviderSignature[] = [
   },
   { pattern: /\.secureserver\.net$/, name: "GoDaddy", category: "hosting" },
   { pattern: /\.ovh\.net$/, name: "OVH", category: "hosting" },
+  {
+    // Forwarding, not filtering — must never be a security gateway (see the
+    // .cf-emailsecurity.net entry above).
+    pattern: /\.mx\.cloudflare\.net$/,
+    name: "Cloudflare Email Routing",
+    category: "hosting",
+  },
+  {
+    pattern: /\.efwd\.spaceship\.net$/,
+    name: "Spaceship Email Forwarding",
+    category: "hosting",
+  },
+  {
+    pattern: /\.bigmountainmail\.com$/,
+    name: "Big Mountain Mail",
+    category: "hosting",
+  },
 ];
 
 const IPV4_LITERAL = /^(?:\d{1,3}\.){3}\d{1,3}$/;

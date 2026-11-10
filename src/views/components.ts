@@ -457,7 +457,7 @@ export function mxTable(records: MxRecord[]): string {
   for (const r of records) {
     // The analyzer's PROVIDER_SIGNATURES (used for r.provider) is intentionally
     // stricter than this view's MX catalog — the catalog covers hostnames the
-    // analyzer doesn't label (e.g. route*.mx.cloudflare.net, *.messagingengine.com).
+    // analyzer doesn't label (e.g. *.messagingengine.com).
     // Render a link whenever the catalog matches, regardless of analyzer label.
     const catalogged = lookupMxProvider(r.exchange);
     let providerCell = "";
