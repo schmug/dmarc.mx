@@ -44,7 +44,7 @@ const PROVIDER_SIGNATURES: ProviderSignature[] = [
   {
     // Formerly Area 1. Distinct from Cloudflare Email Routing
     // (*.mx.cloudflare.net), which forwards rather than filters and is
-    // deliberately not listed here.
+    // listed under Hosting below, not as a gateway.
     pattern: /\.cf-emailsecurity\.net$/,
     name: "Cloudflare Email Security",
     category: "security-gateway",
@@ -88,6 +88,14 @@ const PROVIDER_SIGNATURES: ProviderSignature[] = [
     name: "Proton Mail",
     category: "email-platform",
   },
+  {
+    // SES receiving endpoint only (inbound-smtp.<region>.amazonaws.com).
+    // ^-anchored on purpose: other *.amazonaws.com hosts (e.g. an EC2 public
+    // hostname used as an MX) are self-run servers, not SES (#966).
+    pattern: /^inbound-smtp\.[a-z0-9-]+\.amazonaws\.com$/,
+    name: "Amazon SES (inbound)",
+    category: "email-platform",
+  },
 
   // Hosting
   {
@@ -97,6 +105,29 @@ const PROVIDER_SIGNATURES: ProviderSignature[] = [
   },
   { pattern: /\.secureserver\.net$/, name: "GoDaddy", category: "hosting" },
   { pattern: /\.ovh\.net$/, name: "OVH", category: "hosting" },
+  {
+    // Forwarding bundled with Cloudflare DNS: no mailboxes, no filtering.
+    // Must stay out of security-gateway — that is .cf-emailsecurity.net above.
+    pattern: /\.mx\.cloudflare\.net$/,
+    name: "Cloudflare Email Routing",
+    category: "hosting",
+  },
+  {
+    // Registrar-bundled forwarding. Operator confirmed (spaceship.net is
+    // delegated to launch{1,2}.spaceship.com); the product name is inferred
+    // from "efwd" — Spaceship's docs do not publish this hostname (#966).
+    pattern: /\.efwd\.spaceship\.net$/,
+    name: "Spaceship Email Forwarding",
+    category: "hosting",
+  },
+  {
+    // Big Mountain Internet Solutions, LLC — hosted Kerio Connect email.
+    // mx1-4 are its SpamExperts-filtered inbound hosts, bundled with the
+    // hosting; classified by operator, not as a standalone gateway (#966).
+    pattern: /\.bigmountainmail\.com$/,
+    name: "Big Mountain Mail",
+    category: "hosting",
+  },
 ];
 
 const IPV4_LITERAL = /^(?:\d{1,3}\.){3}\d{1,3}$/;

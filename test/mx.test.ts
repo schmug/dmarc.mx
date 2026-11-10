@@ -93,13 +93,54 @@ describe("detectProviders", () => {
     }
   });
 
-  it("does not report Cloudflare Email Routing as a security gateway", () => {
+  it("detects Cloudflare Email Routing without calling it a security gateway", () => {
     // Email Routing (mx.cloudflare.net) is forwarding, not filtering — it must
     // not be confused with Cloudflare Email Security (cf-emailsecurity.net).
     const providers = detectProviders([
       { exchange: "route1.mx.cloudflare.net" },
+      { exchange: "route2.mx.cloudflare.net" },
     ]);
-    expect(providers).toEqual([]);
+    expect(providers).toEqual([
+      { name: "Cloudflare Email Routing", category: "hosting" },
+    ]);
+  });
+
+  it("detects Amazon SES inbound in any region but not other amazonaws.com hosts", () => {
+    for (const exchange of [
+      "inbound-smtp.us-east-1.amazonaws.com",
+      "inbound-smtp.eu-west-1.amazonaws.com",
+    ]) {
+      expect(detectProviders([{ exchange }]), exchange).toEqual([
+        { name: "Amazon SES (inbound)", category: "email-platform" },
+      ]);
+    }
+    // An EC2 hostname used as an MX is a self-run server, not SES.
+    for (const exchange of [
+      "ec2-1-2-3-4.compute-1.amazonaws.com",
+      "inbound-smtp.amazonaws.com",
+      "x.inbound-smtp.us-east-1.amazonaws.com",
+    ]) {
+      expect(detectProviders([{ exchange }]), exchange).toEqual([]);
+    }
+  });
+
+  it("detects Spaceship Email Forwarding from efwd.spaceship.net exchange", () => {
+    const providers = detectProviders([
+      { exchange: "mx1.efwd.spaceship.net" },
+      { exchange: "mx2.efwd.spaceship.net" },
+    ]);
+    expect(providers).toEqual([
+      { name: "Spaceship Email Forwarding", category: "hosting" },
+    ]);
+  });
+
+  it("detects Big Mountain Mail from bigmountainmail.com exchange", () => {
+    const providers = detectProviders([
+      { exchange: "mx1.bigmountainmail.com" },
+    ]);
+    expect(providers).toEqual([
+      { name: "Big Mountain Mail", category: "hosting" },
+    ]);
   });
 });
 
