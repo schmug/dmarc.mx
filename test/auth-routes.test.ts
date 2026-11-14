@@ -93,17 +93,16 @@ describe("auth/routes", () => {
       expect(body).toBe("Missing authorization code");
     });
 
-    it("returns 400 when state query param is missing", async () => {
+    it("offers a retry page when state query param is missing", async () => {
       const app = createTestApp();
       const req = new Request("http://localhost/auth/callback?code=test-code");
       req.headers.set("Cookie", "oauth_state=test-state");
       const res = await app.request(req, ENV);
       expect(res.status).toBe(400);
-      const body = await res.text();
-      expect(body).toBe("Invalid or missing state parameter");
+      expect(await res.text()).toContain('href="/auth/login"');
     });
 
-    it("returns 400 when oauth_state cookie is missing", async () => {
+    it("offers a retry page when the oauth_state cookie has expired", async () => {
       const app = createTestApp();
       const req = new Request(
         "http://localhost/auth/callback?code=test-code&state=test-state",
@@ -111,10 +110,13 @@ describe("auth/routes", () => {
       const res = await app.request(req, ENV);
       expect(res.status).toBe(400);
       const body = await res.text();
-      expect(body).toBe("Invalid or missing state parameter");
+      expect(body).toContain("Your sign-in timed out");
+      expect(body).toContain('href="/auth/login"');
+      expect(res.headers.get("Location")).toBeNull();
     });
 
-    it("returns 400 when state values do not match", async () => {
+    it("rejects mismatched state without exchanging the code", async () => {
+      const fetchSpy = vi.spyOn(globalThis, "fetch");
       const app = createTestApp();
       const req = new Request(
         "http://localhost/auth/callback?code=test-code&state=query-state",
@@ -122,8 +124,42 @@ describe("auth/routes", () => {
       req.headers.set("Cookie", "oauth_state=cookie-state");
       const res = await app.request(req, ENV);
       expect(res.status).toBe(400);
-      const body = await res.text();
-      expect(body).toBe("Invalid or missing state parameter");
+      expect(res.headers.get("Set-Cookie") ?? "").not.toContain("session=");
+      expect(fetchSpy).not.toHaveBeenCalled();
+      fetchSpy.mockRestore();
+    });
+
+    it("keeps the monitor intent in the retry link", async () => {
+      const app = createTestApp();
+      const req = new Request(
+        "http://localhost/auth/callback?code=test-code&state=test-state",
+      );
+      req.headers.set("Cookie", "monitor_intent=example.com");
+      const res = await app.request(req, ENV);
+      expect(await res.text()).toContain(
+        'href="/auth/login?next=/dashboard&amp;prompt=monitor:example.com"',
+      );
+    });
+
+    it("drops a tampered monitor intent from the retry link", async () => {
+      const app = createTestApp();
+      const req = new Request(
+        "http://localhost/auth/callback?code=test-code&state=test-state",
+      );
+      req.headers.set("Cookie", 'monitor_intent="><script>x</script>');
+      const body = await (await app.request(req, ENV)).text();
+      expect(body).not.toContain("<script>x");
+      expect(body).toContain('href="/auth/login"');
+    });
+
+    it("gives the sign-up round-trip 30 minutes", async () => {
+      const res = await createTestApp().request(
+        "/auth/login?prompt=monitor:example.com",
+        {},
+        ENV,
+      );
+      const cookies = res.headers.get("Set-Cookie") ?? "";
+      expect(cookies.match(/Max-Age=1800/g)).toHaveLength(2);
     });
   });
 
@@ -349,7 +385,7 @@ describe("auth/routes monitor intent", () => {
     expect(cookie).toContain("HttpOnly");
     expect(cookie).toContain("Secure");
     expect(cookie).toContain("SameSite=Lax");
-    expect(cookie).toContain("Max-Age=600");
+    expect(cookie).toContain("Max-Age=1800");
   });
 
   it("reduces redirect-shaped prompts to a bare hostname", async () => {
