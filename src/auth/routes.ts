@@ -1,3 +1,4 @@
+import * as Sentry from "@sentry/cloudflare";
 import { Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { createDomain } from "../db/domains.js";
@@ -9,6 +10,8 @@ import {
   workosIdFor,
 } from "../db/users.js";
 import { normalizeDomain } from "../shared/domain.js";
+import { renderSignInRetryPage } from "../views/auth.js";
+import { monitorLoginUrl } from "../views/components.js";
 import { createReauthProof } from "./reauth.js";
 import {
   clearSessionAndRedirect,
@@ -22,6 +25,10 @@ export const authRoutes = new Hono();
 // the domain across the WorkOS round-trip so the callback can land the user
 // on a prefilled add-domain form instead of dropping what they asked for.
 const MONITOR_INTENT_COOKIE = "monitor_intent";
+
+// Covers a first-time sign-up: the form, the emailed code, and a detour to
+// the inbox. The previous 10 minutes stranded slower sign-ups at the callback.
+const AUTH_FLOW_MAX_AGE = 30 * 60;
 
 function monitorIntentFrom(prompt: string | undefined): string | null {
   if (!prompt?.startsWith("monitor:")) return null;
@@ -39,7 +46,7 @@ authRoutes.get("/login", (c) => {
     secure: true,
     sameSite: "Lax",
     path: "/",
-    maxAge: 10 * 60, // 10 minutes
+    maxAge: AUTH_FLOW_MAX_AGE,
   });
   const params = new URLSearchParams({
     client_id: env.WORKOS_CLIENT_ID,
@@ -55,7 +62,7 @@ authRoutes.get("/login", (c) => {
       secure: true,
       sameSite: "Lax",
       path: "/",
-      maxAge: 10 * 60,
+      maxAge: AUTH_FLOW_MAX_AGE,
     });
     // Visitors arriving from a report are almost always new.
     params.set("screen_hint", "sign-up");
@@ -75,7 +82,19 @@ authRoutes.get("/callback", async (c) => {
   const cookieState = getCookie(c, "oauth_state");
 
   if (!queryState || !cookieState || queryState !== cookieState) {
-    return c.text("Invalid or missing state parameter", 400);
+    Sentry.captureMessage("auth callback state check failed", {
+      level: "warning",
+      tags: {
+        reason: !cookieState
+          ? "cookie_missing"
+          : !queryState
+            ? "query_missing"
+            : "mismatch",
+      },
+    });
+    const intent = normalizeDomain(getCookie(c, MONITOR_INTENT_COOKIE) ?? "");
+    const retryUrl = intent ? monitorLoginUrl(intent) : "/auth/login";
+    return c.html(renderSignInRetryPage(retryUrl), 400);
   }
 
   // Clear the state cookie after successful validation
