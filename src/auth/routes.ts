@@ -127,9 +127,10 @@ authRoutes.get("/callback", async (c) => {
   }
 
   const data = (await tokenRes.json()) as {
-    user: { id: string; email: string };
+    user: { id: string; email: string; email_verified?: boolean };
   };
   const { id, email } = data.user;
+  const emailVerified = data.user.email_verified === true;
 
   // Step-up re-auth branch for account deletion (issue #550). The state was
   // minted as `delete:<nonce>` by POST /dashboard/account/delete/reauth and has
@@ -151,8 +152,23 @@ authRoutes.get("/callback", async (c) => {
     const expectedWorkosId = sessionUser
       ? workosIdFor(sessionUser)
       : sessionPayload?.sub;
-    if (!sessionPayload || expectedWorkosId !== id) {
+    // A user still signed in from before a WorkOS cutover re-authenticates
+    // with a new id; accept it only for the same, verified email.
+    const movedEnvironment =
+      sessionUser !== null &&
+      emailVerified &&
+      sessionUser.email.toLowerCase() === email.toLowerCase();
+    if (!sessionPayload || (expectedWorkosId !== id && !movedEnvironment)) {
       return c.redirect("/dashboard/settings");
+    }
+    if (sessionUser && expectedWorkosId !== id) {
+      try {
+        await setWorkosUserId(env.DB, sessionUser.id, id);
+      } catch (err) {
+        // Without the new id, deletion would miss this WorkOS identity.
+        console.warn("workos_user_id update failed", err);
+        return c.redirect("/dashboard/settings");
+      }
     }
     const proof = await createReauthProof(
       sessionPayload.sub,
@@ -187,6 +203,13 @@ authRoutes.get("/callback", async (c) => {
     if (!user) {
       return c.text("Account creation failed", 500);
     }
+  }
+
+  // A different WorkOS identity claiming an existing account's email (e.g.
+  // after a WorkOS environment cutover) is linked only once WorkOS has
+  // verified the address; otherwise anyone could register it and take over.
+  if (workosIdFor(user) !== id && !emailVerified) {
+    return c.text("Please verify your email address, then sign in again.", 403);
   }
 
   // Keep the stored WorkOS id current (cutover to a new WorkOS environment).

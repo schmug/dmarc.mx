@@ -220,19 +220,25 @@ describe("auth/routes delete re-auth with migrated WorkOS id (#913)", () => {
     email: string;
     workos_user_id: string | null;
   }) {
-    const prepare = () => ({
-      bind: () => ({
+    const prepare = (sql: string) => ({
+      bind: (...args: unknown[]) => ({
         first: async () => user,
-        run: async () => ({ success: true, meta: { changes: 1 } }),
+        run: async () => {
+          writes.push({ sql, args });
+          return { success: true, meta: { changes: 1 } };
+        },
       }),
     });
     return { prepare } as unknown as D1Database;
   }
+  let writes: { sql: string; args: unknown[] }[] = [];
 
   async function reauth(
     user: { id: string; email: string; workos_user_id: string | null },
     freshWorkosId: string,
+    fresh: { email?: string; email_verified?: boolean } = {},
   ) {
+    writes = [];
     const { createSessionToken } = await import("../src/auth/session.js");
     const session = await createSessionToken(
       { sub: user.id, email: user.email },
@@ -243,7 +249,13 @@ describe("auth/routes delete re-auth with migrated WorkOS id (#913)", () => {
       vi.fn(
         async () =>
           new Response(
-            JSON.stringify({ user: { id: freshWorkosId, email: user.email } }),
+            JSON.stringify({
+              user: {
+                id: freshWorkosId,
+                email: fresh.email ?? user.email,
+                email_verified: fresh.email_verified ?? false,
+              },
+            }),
           ),
       ),
     );
@@ -293,6 +305,35 @@ describe("auth/routes delete re-auth with migrated WorkOS id (#913)", () => {
     );
     expect(res.headers.get("Location")).toBe("/dashboard/settings");
     expect(res.headers.get("Set-Cookie") ?? "").not.toContain("delete_proof=");
+  });
+
+  it("moves a verified same-email identity to the new environment", async () => {
+    const res = await reauth(
+      { id: "user_staging", email: "a@example.com", workos_user_id: null },
+      "user_prod",
+      { email: "A@Example.com", email_verified: true },
+    );
+    expect(res.headers.get("Location")).toBe("/dashboard/account/delete");
+    expect(writes.some((w) => w.args.includes("user_prod"))).toBe(true);
+  });
+
+  it("refuses a new identity for the same email when unverified", async () => {
+    const res = await reauth(
+      { id: "user_staging", email: "a@example.com", workos_user_id: null },
+      "user_prod",
+      { email_verified: false },
+    );
+    expect(res.headers.get("Location")).toBe("/dashboard/settings");
+    expect(writes).toHaveLength(0);
+  });
+
+  it("refuses a verified identity with a different email", async () => {
+    const res = await reauth(
+      { id: "user_staging", email: "a@example.com", workos_user_id: null },
+      "user_prod",
+      { email: "b@example.com", email_verified: true },
+    );
+    expect(res.headers.get("Location")).toBe("/dashboard/settings");
   });
 
   it("refuses the stale staging id once workos_user_id is set", async () => {
@@ -413,5 +454,66 @@ describe("auth/routes monitor intent", () => {
   it("goes to the dashboard without an intent", async () => {
     const res = await callback("");
     expect(res.headers.get("Location")).toBe("/dashboard");
+  });
+});
+
+describe("auth/routes callback links an existing account by email", () => {
+  async function login(
+    stored: { id: string; workos_user_id: string | null },
+    fresh: { id: string; email_verified: boolean },
+  ) {
+    const user = { ...stored, email: "a@example.com" };
+    const db = {
+      prepare: () => ({
+        bind: () => ({
+          first: async () => user,
+          run: async () => ({ success: true, meta: { changes: 1 } }),
+        }),
+      }),
+    } as unknown as D1Database;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({ user: { ...fresh, email: "a@example.com" } }),
+          ),
+      ),
+    );
+    const req = new Request("http://localhost/auth/callback?code=c&state=s", {
+      headers: { Cookie: "oauth_state=s" },
+    });
+    const res = await createTestApp().request(req, undefined, {
+      ...ENV,
+      WORKOS_CLIENT_SECRET: "x",
+      DB: db,
+    });
+    vi.unstubAllGlobals();
+    return res;
+  }
+
+  it("signs in the known identity even if WorkOS reports it unverified", async () => {
+    const res = await login(
+      { id: "user_1", workos_user_id: null },
+      { id: "user_1", email_verified: false },
+    );
+    expect(res.headers.get("Set-Cookie")).toContain("session=");
+  });
+
+  it("refuses to link an unverified new identity to an existing account", async () => {
+    const res = await login(
+      { id: "user_staging", workos_user_id: null },
+      { id: "user_prod", email_verified: false },
+    );
+    expect(res.status).toBe(403);
+    expect(res.headers.get("Set-Cookie") ?? "").not.toContain("session=");
+  });
+
+  it("links a verified new identity to the existing account", async () => {
+    const res = await login(
+      { id: "user_staging", workos_user_id: null },
+      { id: "user_prod", email_verified: true },
+    );
+    expect(res.headers.get("Set-Cookie")).toContain("session=");
   });
 });
